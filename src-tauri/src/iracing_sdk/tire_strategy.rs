@@ -305,7 +305,7 @@ fn infer_car_strategy_thr(
     let wrong_tire = ctx.wet_at_finish && current == Compound::Dry
         || (!ctx.ever_wet && current == Compound::Wet);
 
-    let summary = build_summary(&stints, tire_changes, wrong_tire);
+    let summary = build_summary(&stints, tire_changes, wrong_tire, stops.is_empty());
 
     CarTireStrategy {
         car_idx,
@@ -323,12 +323,37 @@ fn infer_car_strategy_thr(
 /// Reconstrói a estratégia de TODOS os carros. Agrupa as paradas por carro (mantendo
 /// a ordem de volta esperada) e infere cada um. Usa o limiar RELATIVO calculado do
 /// pelotão inteiro (modo gap) — mais robusto que o absoluto.
+///
+/// ATENÇÃO ao universo: aqui ele sai das PARADAS, então quem nunca parou não entra.
+/// Para a tela de estratégia, que precisa do grid inteiro, use
+/// [`infer_all_do_grid`] passando os `car_idx` de todos os competidores.
 pub fn infer_all(stops: &[PitStop], ctx: RaceWeatherContext) -> Vec<CarTireStrategy> {
+    infer_all_do_grid(stops, ctx, &[])
+}
+
+/// Reconstrói a estratégia de todo o GRID, e não só de quem passou pelo box.
+///
+/// `car_idxs` é a lista de competidores da corrida (resolvida fora, do histórico da
+/// sessão). Quem não tem nenhuma parada ganha a mesma estratégia dos outros, com um
+/// stint só do começo ao fim e zero trocas: **não parar é estratégia** e precisa ser
+/// representada igual às demais.
+///
+/// O universo final é a UNIÃO de `car_idxs` com os carros que aparecem em `stops`, de
+/// modo que um carro que parou nunca some por estar fora da lista informada.
+pub fn infer_all_do_grid(
+    stops: &[PitStop],
+    ctx: RaceWeatherContext,
+    car_idxs: &[i32],
+) -> Vec<CarTireStrategy> {
     // Limiar do pelotão: olha TODAS as paradas pra achar o vão do bloco de pneus.
     let dwells: Vec<f64> = stops.iter().map(|s| s.stationary_secs).collect();
     let threshold = relative_threshold(&dwells);
 
-    let mut idxs: Vec<i32> = stops.iter().map(|s| s.car_idx).collect();
+    let mut idxs: Vec<i32> = stops
+        .iter()
+        .map(|s| s.car_idx)
+        .chain(car_idxs.iter().copied())
+        .collect();
     idxs.sort_unstable();
     idxs.dedup();
     idxs.into_iter()
@@ -342,11 +367,31 @@ pub fn infer_all(stops: &[PitStop], ctx: RaceWeatherContext) -> Vec<CarTireStrat
 }
 
 /// Frase curta em PT descrevendo a estratégia (para a UI pós-corrida).
-fn build_summary(stints: &[TireStint], tire_changes: i32, wrong_tire: bool) -> String {
+///
+/// `sem_paradas` separa dois casos que o `tire_changes = 0` sozinho embaralha: quem
+/// nunca entrou no box e quem entrou só pra abastecer. A estratégia de ZERO paradas
+/// é dita com todas as letras.
+fn build_summary(
+    stints: &[TireStint],
+    tire_changes: i32,
+    wrong_tire: bool,
+    sem_paradas: bool,
+) -> String {
     let start = stints
         .first()
         .map(|s| s.compound)
         .unwrap_or(Compound::Unknown);
+    if sem_paradas {
+        let base = format!(
+            "Não parou · largou e terminou de {} · corrida inteira sem trocar pneus",
+            start.label()
+        );
+        return if wrong_tire {
+            format!("{base} — ficou no pneu errado")
+        } else {
+            base
+        };
+    }
     let base = match tire_changes {
         0 => format!("Largou de {} e não trocou pneus", start.label()),
         1 => {
@@ -566,6 +611,49 @@ mod tests {
         assert!(s.stops[1].tire_change, "35s = trocou pneu");
         // O tracking inclui a só-combustível, que NÃO cria stint novo.
         assert_eq!(s.tire_changes, 1);
+    }
+
+    #[test]
+    fn grid_inteiro_inclui_quem_nunca_parou() {
+        // O bug: o universo saía das PARADAS, então o carro 2 (que rodou a corrida
+        // toda sem entrar no box) não existia na estratégia. Com o grid informado
+        // ele aparece, com zero paradas e um stint só.
+        let ctx = RaceWeatherContext::DRY;
+        let stops = [stop(1, 10, 22.0, false), stop(3, 12, 22.0, false)];
+        let all = infer_all_do_grid(&stops, ctx, &[1, 2, 3, 4]);
+        assert_eq!(all.len(), 4, "todos os competidores entram");
+
+        let sem_parar = all.iter().find(|s| s.car_idx == 2).unwrap();
+        assert_eq!(sem_parar.tire_changes, 0);
+        assert!(sem_parar.stops.is_empty(), "zero paradas");
+        assert_eq!(sem_parar.stints.len(), 1, "um stint do começo ao fim");
+        assert_eq!(sem_parar.start_compound, Compound::Dry);
+        assert_eq!(
+            sem_parar.stints[0].compound, sem_parar.start_compound,
+            "largou e terminou no mesmo composto"
+        );
+        assert!(sem_parar.summary.contains("Não parou"));
+    }
+
+    #[test]
+    fn grid_nao_apaga_carro_que_parou_fora_da_lista() {
+        // União: um carro com parada continua na saída mesmo ausente do grid informado.
+        let all = infer_all_do_grid(&[stop(9, 5, 22.0, false)], RaceWeatherContext::DRY, &[1]);
+        assert_eq!(all.len(), 2);
+        assert!(all.iter().any(|s| s.car_idx == 9));
+        assert!(all.iter().any(|s| s.car_idx == 1));
+    }
+
+    #[test]
+    fn summary_separa_nao_parou_de_so_abasteceu() {
+        let ctx = RaceWeatherContext::DRY;
+        let nunca_parou = infer_car_strategy(1, &[], ctx);
+        assert!(nunca_parou.summary.contains("Não parou"));
+        assert!(nunca_parou.summary.contains("sem trocar pneus"));
+        // Parou pra abastecer: também tem 0 trocas, e NÃO pode ser dito como zero paradas.
+        let so_abasteceu = infer_car_strategy(1, &[stop(1, 10, 6.0, false)], ctx);
+        assert_eq!(so_abasteceu.tire_changes, 0);
+        assert!(!so_abasteceu.summary.contains("Não parou"));
     }
 
     #[test]

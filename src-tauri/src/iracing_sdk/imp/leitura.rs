@@ -320,8 +320,12 @@ unsafe fn extract_telemetry(base: *const u8) -> Result<IracingTelemetry, Iracing
             "PitchRate" => t.pitch_rate = value,
             "PlayerCarTowTime" => t.tow_time = value,
             "IsReplayPlaying" => t.is_replay_playing = value != 0.0,
-            "PitRepairNeeded" => t.pit_repair_needed = value,
-            "PitOptRepairNeeded" => t.pit_opt_repair_needed = value,
+            // Os canais de dano chamam-se `…Left` no SDK (tempo de reparo que FALTA). Os
+            // nomes `PitRepairNeeded`/`PitOptRepairNeeded`, que estavam aqui, não existem no
+            // inventário de variáveis: nunca casavam, e o dano do carro lia zero para sempre
+            // — inclusive com o meatball na tela.
+            "PitRepairLeft" => t.pit_repair_needed = value,
+            "PitOptRepairLeft" => t.pit_opt_repair_needed = value,
             "IsOnTrackCar" => t.is_on_track_car = value != 0.0,
             "TrackWetness" => t.track_wetness = value as i32,
             "AirTemp" => t.air_temp = value,

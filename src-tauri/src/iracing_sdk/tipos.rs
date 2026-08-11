@@ -129,9 +129,9 @@ pub struct IracingTelemetry {
     pub pitch_rate: f64,
     /// Tempo de reboque acionado em segundos (`PlayerCarTowTime`).
     pub tow_time: f64,
-    /// Tempo de reparo obrigatório no pit em segundos (`PitRepairNeeded`).
+    /// Tempo de reparo obrigatório no pit em segundos (`PitRepairLeft`).
     pub pit_repair_needed: f64,
-    /// Tempo de reparo OPCIONAL no pit em segundos (`PitOptRepairNeeded`) —
+    /// Tempo de reparo OPCIONAL no pit em segundos (`PitOptRepairLeft`) —
     /// reflete melhor o estrago total do carro após uma batida.
     pub pit_opt_repair_needed: f64,
     /// Se o carro do jogador ainda está ativo no mundo (`IsOnTrackCar`).

@@ -60,7 +60,7 @@ centenas de outros que não lemos.
 | **Posição do carro** | posição na sessão, superfície (−1 fora do mundo, 0 fora da pista, 1 no box, 2 chegando, 3 na pista), na garagem, no pit road |
 | **Física de impacto** | aceleração lateral / longitudinal / **vertical**, taxa de guinada, rolagem, arfagem |
 | **Disciplina** | `session_flags` (bitfield), pontos de incidente (jogador / piloto / equipe), tempo de reboque |
-| **Dano** | segundos de reparo **obrigatório** e **opcional** |
+| **Dano** | segundos de reparo **obrigatório** e **opcional** — mas **só durante o serviço na caixa**: medido (2026-08-10), um carro destruído rodando/rebocado/no grid lê 0.0 nos dois canais, com meatball na tela. Não servem para detectar dano ao vivo; a severidade da batida (G + velocidade perdida) é quem mede isso |
 | **Combustível** | litros no tanque |
 | **Clima** | `TrackWetness` (0–7), precipitação **agora**, declarada molhada, temperatura do ar / da pista / medida pela equipe, umidade relativa, vento (velocidade e direção), céu, neblina |
 | **Vizinhança** | `CarLeftRight` (0 Off, 1 Livre, 2 Esq, 3 Dir, 4 três largos, 5 duas esq, 6 duas dir) |

@@ -409,10 +409,12 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
         >
           {t("telemetryCockpit.pitStrategy")}
         </SectionTitle>
-        {anyPits ? (
+        {/* Gate pela EXISTÊNCIA de estratégia, não pela existência de parada: uma
+            corrida em que ninguém parou ainda tem estratégia (a de zero paradas). */}
+        {tireStrategies.length > 0 ? (
           <PitStrategy strategies={tireStrategies} raceLaps={raceLaps} colorFor={colorFor} nameByIdx={nameByIdx} />
         ) : (
-          <EmptyMini>{t("telemetryCockpit.noPits")}</EmptyMini>
+          <EmptyMini>{t("telemetryCockpit.noStrategyData")}</EmptyMini>
         )}
       </Panel>
 
@@ -522,14 +524,16 @@ function EmptyMini({ children }) {
 function PitStrategy({ strategies, raceLaps, colorFor, nameByIdx }) {
   const { t } = useTranslation();
   const compLabel = (c) => t(`telemetryCockpit.compound.${COMPOUND[c] ? c : "Unknown"}`);
-  // Mostra carros com paradas primeiro (jogador no topo), depois os sem parada.
+  // TODOS os competidores entram, inclusive os de zero paradas — não parar também é
+  // estratégia. Ordena os que pararam primeiro, os sem parada depois, cada bloco por
+  // nome (ordem estável, o jogador se identifica pela cor).
   const rows = useMemo(() => {
-    const withPits = strategies.filter((s) => (s.stops?.length ?? 0) > 0);
-    withPits.sort((a, b) => {
-      const ap = a.car_idx; // jogador identificado por cor; ordena por nome estável
-      return (nameByIdx[ap] || "").localeCompare(nameByIdx[b.car_idx] || "");
-    });
-    return withPits;
+    const nomeDe = (s) => s.pilot_name || nameByIdx[s.car_idx] || "";
+    const porNome = (a, b) => nomeDe(a).localeCompare(nomeDe(b));
+    const paradas = (s) => s.stops?.length ?? 0;
+    const comParada = strategies.filter((s) => paradas(s) > 0).sort(porNome);
+    const semParada = strategies.filter((s) => paradas(s) === 0).sort(porNome);
+    return [...comParada, ...semParada];
   }, [strategies, nameByIdx]);
 
   const maxLap = useMemo(() => {
@@ -550,6 +554,8 @@ function PitStrategy({ strategies, raceLaps, colorFor, nameByIdx }) {
       {rows.map((s) => {
         const stints = [...(s.stints || [])].sort((a, b) => a.from_lap - b.from_lap);
         const stops = [...(s.stops || [])].sort((a, b) => a.lap - b.lap);
+        // Zero paradas: barra única, do começo ao fim, no composto da largada.
+        const semParadas = stops.length === 0;
         // Composto vigente numa volta (do último stint começado até ela).
         const compoundAt = (lap) => {
           let c = stints[0]?.compound ?? s.start_compound ?? "Unknown";
@@ -622,14 +628,23 @@ function PitStrategy({ strategies, raceLaps, colorFor, nameByIdx }) {
                   return (
                     <Tooltip
                       key={i}
-                      texto={t("telemetryCockpit.segment", { n: i + 1, compound: compLabel(seg.compound), range: `${seg.start}${seg.end <= maxLap ? `–${seg.end - 1}` : "+"}` })}
+                      texto={semParadas
+                        ? t("telemetryCockpit.noStopSegment", { compound: compLabel(seg.compound) })
+                        : t("telemetryCockpit.segment", { n: i + 1, compound: compLabel(seg.compound), range: `${seg.start}${seg.end <= maxLap ? `–${seg.end - 1}` : "+"}` })}
                     >
                       <div
                         className="absolute top-0 bottom-0 flex items-center justify-center"
                         style={{ left: `${left}%`, width: `${width}%`, background: comp.color, opacity: 0.85 }}
                       >
-                        {width > 4 && (
-                          <span style={{ color: "#0c1117", fontFamily: MONO }} className="text-[12px] font-bold">{i + 1}</span>
+                        {/* Sem parada: a barra inteira diz o que aconteceu, em vez do nº do trecho. */}
+                        {semParadas ? (
+                          <span style={{ color: "#0c1117", fontFamily: MONO }} className="text-[11px] font-bold truncate px-2">
+                            {t("telemetryCockpit.noStopBar", { compound: compLabel(seg.compound) })}
+                          </span>
+                        ) : (
+                          width > 4 && (
+                            <span style={{ color: "#0c1117", fontFamily: MONO }} className="text-[12px] font-bold">{i + 1}</span>
+                          )
                         )}
                       </div>
                     </Tooltip>
@@ -661,7 +676,11 @@ function PitStrategy({ strategies, raceLaps, colorFor, nameByIdx }) {
             <div className="w-16 shrink-0 flex flex-col">
               <div className="h-[28px]" />
               <div className="h-7 flex items-center justify-end">
-                <span style={{ color: "#8b949e", fontFamily: MONO }} className="text-[11px]">{t("telemetryCockpit.pits", { count: s.stops?.length ?? 0 })}</span>
+                <span style={{ color: semParadas ? "#6e7681" : "#8b949e", fontFamily: MONO }} className="text-[11px]">
+                  {semParadas
+                    ? t("telemetryCockpit.noStopCount")
+                    : t("telemetryCockpit.pits", { count: stops.length })}
+                </span>
               </div>
             </div>
           </div>

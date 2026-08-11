@@ -42,8 +42,22 @@ pub fn analyze(
 
     // Estratégia de pneu (todos os carros) a partir das paradas + clima da corrida.
     // Resolve os nomes dos pilotos aqui (o módulo puro só conhece o car_idx).
-    let mut tire_strategies =
-        crate::iracing_sdk::tire_strategy::infer_all(&history.pit_stops, history.weather);
+    //
+    // O universo é o GRID INTEIRO, tirado do `cars_meta` (acumulado por idx ao longo
+    // da corrida, sem o pace car), e não a lista de quem passou pelo box. Quem correu
+    // de ponta a ponta sem parar tem estratégia de zero paradas, e ela aparece na tela
+    // junto com as outras.
+    let grid_idxs: Vec<i32> = history
+        .cars_meta
+        .iter()
+        .filter(|m| !m.is_pace)
+        .map(|m| m.idx)
+        .collect();
+    let mut tire_strategies = crate::iracing_sdk::tire_strategy::infer_all_do_grid(
+        &history.pit_stops,
+        history.weather,
+        &grid_idxs,
+    );
     for s in &mut tire_strategies {
         s.pilot_name = name_by_idx
             .get(&s.car_idx)
