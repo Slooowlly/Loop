@@ -2,10 +2,11 @@
 
 O que falta, como falta e por que falta. Levantado em 2026-07-27 lendo o código:
 a lista de `generate_handler!` do [lib.rs](../src-tauri/src/lib.rs), os consumidores
-de cada comando no frontend, e as telas realmente montadas.
+de cada comando no frontend, e as telas realmente montadas. Reconferido em 11/08/2026.
 
-Complementa o [backlog.md](backlog.md) — lá está a lista priorizada com ids; aqui
-está o raciocínio. Onde os dois divergirem, este documento é o mais recente.
+Complementa o [backlog.md](backlog.md): lá está a lista priorizada com ids, aqui está
+o raciocínio. Onde os dois divergirem, vale o que estiver conferido com data mais
+recente, e a divergência é corrigida no mesmo dia em que aparecer.
 
 ---
 
@@ -53,22 +54,21 @@ comando Tauri, não a partir do nome do arquivo.
 
 ## Os buracos reais
 
-### 1. Backup e restauração — o único buraco de verdade completo
+### 1. ~~Backup e restauração~~ ✅ resolvido, conferido em 11/08/2026
 
-**O que falta:** qualquer interface. Nenhuma.
+**Estava errado neste documento até 11/08/2026.** A seção dizia que faltava "qualquer
+interface. Nenhuma", e que os três comandos estavam registrados sem nenhum chamador no
+frontend. A conclusão veio de um grep que não pegou o consumidor real.
 
-**Como falta:** `create_season_backup`, `list_backups` e `restore_backup` estão
-registrados no `lib.rs` e **nenhum dos três é chamado por uma linha sequer do frontend**.
-Confirmado com grep em todo o `src/`. O `LoadSave.jsx` não menciona backup.
+O que existe: `src/components/ui/BackupsModal.jsx` consome `list_backups`,
+`create_season_backup` e `restore_backup`, e é aberto por `src/pages/LoadSave.jsx`.
+O fechamento está registrado em [divida-tecnica.md](divida-tecnica.md) e o item F-06
+já saiu do [backlog.md](backlog.md).
 
-**Por que falta:** backup não é um evento da temporada. Não há momento no jogo que
-peça "agora mostre os backups" — e como o app cresceu por eventos, nada o puxou para
-a tela. O backend foi escrito por precaução e ficou órfão.
-
-**Por que é o primeiro da fila:** é o único item cuja ausência pode **destruir trabalho
-do jogador**. Uma carreira de muitas temporadas vive num SQLite que já tem rotina de
-backup pronta e inalcançável. O custo é um painel de lista + dois botões, provavelmente
-no `LoadSave` ou no `Settings`. É a maior razão-benefício do roadmap inteiro.
+**A lição de método:** este documento e o backlog ficaram três dias com verdades
+diferentes sobre o mesmo item, porque a seção foi atualizada em um arquivo só. Ao
+fechar um item, corrija os três lugares no mesmo commit: aqui, no backlog e na dívida
+técnica.
 
 ---
 
@@ -157,7 +157,8 @@ como leitura própria.
 sem ter um momento próprio. Sente-se o efeito sem ver a causa.
 
 **Por que é médio e não alto:** o jogador não sente falta do que não sabe que existe.
-Vale depois de 1–4, e sobe de prioridade se a economia começar a parecer arbitrária.
+Vale depois dos quatro primeiros da ordem sugerida, e sobe de prioridade se a economia
+começar a parecer arbitrária ao jogador.
 
 ---
 
@@ -194,7 +195,7 @@ categoria vizinha", isso é um filtro de categoria no `StandingsTab`, não uma a
 
 ### 8. Integração com iRacing — ✅ decidido em 2026-07-27
 
-Análise completa em [iracing-escopo.md](iracing-escopo.md); resumo em `DESIGN.md` §23.1.
+Análise completa em [iracing-escopo.md](iracing-escopo.md); resumo em [DESIGN.md](DESIGN.md) §19.
 
 **A decisão:** o Loop é uma **ferramenta de iRacing com uma carreira simulada dentro**.
 Correr de verdade é o caminho principal.
@@ -206,29 +207,55 @@ deletado, mas a exportação **mudou de casa** para `iracing_sdk/roster_gen.rs` 
 corre → importa o resultado oficial + os sinais do monitor ao vivo. São 49 comandos (não
 ~15) e 16.910 linhas.
 
-**O que sobrou de trabalho real:** 16 dos 49 comandos são inalcançáveis pelo jogador — 9
-sem consumidor e 7 presos em `RosterGenPanel` e `PostRacePanel` (1.420 linhas), dois
-componentes que não são importados em lugar nenhum. O item mais caro:
-`iracing_process_race_result` é a **dificuldade adaptativa, implementada e nunca
-executada**, porque só o painel desligado a chamava. Backlog derivado na §6 do
-`iracing-escopo.md`.
+**O que sobrou de trabalho real** (reconferido em 11/08/2026, com duas correções):
+
+Os dois painéis continuam órfãos: `RosterGenPanel` (726 linhas) e `PostRacePanel` (696)
+não são importados por nenhum arquivo de `src/`. Segue valendo a decisão pendente — ligar
+ou apagar.
+
+**Correção 1: a exportação não depende deles.** O ciclo que o jogador percorre hoje passa
+por `src/components/race/nextrace/useIracingExport.js`, que chama os mesmos
+`iracing_generate_roster` e `iracing_generate_season`. Os painéis são a bancada anterior,
+com controles de diagnóstico que a tela do jogador não tem. O que está preso neles é o
+diagnóstico, e não o caminho principal.
+
+**Correção 2: a dificuldade adaptativa RODA.** A leitura de que
+`iracing_process_race_result` estaria "implementada e nunca executada" ficou velha: hoje ela
+é chamada de dentro do próprio Rust, em `commands/iracing/importacao.rs:127`, amarrada à
+corrida entrar na carreira. O que não tem consumidor é o COMANDO registrado, e não a lógica
+— o painel desligado deixou de ser o único caminho. (O próprio `PostRacePanel` documenta a
+escolha em comentário: processar ali duplicaria o ajuste.)
+
+O inventário completo dos 22 comandos sem consumidor, com a natureza de cada um, está em
+D-05 no [backlog.md](backlog.md) e congelado no guard
+[`invoke-contra-generate-handler`](../scripts/tests/invoke-contra-generate-handler.test.mjs).
+Backlog derivado na §6 do `iracing-escopo.md`.
 
 ---
 
 ## Dívida técnica — o que muda o custo do resto
 
-Detalhe por item em [backlog.md](backlog.md) (D-01 a D-09). O que importa para o roadmap:
+Detalhe por item em [backlog.md](backlog.md) (D-01 a D-10). O que importa para o roadmap:
 
-**Bloqueia trabalho novo:** os cinco briefings de acoplamento do lado Rust
-([varredura-acoplamento/](varredura-acoplamento/), item D-09). Dois deles tocam
-diretamente áreas do roadmap: **R4** (`hierarchy/` com estado rico e sem consumidor)
-e **R1/R2** (`narrative/` cego e três motores de tese concorrendo). Mexer em narrativa
-ou hierarquia antes de resolvê-los é construir sobre fundação em disputa.
-**R1 e R2 tocam os mesmos arquivos — não rodar em paralelo.**
+**Deixou de bloquear em 11/08/2026:** os cinco briefings de acoplamento do lado Rust
+([varredura-acoplamento/](varredura-acoplamento/), item D-09) foram reconferidos contra o
+código atual e a dívida técnica deles fechou. Narrativa e hierarquia não são mais fundação
+em disputa: **R3 e R5 resolvidos**, **R2 resolvido no Rust** (campo de mérito único em
+`commands/race/merito.rs` e camada de sinais em `race_signals.rs`), **R1 e R4 com a parte
+técnica corrigida** — código morto fora, `allow(dead_code)` fora, comentários falsos
+apontando para quem realmente escreve.
 
-**Não bloqueia nada, só incomoda:** convocação legada (D-01), tabela `races` legada
-(D-02), stores stub (D-03), `useTauri.js` morto (D-04). Fazem barulho em qualquer
-varredura futura e escondem sinal.
+O que sobrou dos cinco **não é dívida técnica e não bloqueia**: promover forma, lesão-arco e
+marcos a beat do boletim (R1) e dar consequência nova à hierarquia interna (R4) são decisões
+de design que valem discutir junto do produto; o eixo de tensão que não anda é calibração.
+Um achado novo virou item próprio, **D-10** (`planned_events` write-only no plano de
+pré-temporada), separado por tocar formato de save.
+
+**Não bloqueia nada, só incomoda:** convocação legada (D-01) e tabela `races` legada
+(D-02). Fazem barulho em qualquer varredura futura e escondem sinal.
+
+**Fechados em 11/08/2026:** stores stub (D-03), `useTauri.js` morto (D-04) e a dívida
+técnica do D-09. O registro está em [divida-tecnica.md](divida-tecnica.md).
 
 **Cuidado com os briefings:** o README da varredura avisa que o método (grep excluindo
 o próprio módulo) **gera falsos positivos** — re-export consumido por um irmão aparece
@@ -241,16 +268,17 @@ episódio do `MarketTab` neste documento é exatamente esse erro em outra forma.
 
 | # | o quê | por que agora |
 |---|---|---|
-| 1 | **Backup/restauração** (F-06) | Único item que protege dados do jogador. Backend pronto, custo de um painel. Fazer antes de qualquer coisa que gere saves longos. |
-| 2 | **Aba de História** (F-03 + F-04 + F-05) | Maior ganho de produto por linha escrita. Três itens do backlog numa tela só, todos comendo da mesma `race_history`. Devolve consequência ao mundo simulado. |
-| 3 | **Ficha do piloto** (F-02) | Transforma o app em jogo com protagonista. Depende de decidir o que é "meu piloto" vs. "um piloto". |
-| 4 | **Mercado em temporada** (F-01 revisado) | Extensão do que já funciona, não construção nova. Inclui conduzir `advance_transfer_window`. |
-| 5 | **R4 / R1 / R2** (D-09) | Antes de encostar em narrativa ou hierarquia. R1 e R2 nunca em paralelo. |
-| 6 | **Espectadores** (F-07) | Depois que houver telas onde a informação caiba. |
-| 7 | ~~**Decidir o escopo do iRacing** (F-10)~~ ✅ 2026-07-27 | Decidido: ferramenta de iRacing com carreira dentro. Ver [iracing-escopo.md](iracing-escopo.md) §6 para o backlog derivado — o primeiro item é ligar a dificuldade adaptativa. |
+| 1 | **Aba de História** (F-03 + F-04 + F-05) | Maior ganho de produto por linha escrita. Três itens do backlog numa tela só, todos comendo da mesma `race_history`. Devolve consequência ao mundo simulado. |
+| 2 | **Ficha do piloto** (F-02) | Transforma o app em jogo com protagonista. Depende de decidir o que é "meu piloto" contra "um piloto". |
+| 3 | **Mercado em temporada** (F-01 revisado) | Extensão do que já funciona, sem construção nova. Inclui conduzir `advance_transfer_window`. |
+| 4 | **Etapa B do boletim + consequência da hierarquia** (o que sobrou do D-09) | Deixou de ser dívida e virou design: quais beats de carreira entram no boletim com que peso, e o que a briga interna N1/N2 passa a causar. Discutir junto do produto, não como refactor. |
+| 5 | **Espectadores** (F-07) | Depois que houver telas onde a informação caiba. |
+| — | ~~**Backup/restauração** (F-06)~~ ✅ 11/08/2026 | Já existe: `BackupsModal.jsx` aberto pelo `LoadSave.jsx`. Ver §1. |
+| — | ~~**Decidir o escopo do iRacing** (F-10)~~ ✅ 27/07/2026 | Decidido: ferramenta de iRacing com carreira dentro. Ver [iracing-escopo.md](iracing-escopo.md) §6 para o backlog derivado. |
 
 **Fora da fila:** F-08 (outras categorias) até alguém responder o que ele mostraria que
-as abas globais não mostram. F-09 (previsões) é sabor — só depois de 1–4.
+as abas globais já não mostram. F-09 (previsões) é sabor, e só entra depois dos quatro
+primeiros.
 
 ---
 

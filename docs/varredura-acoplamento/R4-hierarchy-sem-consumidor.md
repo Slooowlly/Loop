@@ -2,6 +2,71 @@
 
 **Área:** Rust · **Risco:** médio-alto (mexe em mercado = equilíbrio de jogo) · **Conflita com:** nada
 
+---
+
+## Situação em 11/08/2026 — PARCIAL. A premissa envelheceu; o que sobrou de técnico foi corrigido.
+
+O briefing dizia "estado rico sem consumidor". Hoje há consumidor em quatro frentes, e o
+que restou de problema é código morto, não falta de consequência.
+
+### Mapa de consumo, rastreado de verdade
+
+| Dado | Quem lê hoje |
+|---|---|
+| `hierarquia_n1_id` / `n2_id` | Frontend, em `components/team/myteam/teamMetrics.js` — a dupla da garagem sai daí, e os slots `piloto_1_id`/`piloto_2_id` são só fallback de save antigo. |
+| `hierarquia_status`, `hierarquia_tensao`, `hierarquia_inversoes_temporada` | Frontend, no mesmo `garageClimate` (`MyTeamTab` v2 / `LineupStrip`), serializados por `commands/career/queries.rs` em `career_types/equipe.rs`. |
+| `hierarquia_tensao` | `commands/world_footer/equipes.rs`: `tensao > 55` entra no `bad_mood` que colore o rodapé do mundo. |
+| Inversão N1/N2 | **Chega ao mercado.** `sync_contract_roles_after_inversao` (em `hierarchy/orders.rs`) reescreve `contract.papel`, e é por `contract.papel` que `market::renewal::should_renew_contract` aplica os gates de N2. A afirmação "o mercado não lê nada disso" **caiu**. |
+| Moral | `rivalry::team::{apply_derby_morale, process_driver_rivalry_bleed}`, como o briefing já dizia. |
+| Placar do duelo | `rivalry::gatilhos::process_teammate_season_rivalry` lê o placar cru. |
+| Motivação | `apply_inversao_driver_effects`: +15 no promovido, −10 no rebaixado, no momento da inversão. |
+
+**Classificação das perguntas do briefing:**
+
+- "O jogador enxerga isso?" → **sim**, item 2 respondido. **Falso positivo** o pressuposto de
+  que não.
+- "Qual ligação vale mais / desenhe a de menor risco / risco de loop" → **DESIGN pendente**.
+  Nada foi ligado, nada foi inventado.
+- O eixo de tensão hoje **não anda**: o ponto de equilíbrio dos deltas é 40% de vitórias do
+  N2 e o mundo simulado entrega 22–33%, então a tensão da equipe média tende a zero e o
+  gatilho de inversão (que exige Crise, tensão ≥ 90) quase nunca dispara. Isso é
+  **CALIBRAÇÃO**, e não foi tocado. O que existe agora é `TENSAO_EQUILIBRIO_TAXA_N2`
+  documentando o ponto, com um teste que a prende aos deltas — mexeu no delta sem mexer na
+  constante, o teste quebra.
+
+### O que era técnico e foi corrigido
+
+- **`#![allow(dead_code)]`** saiu de `orders.rs` e de `transition.rs`.
+- **`DuelResult.team_id`, `.n1_id`, `.n2_id`**: preenchidos a cada duelo de cada equipe de
+  cada corrida, lidos por ninguém (quem recebe o duelo já está com a equipe em mãos).
+  Removidos.
+- **O par `decide_hierarchy_transition` / `resolve_transition_values`**, mais o enum
+  `HierarchyTransition` e as structs `PrevHierarchyState` / `NewSeasonSetup`: nenhum
+  chamador de produção, só os próprios testes. Removidos, com o motivo registrado no
+  cabeçalho do módulo. **A regra `PartialPreserve` que eles descreviam nunca foi ligada** —
+  hoje a transição entre temporadas é sempre reset, escrito por
+  `market::pipeline::consolidacao`.
+- **Comentários falsos**: `transition.rs` afirmava, em dois pontos, que as equipes chegam
+  alinhadas "porque passaram pelo `UpdateHierarchy` do mercado". Não passam (ver abaixo).
+  Os dois textos passaram a apontar a consolidação, que é quem escreve de fato.
+
+### Achado confirmado e NÃO corrigido, por risco de colisão
+
+`PendingAction::UpdateHierarchy` é **estado calculado que ninguém lê**, e a cadeia inteira é
+write-only: `refresh_planned_hierarchy_for_team` (em `commands/career/market_window.rs`)
+recalcula N1/N2 por skill, empurra o evento em `plan.planned_events`, e **nada no crate
+executa `planned_events`** — só há inserção, filtro e remoção. A conta que ele faz é a mesma
+que `market::pipeline::consolidacao` já faz e persiste.
+
+Não removido nesta passada por dois motivos:
+
+1. `planned_events` é serializado em `preseason_plan.json` e `load_preseason_plan` **falha
+   duro** em variante desconhecida. Tirar a variante quebra save em andamento.
+2. O problema é do plano de pré-temporada inteiro, não de `hierarchy/`. Cortar só a metade
+   da hierarquia deixa o resto do vetor igualmente órfão.
+
+Fica registrado como item próprio para quem for mexer no formato do plano.
+
 ## O que foi encontrado
 
 `hierarchy/` modela a política interna da equipe: quem é N1, quem é N2, o duelo entre

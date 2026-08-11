@@ -1,5 +1,8 @@
-%% iRacerApp database core flow
-%% Purpose: show the main season loop without module noise.
+%% Loop - laco principal da carreira no banco
+%% Objetivo: mostrar o ciclo da temporada sem o ruido dos sistemas de apoio.
+%% Schema no momento da leitura: v63 (baseline v53). Regerado em 11/08/2026.
+%%
+%% Le-se de cima para baixo em quatro tempos: mundo, fim de semana, apuracao, arquivo.
 
 flowchart LR
     CONFIG[config]
@@ -11,14 +14,20 @@ flowchart LR
 
     SEASONS[seasons]
     CALENDAR[calendar]
+    TEAM_CAR[team_car]
     RACE_RESULTS[race_results]
+    RACE_BREAKDOWNS[race_breakdowns]
+    RACE_READINGS[race_weekend_readings]
     STANDINGS[standings]
+    TEAM_FINANCE[team_finance_history]
 
     LICENSES[licenses]
     DRIVER_ARCHIVE[driver_season_archive]
+    TEAM_ARCHIVE[team_season_archive]
     HISTORY_SEASONS[history_seasons]
     HISTORY_GENERAL[history_general]
 
+    %% Mundo
     CONFIG --> META
     META --> SEASONS
 
@@ -27,30 +36,44 @@ flowchart LR
     CONTRACTS --> CALENDAR
 
     SEASONS --> CALENDAR
+
+    %% Fim de semana: a entrada de calendar E a corrida
+    TEAMS --> TEAM_CAR
+    TEAM_CAR -->|desgaste e quebra| RACE_BREAKDOWNS
     CALENDAR --> RACE_RESULTS
     DRIVERS --> RACE_RESULTS
     TEAMS --> RACE_RESULTS
+    CALENDAR --> RACE_BREAKDOWNS
+    RACE_BREAKDOWNS -->|tempo perdido no box| RACE_RESULTS
+    CALENDAR --> RACE_READINGS
+    RACE_RESULTS --> RACE_READINGS
 
+    %% Apuracao
     RACE_RESULTS --> STANDINGS
     SEASONS --> STANDINGS
     DRIVERS --> STANDINGS
     TEAMS --> STANDINGS
+    RACE_RESULTS -->|premio e fatura da etapa| TEAM_FINANCE
+    TEAMS --> TEAM_FINANCE
 
+    %% Encerramento e arquivo
     STANDINGS --> LICENSES
     DRIVERS --> LICENSES
 
     STANDINGS --> DRIVER_ARCHIVE
     DRIVERS --> DRIVER_ARCHIVE
+    STANDINGS --> TEAM_ARCHIVE
+    TEAMS --> TEAM_ARCHIVE
 
     STANDINGS --> HISTORY_SEASONS
     HISTORY_SEASONS --> HISTORY_GENERAL
 
-    classDef state fill:#eef2ff,stroke:#475569,color:#0f172a
-    classDef actor fill:#ecfeff,stroke:#0f766e,color:#0f172a
-    classDef event fill:#fff7ed,stroke:#c2410c,color:#0f172a
-    classDef history fill:#f8fafc,stroke:#64748b,color:#0f172a
+    classDef estado fill:#eef2ff,stroke:#475569,color:#0f172a
+    classDef ator fill:#ecfeff,stroke:#0f766e,color:#0f172a
+    classDef evento fill:#fff7ed,stroke:#c2410c,color:#0f172a
+    classDef historia fill:#f8fafc,stroke:#64748b,color:#0f172a
 
-    class CONFIG,META,SEASONS state
-    class DRIVERS,TEAMS,CONTRACTS actor
-    class CALENDAR,RACE_RESULTS,STANDINGS,LICENSES event
-    class DRIVER_ARCHIVE,HISTORY_SEASONS,HISTORY_GENERAL history
+    class CONFIG,META,SEASONS estado
+    class DRIVERS,TEAMS,CONTRACTS,TEAM_CAR ator
+    class CALENDAR,RACE_RESULTS,RACE_BREAKDOWNS,RACE_READINGS,STANDINGS,TEAM_FINANCE,LICENSES evento
+    class DRIVER_ARCHIVE,TEAM_ARCHIVE,HISTORY_SEASONS,HISTORY_GENERAL historia

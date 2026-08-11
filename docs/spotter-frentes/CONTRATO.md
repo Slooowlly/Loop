@@ -1,8 +1,16 @@
 # Frentes do spotter — o contrato comum
 
-Três frentes trabalham em paralelo para fechar as lacunas do spotter. **Leia isto antes
-do seu briefing.** O que faz o paralelismo funcionar é a regra de propriedade abaixo; sem
-ela as três colidem nos mesmos quatro arquivos.
+> ⚠️ **Retrato histórico, conferido em 11/08/2026.** As três frentes **fecharam**:
+> `iracing_sdk/spotter_frente.rs`, `spotter_tras.rs` e `spotter_lento.rs` estão no ar, ao lado de
+> `spotter_bandeira.rs`, `spotter_boxe.rs`, `spotter_clima.rs`, `spotter_voltar.rs` e
+> `spotter_control.rs`. O diretório continua aqui porque `spotter_tras.rs:39` e
+> `spotter_bandeira.rs:258` citam esta doutrina em doc-comment. Leia como a **doutrina de escrita
+> da fala**, que segue valendo, e não como trabalho a fazer. O estado de hoje está no
+> [DESIGN.md](../DESIGN.md) §20.2.
+
+Três frentes trabalharam em paralelo para fechar as lacunas do spotter. **Leia isto antes do seu
+briefing.** O que fez o paralelismo funcionar é a regra de propriedade abaixo; sem ela as três
+colidiriam nos mesmos quatro arquivos.
 
 ## A regra de propriedade
 

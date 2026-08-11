@@ -2,6 +2,44 @@
 
 **Área:** Rust · **Risco:** alto (muda texto gerado por IA) · **Conflita com:** R2 — não rode em paralelo
 
+---
+
+## Situação em 11/08/2026 — PARCIAL (a parte técnica fechou; o resto é DESIGN)
+
+Reconferido contra o código atual, afirmação por afirmação.
+
+| # | Afirmação do briefing (24/07) | Situação hoje |
+|---|---|---|
+| 1 | `narrative/` importa só `crate::simulation::` | **Ainda válida, e é o desenho.** O módulo é puro de propósito; o que vem do banco entra por `RaceContextInput::career_beats`, montado por quem tem a conexão. |
+| 2 | O `mod.rs` abre com `#![allow(dead_code)]` e se declara "Etapa A (MVP)" | **Já resolvida.** O texto de "Etapa A" saiu; o `allow` foi removido em 11/08/2026 e o que ele escondia virou correção (abaixo). |
+| 3 | `context_facts` chega vazio de rivalidade/forma/lesão | **Falso positivo hoje.** `montar_fatos_do_boletim` enche `context_facts` com estreia/veterano, superação de abandono na pista, recordes e marcos, duelo interno, quadro do campeonato, desempenho×expectativa e forma recente, quebras de peça e telemetria real. O arco de rivalidade subiu de degrau: vem como **beat pesado** em `career_beats`, passando pelo mesmo limiar dos beats da corrida. |
+| 4 | Os dados já estão carregados em `ai_news/fatos.rs` | **Ainda válida como fato**, e deixou de ser problema: os dois fluxos hoje partem da mesma camada de sinais (ver R2). |
+
+**A "Etapa B" foi ligada pela metade, e a metade que falta é decisão de produto.** O arco
+de rivalidade atravessou como beat. Forma recente, lesão-arco, marcos de carreira e vínculo
+piloto-equipe seguem viajando como texto sem peso em `context_facts` — o `mod.rs` diz isso
+com todas as letras. Promover cada um a beat exige escolher peso, e peso é curadoria
+editorial: **fica como DESIGN pendente, não como dívida técnica.**
+
+### O que o `allow(dead_code)` escondia, e foi corrigido
+
+- `pub use consulta::*` e `pub use incidentes::*` não reexportavam nada (os itens são
+  `pub(crate)`), e `pub use tese::*` não tinha consumidor fora do módulo. Os três saíram; o
+  teste do módulo passou a importar `incidentes` e `tese` pelo caminho direto.
+- `Beat.driver_id` e `Beat.team_name`: preenchidos em dez lugares, lidos em nenhum. Removidos.
+- `RaceContext.beat_count` e `RaceContext.has_player`: o único chamador
+  (`noticias/persistencia.rs`) lê só `facts`. `build_race_context` passou a devolver a
+  `String` do contexto curado; a struct saiu.
+- `StoryError::{Server,Network}` carregavam o motivo e todo callsite fazia `Err(_) =>`. Um
+  5xx (os **dois** provedores caídos) e uma queda de rede chegavam como o mesmo erro mudo,
+  sem rastro no `loop.log`. Os quatro callsites passaram a registrar o motivo.
+
+### O que não foi feito, de propósito
+
+Nada de reescrever narrativa que funciona, e nenhum beat novo. As perguntas 3, 4 e 5 do
+briefing (desenhar os `BeatKind` da Etapa B, orçar o payload, escolher a ordem) continuam
+abertas como **design**, não como conserto.
+
 ## O que foi encontrado
 
 Este é o ponto de maior valor da varredura. O módulo `narrative/` é o motor que

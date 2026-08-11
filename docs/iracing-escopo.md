@@ -10,7 +10,7 @@ Fecha o item **F-10** do [roadmap.md](roadmap.md) §8.
 
 ## 1. A contradição, resolvida
 
-O [DESIGN.md](DESIGN.md) §23 dizia que export/watchdog foram removidos e que a integração
+O [DESIGN.md](DESIGN.md) §23 do retrato de junho (hoje §19, reescrito) dizia que export e watchdog foram removidos e que a integração
 era "expansão futura". O roadmap §8 concluiu que a direção havia se invertido — de
 *exportar para o iRacing* para *ler o iRacing*.
 
@@ -223,3 +223,34 @@ registrado.
 
 O item 4 é o único que mexe em `lib.rs` — e exige `npm run build` **antes** de
 `cargo test`, porque `generate_context!` embute o `dist/`.
+
+### 6.1 Conferência de 2026-08-11
+
+A vistoria de 10/08 voltou a marcar os 16 inalcançáveis como pendência (A14.2). Conferido
+contra o código de 11/08, **nada mudou desde 27/07**: os quatro itens acima continuam
+abertos e a conta de 16 continua valendo. O que a conferência acrescenta:
+
+- **A dificuldade adaptativa está ligada, mas ligar não é rodar.** A chamada existe
+  (`importacao.rs:138`, com `crate::diagnostico::linha("adaptativo", ...)` no erro), e até
+  10/08/2026 ela nunca havia sido executada uma vez sequer — o caminho depende do
+  auto-import fechar, e é o par de linhas `[import]` seguido de `[adaptativo]` no
+  `loop.log` que prova o ciclo. Enquanto esse par não aparecer num log de corrida real, o
+  perfil por `custid` continua zerado e o `ai_sweet_spot` continua ancorando em nada. É
+  medição, não código: só uma corrida de verdade fecha o item.
+- **Os dois painéis seguem sem consumidor.** `RosterGenPanel` e `PostRacePanel` continuam
+  não importados por nenhum arquivo do frontend (conferido por `grep` fora de
+  `components/iracing/`). A exportação que o jogador dispara hoje passa por
+  `race/nextrace/useIracingExport.js`, que chama os MESMOS `iracing_generate_roster` e
+  `iracing_generate_season`. Os dois painéis agora têm teste de contrato
+  (`RosterGenPanel.test.jsx`, `PostRacePanel.test.jsx`), e os testes travam o contrato dos
+  comandos — o que vale nos dois desfechos, montar ou aposentar. Aposentar deixou de custar
+  a cobertura.
+- **O overlay ao vivo entrou na rede.** `IracingConnectedOverlay` é a terceira tela da
+  ponte e a única que fica na frente do jogador durante a corrida; ganhou
+  `IracingConnectedOverlay.test.jsx`, que trava os nomes de campo do `RaceHistory` que ela
+  lê. Renomear um campo no Rust deixava a tela abrir normalmente mostrando "aguardando
+  dados" a corrida inteira, sem erro nenhum.
+- **Os itens 3 e 4 não cabem numa frente só de `commands/iracing/`.** O item 3 precisa de
+  botão em `Settings.jsx` (ou no `useFerramentasDeDebug`), e o item 4 mexe no
+  `invoke_handler` do `lib.rs` — os dois fora do escopo de quem mexe nos comandos. Ficam
+  registrados aqui como dependência explícita, não como esquecimento.

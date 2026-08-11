@@ -1,5 +1,6 @@
-%% iRacerApp database module flow
-%% Purpose: show side systems around the core season loop.
+%% Loop - sistemas de apoio em volta do laco principal
+%% Objetivo: mostrar o que cerca o nucleo de temporada, agrupado por assunto.
+%% Schema no momento da leitura: v63 (baseline v53). Regerado em 11/08/2026.
 
 flowchart TB
     SEASONS[seasons]
@@ -9,12 +10,15 @@ flowchart TB
     CALENDAR[calendar]
     RACE_RESULTS[race_results]
 
-    subgraph MARKET_FLOW[market flow]
+    subgraph MERCADO[mercado e transferencias]
         MARKET[market]
         MARKET_PROPOSALS[market_proposals]
+        TRANSFER_WINDOW[transfer_window]
+        DRIVER_BOND[driver_team_bond]
+        DRIVER_FAVORITES[driver_favorites]
     end
 
-    subgraph SPECIAL_WINDOW_FLOW[special window flow]
+    subgraph ESPECIAL[bloco especial e convocacao]
         SPECIAL_STATE[special_window_state]
         SPECIAL_POOL[special_window_candidate_pool]
         SPECIAL_ASSIGNMENTS[special_window_assignments]
@@ -23,21 +27,55 @@ flowchart TB
         SPECIAL_LOG[special_window_daily_log]
     end
 
-    subgraph NARRATIVE_FLOW[narrative and history]
-        NEWS[news]
-        RIVALRIES[rivalries]
-        TRACK_DNF[track_dnf_history]
+    subgraph CARRO[carro, quebra e incidente]
+        TEAM_CAR[team_car]
+        RACE_BREAKDOWNS[race_breakdowns]
         INCIDENT_CATALOG[incident_catalog]
+        TRACK_DNF[track_dnf_history]
         INJURIES[injuries]
+        SAFETY_CARS[race_safety_cars]
+    end
+
+    subgraph CAIXA[caixa e estrategia da equipe]
+        TEAM_FINANCE[team_finance_history]
+        TEAM_FOCUS[team_focus]
+        TEAM_PLAN[team_strategic_plan]
+        TEAM_COLLAPSE[team_collapse_streak]
+        TEAM_RESCUE[team_rescue_counters]
+        TEAM_OWNERSHIP[team_ownership_events]
+        TEAM_PROMOTION[team_promotion_history]
+    end
+
+    subgraph NARRATIVA[narrativa, rivalidade e recordes]
+        NEWS[news]
+        AI_PRE[ai_pre_race_briefing]
+        AI_POST[ai_post_race_debrief]
+        AI_STORY[ai_race_story]
+        AI_WORLD[ai_world_notes]
+        RIVALRIES[rivalries]
+        RIVALRY_EPISODES[rivalry_episodes]
+        TEAM_RIVALRIES[team_rivalries]
+        PLAYER_NEMESIS[player_nemesis]
+        MILESTONES[record_milestones]
+        LAP_RECORDS[track_lap_records]
+        SCALAR_RECORDS[category_scalar_records]
         RETIRED[retired]
     end
 
+    %% Mercado
     SEASONS --> MARKET
     MARKET --> MARKET_PROPOSALS
     TEAMS --> MARKET_PROPOSALS
     DRIVERS --> MARKET_PROPOSALS
     MARKET_PROPOSALS --> CONTRACTS
+    SEASONS --> TRANSFER_WINDOW
+    TRANSFER_WINDOW --> MARKET_PROPOSALS
+    DRIVERS --> DRIVER_BOND
+    TEAMS --> DRIVER_BOND
+    DRIVER_BOND --> MARKET_PROPOSALS
+    DRIVERS --> DRIVER_FAVORITES
 
+    %% Bloco especial
     SEASONS --> SPECIAL_STATE
     SEASONS --> SPECIAL_POOL
     DRIVERS --> SPECIAL_POOL
@@ -50,20 +88,51 @@ flowchart TB
     SPECIAL_TEAMS --> CALENDAR
     SPECIAL_STATE --> SPECIAL_LOG
 
+    %% Carro
+    TEAMS --> TEAM_CAR
+    TEAM_CAR --> RACE_BREAKDOWNS
+    CALENDAR --> RACE_BREAKDOWNS
+    RACE_BREAKDOWNS --> RACE_RESULTS
+    INCIDENT_CATALOG --> RACE_RESULTS
+    RACE_RESULTS --> TRACK_DNF
+    RACE_RESULTS --> INJURIES
+    CALENDAR --> SAFETY_CARS
+
+    %% Caixa
+    RACE_RESULTS --> TEAM_FINANCE
+    TEAMS --> TEAM_FOCUS
+    TEAMS --> TEAM_PLAN
+    TEAM_FINANCE --> TEAM_COLLAPSE
+    TEAM_COLLAPSE --> TEAM_RESCUE
+    TEAM_RESCUE --> TEAM_OWNERSHIP
+    TEAMS --> TEAM_PROMOTION
+
+    %% Narrativa
     CALENDAR --> NEWS
     RACE_RESULTS --> NEWS
+    CALENDAR --> AI_PRE
+    CALENDAR --> AI_POST
+    NEWS --> AI_STORY
+    SEASONS --> AI_WORLD
     RACE_RESULTS --> RIVALRIES
-    RACE_RESULTS --> TRACK_DNF
-    INCIDENT_CATALOG --> RACE_RESULTS
-    RACE_RESULTS --> INJURIES
+    RIVALRIES --> RIVALRY_EPISODES
+    RIVALRIES --> PLAYER_NEMESIS
+    RACE_RESULTS --> TEAM_RIVALRIES
+    RACE_RESULTS --> LAP_RECORDS
+    RACE_RESULTS --> MILESTONES
+    RACE_RESULTS --> SCALAR_RECORDS
     DRIVERS --> RETIRED
 
-    classDef core fill:#eef2ff,stroke:#475569,color:#0f172a
-    classDef market fill:#ecfdf5,stroke:#15803d,color:#0f172a
-    classDef special fill:#fefce8,stroke:#a16207,color:#0f172a
-    classDef narrative fill:#fdf2f8,stroke:#be185d,color:#0f172a
+    classDef nucleo fill:#eef2ff,stroke:#475569,color:#0f172a
+    classDef mercado fill:#ecfdf5,stroke:#15803d,color:#0f172a
+    classDef especial fill:#fefce8,stroke:#a16207,color:#0f172a
+    classDef carro fill:#eff6ff,stroke:#1d4ed8,color:#0f172a
+    classDef caixa fill:#f0fdfa,stroke:#0f766e,color:#0f172a
+    classDef narrativa fill:#fdf2f8,stroke:#be185d,color:#0f172a
 
-    class SEASONS,DRIVERS,TEAMS,CONTRACTS,CALENDAR,RACE_RESULTS core
-    class MARKET,MARKET_PROPOSALS market
-    class SPECIAL_STATE,SPECIAL_POOL,SPECIAL_ASSIGNMENTS,PLAYER_OFFERS,SPECIAL_TEAMS,SPECIAL_LOG special
-    class NEWS,RIVALRIES,TRACK_DNF,INCIDENT_CATALOG,INJURIES,RETIRED narrative
+    class SEASONS,DRIVERS,TEAMS,CONTRACTS,CALENDAR,RACE_RESULTS nucleo
+    class MARKET,MARKET_PROPOSALS,TRANSFER_WINDOW,DRIVER_BOND,DRIVER_FAVORITES mercado
+    class SPECIAL_STATE,SPECIAL_POOL,SPECIAL_ASSIGNMENTS,PLAYER_OFFERS,SPECIAL_TEAMS,SPECIAL_LOG especial
+    class TEAM_CAR,RACE_BREAKDOWNS,INCIDENT_CATALOG,TRACK_DNF,INJURIES,SAFETY_CARS carro
+    class TEAM_FINANCE,TEAM_FOCUS,TEAM_PLAN,TEAM_COLLAPSE,TEAM_RESCUE,TEAM_OWNERSHIP,TEAM_PROMOTION caixa
+    class NEWS,AI_PRE,AI_POST,AI_STORY,AI_WORLD,RIVALRIES,RIVALRY_EPISODES,TEAM_RIVALRIES,PLAYER_NEMESIS,MILESTONES,LAP_RECORDS,SCALAR_RECORDS,RETIRED narrativa

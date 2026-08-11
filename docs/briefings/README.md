@@ -6,13 +6,22 @@ arquivo inteiro a uma sessão separada — não precisa de contexto desta conver
 
 | # | briefing | área | tam | depende de |
 |---|---|---|---|---|
-| F-06 | [Backup e restauração](F06-backup-restauracao.md) | Frontend | P | nada |
 | F-07 | [Espectadores e interesse de evento](F07-espectadores-interesse.md) | Rust + Frontend | M | nada (leia o R3 antes de unificar presença) |
-| F-10 | [Decidir o escopo do iRacing](F10-escopo-iracing.md) | Decisão + docs | M | nada |
 | D-09 | [Despacho de R1 / R2 / R4](D09-despacho-r1-r2-r4.md) | Rust | G | ver o guia |
 
-**Podem rodar em paralelo:** F-06, F-07, F-10 e o R4. São áreas disjuntas.
-**Nunca em paralelo:** R1 e R2 — tocam os mesmos arquivos de `narrative/`.
+**Podem rodar em paralelo:** F-07 e o R4. São áreas disjuntas.
+**Nunca em paralelo:** R1 e R2, que tocam os mesmos arquivos de `narrative/`.
+
+**Removidos na limpeza de 11/08/2026**, porque o trabalho fechou e o briefing virou pergunta
+respondida:
+
+- `F06-backup-restauracao.md`: o F-06 está **feito**. `src/components/ui/BackupsModal.jsx` é
+  aberto pelo `src/pages/LoadSave.jsx`. Registro em [divida-tecnica.md](../divida-tecnica.md).
+- `F10-escopo-iracing.md`: o F-10 foi **decidido** em 27/07/2026, e a saída dele é o
+  [iracing-escopo.md](../iracing-escopo.md), que é o documento oficial da área. O retrato do
+  que existe hoje está no [DESIGN.md](../DESIGN.md) §19.
+
+Os dois continuam recuperáveis pelo histórico do git.
 
 Os briefings da varredura de acoplamento ficam em
 [../varredura-acoplamento/](../varredura-acoplamento/) e seguem válidos; o D-09 aqui é só

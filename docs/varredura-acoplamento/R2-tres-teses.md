@@ -2,6 +2,66 @@
 
 **Área:** Rust + frontend · **Risco:** médio · **Conflita com:** R1 — não rode em paralelo
 
+---
+
+## Situação em 11/08/2026 — RESOLVIDO no Rust; o item de frontend virou opcional
+
+A segunda análise ([R2-analise.md](R2-analise.md)) recomendou fazer parcialmente, em três
+fatias. As duas de Rust estão em produção; a terceira é frontend e continua opcional.
+
+| Fatia | Situação hoje |
+|---|---|
+| **P0** — campo de mérito com uma construção só | **Resolvido.** [`commands/race/merito.rs`](../../src-tauri/src/commands/race/merito.rs) é a fonte única, chamada por `fatos.rs:360` (boletim) e `importacao.rs:45` (debrief). O bug de unidade acabou: os dois usam `Team::car_strength()` em 0–100, e piloto ausente do banco entra com valor neutro em vez de encolher o grid. |
+| **P1** — camada de sinais compartilhada | **Resolvido.** [`race_signals.rs`](../../src-tauri/src/race_signals.rs) tem um limiar por conceito e a classificação única do abandono (`dnf_kind`). Consumido por `narrative/{tese,beats}.rs`, `commands/ai_news/{tese,fatos}.rs` e `race_eval.rs`. |
+| **P2** — frontend ler o `assessment` persistido | **Não feito, e classificado como opcional.** `nextRaceThesis.js` continua recalculando `dismal` em JS. É mudança do que o jogador lê na prévia, então é produto, não conserto. |
+
+### O remapeamento pedido: evento → sinal → tese → notícia
+
+```
+evento real
+  simulação  → IncidentResult / RaceDriverResult / RaceResult
+  iRacing    → result_bridge → o mesmo RaceResult
+        ↓
+sinal estruturado
+  race_signals::dnf_kind          (incidente > peça quebrada > texto, nessa ordem)
+  race_signals::{remontada, remontada_epica, colapso, pole_frustrada,
+                 overperf, underperf, vitoria_improvavel, caos}
+  race_eval::evaluate  ← campo de mérito único de commands/race/merito.rs
+        ↓
+tese / debrief
+  narrative/tese.rs            eixo do boletim  (voz de revista, grid inteiro)
+  commands/ai_news/tese.rs     eixo do debrief  (1ª pessoa, piloto do jogador)
+        ↓
+notícia / narrativa
+  narrative/contexto.rs → texto de fatos → narrative/client.rs → servidor
+  commands/ai_news/comandos.rs → debrief e prévia
+```
+
+### Inconsistências procuradas de novo, uma a uma
+
+- **DNF mecânico vs. batida.** Era o desencontro real (um lia `IncidentType`, o outro rodava
+  regex no motivo). Fechado: os dois chamam `dnf_kind`, e o dano latente de colisão — que o
+  motor registra como `Mechanical` — tem ramo próprio e dá a mesma resposta pelos dois
+  caminhos. Há teste prendendo as duas pontas nos dois idiomas.
+- **Remontada.** Tinha quatro limiares (>0, 4, 5, 8). Hoje são dois conceitos nomeados e
+  distintos: `remontada` (≥4) e `remontada_epica` (≥8 e chegando em ≤6). O segundo não é um
+  limiar concorrente, é a régua da manchete.
+- **Over/under performance.** Mesmo `evaluate`, mesmo campo de mérito. Era aqui que morava a
+  contradição "dia de somar" vs. "muito abaixo do esperado", e ela não existe mais.
+- **`marcos.rs:285` (`gained >= 6`)** e **`fatos.rs:762` (`positions_gained >= 1`)**: parecem
+  um quinto e um sexto limiar de remontada, e não são. O primeiro é o piso para uma
+  recuperação virar **recorde de categoria**; o segundo é o piso para a telemetria render
+  uma frase. Perguntas diferentes. **Falso positivo.**
+- **`db/queries/injuries.rs`** tem listas próprias de radicais (`colis`, `batid`, `capot`…).
+  É arqueologia de save legado para inferir **severidade de lesão**, não natureza do
+  abandono, e o próprio arquivo explica. **Falso positivo.**
+- **`narrative/contexto.rs`, `total_dnfs >= 2`** no cabeçalho, contra `caos()` na tese. São
+  perguntas diferentes: uma decide se vale citar a contagem de abandonos, a outra decide se
+  o caos é o eixo da matéria. Fica como está.
+
+**Nenhuma duplicação técnica eliminável sobrou.** As três vozes continuam separadas, que é o
+que o briefing original pediu para não destruir.
+
 ## O que foi encontrado
 
 O projeto elege "qual foi a história" três vezes, em três lugares, de forma

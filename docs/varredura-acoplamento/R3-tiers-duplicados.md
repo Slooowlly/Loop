@@ -2,6 +2,29 @@
 
 **Área:** Rust · **Risco:** baixo-médio · **Conflita com:** nada
 
+---
+
+## Situação em 11/08/2026 — RESOLVIDO. Briefing fechado.
+
+Reconferido no código atual; a vistoria anterior estava certa.
+
+| Afirmação do briefing (24/07) | Situação hoje |
+|---|---|
+| `public_presence/team.rs` copia as 4 variantes e os 4 limiares de `MarketVisibilityTier` | **Resolvida.** O enum e a escada não existem mais no arquivo. `derive_team_public_presence` devolve `f64` direto. |
+| O `tier` de equipe é calculado e descartado pelos três callsites | **Resolvida por construção.** Não há mais tier de equipe para descartar. |
+| Duas escadas mantidas à mão divergem no primeiro rebalanceamento | **Deixou de existir.** Sem segunda escada, não há sincronia a travar — o teste-espelho do item 3 do briefing perdeu o objeto. |
+| O comentário "Pontos futuros de integração (**não ativados**)" em `market/visibility.rs` mente | **Resolvida.** O texto hoje é "Pontos de integração ativos hoje" e lista os quatro com o que cada um faz. |
+
+A primeira linha do `team.rs` explica a decisão que sobrou, e ela responde à pergunta do
+item 1 do briefing: as duas grandezas **não são comensuráveis**. O da equipe é média
+ponderada de duas mídias (`top * 0.7 + second * 0.3`) e alimenta um multiplicador linear de
+patrocínio; o do piloto classifica o atributo `midia` individual e tem limiares vindos das
+tags visuais de `models/driver.rs`. Não havia o que fundir.
+
+A pergunta do item 4 — *o tier de equipe deveria existir e escalonar patrocínio?* — foi
+respondida com **não**: presença pública de equipe é contínua. Isso é **decisão de produto
+tomada**, não pendência. Não recriar a escada.
+
 ## O que foi encontrado
 
 Duas escadas de tier idênticas, copiadas à mão, com um comentário assumindo a cópia.

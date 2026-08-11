@@ -1,75 +1,110 @@
-%% iRacerApp database network - full ER view
-%% Source of truth inspected: src-tauri/src/db/migrations.rs
-%% Schema version inspected: 30
+%% Loop - rede completa do banco (visao ER)
+%% Fonte inspecionada: src-tauri/src/db/migrations/baseline.rs + migrations.rs (v54 a v63)
+%%                     + os DDL de src-tauri/src/db/queries/ trazidos pela v62
+%% Schema no momento da leitura: v63 (baseline v53)
+%% Regerado em 11/08/2026. A versao anterior era de 05/05/2026 e olhava o schema v30.
 %%
-%% Legend:
-%% - FK in entity fields = declared or strongly modeled database relationship.
-%% - SEM in entity fields = semantic relationship used by app logic but not always declared as FK.
-%% - The runtime flow currently treats CALENDAR rows as race events; RACES is legacy/unused.
+%% Legenda:
+%% - FK no campo = relacao declarada como FOREIGN KEY no DDL.
+%% - SEM no campo = relacao semantica usada pela logica do app, sem FK declarada.
+%% - CALENDAR e a corrida de verdade. RACES e legada e nao alimenta nada (item D-02 do backlog).
 
 erDiagram
-    %% Core career loop
-    DRIVERS ||--o{ CONTRACTS : signs
-    TEAMS ||--o{ CONTRACTS : hires
+    %% ── Nucleo da carreira ───────────────────────────────────────────────────
+    DRIVERS  ||--o{ CONTRACTS : assina
+    TEAMS    ||--o{ CONTRACTS : contrata
 
-    SEASONS ||--o{ CALENDAR : schedules
-    SEASONS ||--o{ RACES : legacy_season
-    CALENDAR ||--o{ RACES : legacy_calendar_event
-    CALENDAR ||--o{ RACE_RESULTS : produces
-    DRIVERS ||--o{ RACE_RESULTS : competes
-    TEAMS ||--o{ RACE_RESULTS : represents
-    INCIDENT_CATALOG ||--o{ RACE_RESULTS : classifies_dnf
+    SEASONS  ||--o{ CALENDAR : agenda
+    SEASONS  ||--o{ RACES : legado_temporada
+    CALENDAR ||--o{ RACES : legado_evento
+    CALENDAR ||--o{ RACE_RESULTS : produz
+    DRIVERS  ||--o{ RACE_RESULTS : disputa
+    TEAMS    ||--o{ RACE_RESULTS : representa
+    INCIDENT_CATALOG ||--o{ RACE_RESULTS : classifica_dnf
 
-    SEASONS ||--o{ STANDINGS : has
-    DRIVERS ||--o{ STANDINGS : scores
-    TEAMS ||--o{ STANDINGS : scores
+    SEASONS  ||--o{ STANDINGS : possui
+    DRIVERS  ||--o{ STANDINGS : pontua
+    TEAMS    ||--o{ STANDINGS : pontua
 
-    DRIVERS ||--o{ LICENSES : earns
-    DRIVERS ||--o{ INJURIES : suffers
-    DRIVERS ||--o{ DRIVER_SEASON_ARCHIVE : archived_as
+    DRIVERS  ||--o{ LICENSES : conquista
+    DRIVERS  ||--o{ INJURIES : sofre
 
-    %% Team hierarchy and lineups
-    TEAMS ||--o{ TEAMS : parent_team
+    %% ── O que a corrida deixa alem do resultado ─────────────────────────────
+    CALENDAR ||--o{ RACE_BREAKDOWNS : quebra_de_peca
+    DRIVERS  ||--o{ RACE_BREAKDOWNS : quebrou
+    CALENDAR ||--o{ RACE_SAFETY_CARS : safety_car
+    CALENDAR ||--o{ RACE_WEEKEND_READINGS : leitura_do_fds
+    DRIVERS  ||--o{ RACE_WEEKEND_READINGS : lido_como
+    CALENDAR ||--|| PLAYER_RACE_TELEMETRY : telemetria_do_jogador
+    DRIVERS  ||--o{ TRACK_DNF_HISTORY : historico_de_dnf
+    DRIVERS  ||--o{ TRACK_LAP_RECORDS : recorde_de_volta
+
+    %% ── Equipe: hierarquia, carro e caixa ───────────────────────────────────
+    TEAMS   ||--o{ TEAMS : equipe_mae
     DRIVERS ||--o{ TEAMS : piloto_1
     DRIVERS ||--o{ TEAMS : piloto_2
-    DRIVERS ||--o{ TEAMS : hierarchy_n1
-    DRIVERS ||--o{ TEAMS : hierarchy_n2
+    DRIVERS ||--o{ TEAMS : hierarquia_n1
+    DRIVERS ||--o{ TEAMS : hierarquia_n2
 
-    %% Market and special contracts
-    SEASONS ||--o{ MARKET : opens
-    SEASONS ||--o{ MARKET_PROPOSALS : contains
-    TEAMS ||--o{ MARKET_PROPOSALS : offers
-    DRIVERS ||--o{ MARKET_PROPOSALS : receives
+    TEAMS ||--o{ TEAM_CAR : monta
+    TEAMS ||--o{ TEAM_FINANCE_HISTORY : fatura
+    TEAMS ||--|| TEAM_FOCUS : foca
+    TEAMS ||--|| TEAM_STRATEGIC_PLAN : planeja
+    TEAMS ||--|| TEAM_COLLAPSE_STREAK : sequencia_de_colapso
+    TEAMS ||--|| TEAM_RESCUE_COUNTERS : contadores_de_resgate
+    TEAMS ||--o{ TEAM_PROMOTION_HISTORY : sobe_ou_desce
+    TEAMS ||--o{ TEAM_OWNERSHIP_EVENTS : troca_de_dono
 
-    SEASONS ||--o{ PLAYER_SPECIAL_OFFERS : contains
-    DRIVERS ||--o{ PLAYER_SPECIAL_OFFERS : receives
-    TEAMS ||--o{ PLAYER_SPECIAL_OFFERS : offers
+    %% ── Mercado regular e janela de transferencias ──────────────────────────
+    SEASONS ||--o{ MARKET : abre
+    SEASONS ||--o{ MARKET_PROPOSALS : contem
+    TEAMS   ||--o{ MARKET_PROPOSALS : oferece
+    DRIVERS ||--o{ MARKET_PROPOSALS : recebe
+    MARKET_PROPOSALS ||--o{ CONTRACTS : vira
+    SEASONS ||--|| TRANSFER_WINDOW : janela_no_meio_do_ano
+    DRIVERS ||--o{ DRIVER_TEAM_BOND : vinculo_com_equipe
+    TEAMS   ||--o{ DRIVER_TEAM_BOND : vinculo_com_piloto
+    DRIVERS ||--o{ DRIVER_FAVORITES : favoritado
 
-    SEASONS ||--o{ SPECIAL_WINDOW_STATE : controls
-    SEASONS ||--o{ SPECIAL_WINDOW_ASSIGNMENTS : organizes
-    TEAMS ||--o{ SPECIAL_WINDOW_ASSIGNMENTS : fields
-    DRIVERS ||--o{ SPECIAL_WINDOW_ASSIGNMENTS : participates
+    %% ── Bloco especial (convocacao) ─────────────────────────────────────────
+    SEASONS ||--o{ PLAYER_SPECIAL_OFFERS : contem
+    DRIVERS ||--o{ PLAYER_SPECIAL_OFFERS : recebe
+    TEAMS   ||--o{ PLAYER_SPECIAL_OFFERS : oferece
+    PLAYER_SPECIAL_OFFERS ||--o{ CONTRACTS : vira_contrato_especial
+    SEASONS ||--|| SPECIAL_WINDOW_STATE : estado_da_janela
+    SEASONS ||--o{ SPECIAL_WINDOW_CANDIDATE_POOL : pool
+    SEASONS ||--o{ SPECIAL_WINDOW_ASSIGNMENTS : atribuicoes
+    SEASONS ||--o{ SPECIAL_WINDOW_DAILY_LOG : log_diario
+    SEASONS ||--o{ SPECIAL_TEAM_ENTRIES : habilita
+    TEAMS   ||--o{ SPECIAL_TEAM_ENTRIES : inscreve
 
-    SEASONS ||--o{ SPECIAL_WINDOW_CANDIDATE_POOL : pools
-    DRIVERS ||--o{ SPECIAL_WINDOW_CANDIDATE_POOL : candidate
-
-    SEASONS ||--o{ SPECIAL_WINDOW_DAILY_LOG : logs
-    TEAMS ||--o{ SPECIAL_WINDOW_DAILY_LOG : referenced_team
-    DRIVERS ||--o{ SPECIAL_WINDOW_DAILY_LOG : referenced_driver
-
-    SEASONS ||--o{ SPECIAL_TEAM_ENTRIES : qualifies
-    TEAMS ||--o{ SPECIAL_TEAM_ENTRIES : enters
-
-    %% Narrative and history
+    %% ── Rivalidade ──────────────────────────────────────────────────────────
     DRIVERS ||--o{ RIVALRIES : piloto1
     DRIVERS ||--o{ RIVALRIES : piloto2
-    DRIVERS ||--o{ TRACK_DNF_HISTORY : dnf_history
-    SEASONS ||--o{ NEWS : publishes
-    SEASONS ||--o{ HISTORY_SEASONS : closes
-    DRIVERS ||--o{ HISTORY_SEASONS : champion_driver
-    TEAMS ||--o{ HISTORY_SEASONS : champion_team
-    DRIVERS ||--o{ RETIRED : retires_as_snapshot
+    RIVALRIES ||--o{ RIVALRY_EPISODES : episodio
+    DRIVERS ||--o| PLAYER_NEMESIS : rival_do_jogador
+    TEAMS   ||--o{ TEAM_RIVALRIES : equipe1
+    TEAMS   ||--o{ TEAM_RIVALRIES : equipe2
 
+    %% ── Noticia determinística e conteudo por IA ────────────────────────────
+    SEASONS  ||--o{ NEWS : publica
+    CALENDAR ||--o| AI_PRE_RACE_BRIEFING : briefing_por_ia
+    CALENDAR ||--o| AI_POST_RACE_DEBRIEF : debrief_por_ia
+    NEWS     ||--o| AI_RACE_STORY : materia_por_ia
+    AI_WORLD_NOTES }o--|| SEASONS : notas_do_mundo
+
+    %% ── Historia e arquivo ──────────────────────────────────────────────────
+    DRIVERS ||--o{ DRIVER_SEASON_ARCHIVE : arquivado_como
+    TEAMS   ||--o{ TEAM_SEASON_ARCHIVE : arquivada_como
+    SEASONS ||--o{ HISTORY_SEASONS : encerra
+    DRIVERS ||--o{ HISTORY_SEASONS : campeao_piloto
+    TEAMS   ||--o{ HISTORY_SEASONS : campea_equipe
+    HISTORY_SEASONS ||--o{ HISTORY_GENERAL : consolida
+    DRIVERS ||--o{ RETIRED : aposenta_como_snapshot
+    DRIVERS ||--o{ RECORD_MILESTONES : marco
+    CATEGORY_SCALAR_RECORDS }o--|| SEASONS : recorde_por_categoria
+
+    %% ── Entidades ───────────────────────────────────────────────────────────
     DRIVERS {
         TEXT id PK
         TEXT nome
@@ -77,8 +112,15 @@ erDiagram
         TEXT categoria_atual
         TEXT categoria_especial_ativa
         TEXT status
+        TEXT personalidade_primaria
+        TEXT personalidade_secundaria
         REAL skill
+        REAL carisma
+        REAL potencial
+        REAL forma "v54: estado do AR(1)"
         REAL motivacao
+        TEXT historico_circuitos "JSON"
+        TEXT ultimos_resultados "JSON"
     }
 
     TEAMS {
@@ -86,6 +128,7 @@ erDiagram
         TEXT nome
         TEXT nome_curto
         TEXT categoria
+        TEXT categoria_anterior
         INTEGER is_player_team
         TEXT parent_team_id SEM
         TEXT piloto_1_id FK
@@ -97,104 +140,110 @@ erDiagram
         REAL confiabilidade
         REAL reputacao
         REAL cash_balance
+        REAL debt_balance
+        TEXT financial_state
+        TEXT season_strategy
     }
 
     CONTRACTS {
         TEXT id PK
         TEXT piloto_id FK
         TEXT equipe_id FK
-        TEXT piloto_nome
-        TEXT equipe_nome
-        TEXT status
-        TEXT papel
-        TEXT tipo
         TEXT categoria
-        TEXT classe
-        INTEGER temporada_inicio
-        INTEGER temporada_fim
+        TEXT classe "so em contrato especial"
+        TEXT tipo "Regular ou Especial"
+        TEXT status
+        TEXT papel "Numero1 ou Numero2"
+        REAL salario_anual
+        INTEGER duracao_anos
     }
 
     SEASONS {
         TEXT id PK
         INTEGER numero
         INTEGER ano
-        TEXT status
-        TEXT fase
+        TEXT status "EmAndamento ou Finalizada"
+        TEXT fase "PreTemporada, Temporada, Encerramento"
         INTEGER rodada_atual
     }
 
     CALENDAR {
         TEXT id PK
         TEXT temporada_id FK
-        TEXT season_id SEM
-        INTEGER rodada
         TEXT categoria
-        TEXT nome
+        INTEGER rodada
         TEXT track_name
         TEXT clima
+        INTEGER voltas
+        INTEGER duracao_corrida_min "0 = sentinela de endurance"
+        TEXT status "Pendente ou Concluida"
+        INTEGER week_of_year
+        INTEGER season_week "woy + 4"
         TEXT season_phase
-        TEXT status
+        TEXT thematic_slot
+    }
+
+    RACE_RESULTS {
+        TEXT id PK
+        TEXT race_id FK "referencia calendar(id)"
+        TEXT piloto_id FK
+        TEXT equipe_id FK
+        INTEGER posicao
+        REAL pontos
+        INTEGER dnf
+        INTEGER incidentes
+        INTEGER segmentos_em_ar_sujo "v55"
+        INTEGER maior_sequencia_preso "v55"
+        TEXT posicao_por_trecho "v55, JSON"
+        TEXT paradas "v55, JSON"
     }
 
     RACES {
         TEXT id PK
         TEXT temporada_id FK
         TEXT calendar_id FK
-        INTEGER rodada
-        TEXT status
-    }
-
-    RACE_RESULTS {
-        INTEGER id PK
-        TEXT race_id FK
-        TEXT piloto_id FK
-        TEXT equipe_id FK
-        INTEGER posicao_largada
-        INTEGER posicao_final
-        REAL pontos
-        INTEGER dnf
-        TEXT dnf_reason
-        TEXT dnf_catalog_id SEM
+        TEXT status "LEGADA: sem leitura viva"
     }
 
     STANDINGS {
-        INTEGER id PK
         TEXT temporada_id FK
         TEXT piloto_id FK
         TEXT equipe_id FK
         TEXT categoria
-        INTEGER posicao
         REAL pontos
+        INTEGER posicao
     }
 
-    LICENSES {
-        INTEGER id PK
-        TEXT piloto_id FK
-        TEXT nivel
-        TEXT categoria_origem
-        TEXT data_obtencao
+    RACE_BREAKDOWNS {
+        TEXT race_id FK
+        TEXT piloto_id SEM
+        TEXT part_type
+        REAL tempo_perdido_ms
     }
 
-    INJURIES {
+    RACE_WEEKEND_READINGS {
+        TEXT race_id PK
+        TEXT driver_id PK
+    }
+
+    PLAYER_RACE_TELEMETRY {
+        TEXT race_id PK
+    }
+
+    TEAM_CAR {
+        TEXT team_id PK
+        TEXT part_type PK
+        REAL wear
+        INTEGER unit_seed "v62"
+    }
+
+    RIVALRIES {
         TEXT id PK
-        TEXT pilot_id FK
-        TEXT type
-        TEXT injury_name
-        REAL modifier
-        INTEGER races_total
-        INTEGER races_remaining
-        INTEGER season SEM
-        TEXT race_occurred SEM
-        INTEGER active
-    }
-
-    MARKET {
-        INTEGER id PK
-        TEXT temporada_id FK
-        TEXT status
-        TEXT fase
-        TEXT inicio
-        TEXT fim
+        TEXT piloto1_id FK
+        TEXT piloto2_id FK
+        REAL historical_intensity
+        REAL recent_activity
+        INTEGER temporada_update
     }
 
     MARKET_PROPOSALS {
@@ -205,6 +254,8 @@ erDiagram
         TEXT papel
         REAL salario
         TEXT status
+        TEXT motivo_recusa
+        INTEGER semana_limite
     }
 
     PLAYER_SPECIAL_OFFERS {
@@ -214,119 +265,24 @@ erDiagram
         TEXT team_id FK
         TEXT special_category
         TEXT class_name
-        TEXT papel
-        TEXT status
         INTEGER available_from_day
-        INTEGER selected_for_day
-    }
-
-    SPECIAL_WINDOW_STATE {
-        TEXT season_id PK
-        INTEGER current_day
-        INTEGER total_days
-        TEXT status
-        TEXT active_offer_id SEM
-        TEXT player_result
-    }
-
-    SPECIAL_WINDOW_ASSIGNMENTS {
-        TEXT id PK
-        TEXT season_id SEM
-        TEXT special_category
-        TEXT class_name
-        TEXT team_id SEM
-        TEXT driver_id SEM
-        TEXT papel
-        INTEGER reveal_day
-        INTEGER revealed
-        INTEGER is_player
-    }
-
-    SPECIAL_WINDOW_CANDIDATE_POOL {
-        TEXT season_id PK
-        TEXT driver_id PK
-        TEXT driver_name
-        TEXT origin_category
-        INTEGER license_level
-        INTEGER desirability
-        TEXT status
-    }
-
-    SPECIAL_WINDOW_DAILY_LOG {
-        TEXT id PK
-        TEXT season_id SEM
-        INTEGER day_number
-        TEXT event_type
-        TEXT message
-        TEXT team_id SEM
-        TEXT driver_id SEM
-    }
-
-    SPECIAL_TEAM_ENTRIES {
-        TEXT season_id PK
-        TEXT special_category PK
-        TEXT class_name PK
-        TEXT team_id PK
-        TEXT source_category
-        TEXT qualified_via
-        INTEGER guaranteed_next_year
-    }
-
-    RIVALRIES {
-        TEXT id PK
-        TEXT piloto1_id FK
-        TEXT piloto2_id FK
-        REAL intensidade
-        REAL historical_intensity
-        REAL recent_activity
-        TEXT tipo
-    }
-
-    INCIDENT_CATALOG {
-        TEXT id PK
-        TEXT vehicle_class
-        TEXT race_format
-        TEXT incident_source
-        TEXT trigger_type
-        TEXT severity_context
-    }
-
-    DRIVER_SEASON_ARCHIVE {
-        INTEGER id PK
-        TEXT piloto_id SEM
-        INTEGER season_number
-        INTEGER ano
-        TEXT categoria
-        INTEGER posicao_campeonato
-        REAL pontos
-        TEXT snapshot_json
-    }
-
-    TRACK_DNF_HISTORY {
-        TEXT id PK
-        TEXT piloto_id SEM
-        TEXT track_name
-        INTEGER season_num
-        INTEGER round
-        TEXT dnf_reason
+        INTEGER resolved_day
     }
 
     NEWS {
         TEXT id PK
         TEXT tipo
         TEXT titulo
-        TEXT chave_dedup UK
-        TEXT temporada_id SEM
+        TEXT chave_dedup "indice unico"
+        TEXT temporada_id FK
         INTEGER rodada
         INTEGER lida
     }
 
-    RETIRED {
-        TEXT piloto_id PK
-        TEXT nome
-        TEXT temporada_aposentadoria
-        TEXT categoria_final
-        TEXT estatisticas
+    DRIVER_SEASON_ARCHIVE {
+        TEXT piloto_id SEM
+        INTEGER season_number
+        TEXT snapshot "atributos ao fim da temporada"
     }
 
     HISTORY_SEASONS {
@@ -336,21 +292,5 @@ erDiagram
         TEXT categoria
         TEXT campeao_piloto_id SEM
         TEXT campeao_equipe_id SEM
-        TEXT classificacao_final
-    }
-
-    META {
-        TEXT key PK
-        TEXT value
-    }
-
-    CONFIG {
-        TEXT key PK
-        TEXT value
-    }
-
-    HISTORY_GENERAL {
-        TEXT key PK
-        TEXT value
-        TEXT updated_at
+        TEXT classificacao_final "JSON"
     }

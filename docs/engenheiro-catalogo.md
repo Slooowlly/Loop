@@ -1,6 +1,6 @@
 # Catálogo de falas do engenheiro
 
-Gerado por `engenheiro::catalogo()`. **3948 peças, 109777 caracteres.**
+Gerado por `engenheiro::catalogo()`. **3948 peças, 109872 caracteres.**
 
 Cada linha vira um `.wav` gravado pela Cloud TTS com a voz do engenheiro. A chave é o nome do arquivo; o texto é o que será falado.
 
@@ -25,10 +25,10 @@ Revise o TEXTO, não a chave — é o que o jogador ouve.
 - `foco_3` — Menos rádio e mais volante.
 - `radio_ruim` — Estou com problema no rádio, não vou te responder agora.
 - `conj_e` — e,
-- `meu_quali_grave` — Não dá para continuar a classificação com o carro assim. Vamos direto para a corrida, largando lá de trás.
-- `meu_quali_destruido` — O carro não tem conserto a tempo da corrida. Nosso fim de semana acabou aqui.
-- `meu_quali_catastrofico` — Você está inteiro? O carro ficou na parede. Hoje a gente não corre.
-- `meu_quali_eol` — Remendamos o que deu. Você larga lá de trás.
+- `meu_quali_grave` — Não dá para continuar a classificação com o carro assim. Vamos direto para a corrida, largando lá de trás...
+- `meu_quali_destruido` — O carro não tem conserto a tempo da corrida. Nosso fim de semana acabou aqui...
+- `meu_quali_catastrofico` — Você está inteiro? O carro ficou na parede. Hoje a gente não corre...
+- `meu_quali_eol` — Largamos em último porque tivemos que mexer no carro e quebrar o parque fechado. Tenta não bater na próxima classificação, por favor.
 - `meu_quali_dq` — O carro não tem conserto a tempo. Você não larga hoje.
 - `meu_engine_0` — Estou ouvindo algo estranho no seu motor.
 - `meu_engine_1` — Não gostei de um barulho no seu motor.

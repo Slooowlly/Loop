@@ -1,18 +1,41 @@
 # Varredura de bugs — julho/2026
 
-**Para quem vai investigar:** este documento lista 6 achados de uma varredura feita
+> ## ✅ FECHADA em 11/08/2026. Os 6 achados estão resolvidos no código.
+>
+> Este documento passou duas semanas sendo uma **pergunta sem resposta**: 6 achados,
+> nenhum veredito, e quem o lesse não sabia se o app tinha 6 bugs ou zero. A conferência
+> contra o código de hoje mostrou que **todos os 6 foram tratados**, alguns por sessões que
+> citaram esta varredura pelo número no comentário do próprio código e nunca voltaram aqui
+> para registrar.
+>
+> **Nenhum achado era falso positivo.** Os quatro que tinham consequência foram corrigidos,
+> e os dois que dependiam de um fato externo foram fechados com o fato medido.
+>
+> | # | veredito | onde a prova está |
+> |---|---|---|
+> | #1 | **CONFIRMADO e corrigido** (era o teste, como a varredura suspeitava) | `commands/career/tests/mod.rs:4533` |
+> | #2 | **CONFIRMADO e corrigido** (o caso perigoso era a corrida de fase especial) | `commands/race/manutencao.rs:89-113`, `commands/race/fatura.rs:136` |
+> | #3 | **CONFIRMADO e corrigido** (uma linha) | `src/stores/career/raceSlice.js:128` |
+> | #4 | **REFUTADO com prova**, e a prova virou teste | `simulation/incidents/tests/mod.rs:801-820` |
+> | #5 | **INTENCIONAL**, e as duas recalibrações foram registradas | `docs/briefings/D09-despacho-r1-r2-r4.md` §"Duas recalibrações" |
+> | #6 | **PARCIAL**: a parte 1 caiu com o fato do SDK, a parte 2 era real e foi corrigida | `commands/overlay/formato.rs:245`, `commands/overlay/torre.rs:889` |
+>
+> **A lição de processo:** três destes vereditos já existiam dentro do código, escritos em
+> doc-comment que cita "a varredura de bugs de 07/2026" pelo número, com o documento aqui
+> continuando a perguntar. Achado fechado volta para o documento que o levantou, no mesmo
+> commit que o fecha. Sem isso, a varredura vira dívida de dúvida.
+>
+> O texto original de cada achado continua abaixo, intacto, porque ele registra o
+> raciocínio que levou à investigação. Cada um abre com o veredito.
+
+---
+
+**Para quem lê o histórico:** este documento listava 6 achados de uma varredura feita
 sobre o diff de trabalho da branch `main-menu-redesign` (60 arquivos, ~1.900 linhas
 novas, ainda não commitado no momento da varredura). Cada achado foi levantado por
 LEITURA de código, e só o primeiro foi reproduzido empiricamente.
 
-**Sua tarefa:** confirmar ou refutar cada um, com evidência. Não assuma que estão
-certos — três deles são hipóteses baseadas em leitura estática e podem cair diante de
-um invariante que a varredura não enxergou. Para cada achado há uma seção
-**"O que refuta"**: se você encontrar aquilo, o achado morre e deve ser marcado como
-falso positivo, não "amenizado".
-
-Prioridade de investigação: **#1 e #2** primeiro (são os que têm consequência de
-verdade), depois #3–#6.
+Prioridade de investigação na época: **#1 e #2** primeiro, depois #3 a #6.
 
 ## Contexto mínimo do projeto
 
@@ -34,6 +57,39 @@ cargo **1886 ✅ / 1 ❌** (o ❌ é o achado #1).
 ---
 
 ## #1 — Teste Rust intermitente (REPRODUZIDO, ~25% de falha)
+
+> ### ✅ Veredito 11/08/2026: CONFIRMADO, e corrigido no teste
+>
+> A hipótese da varredura estava certa: **era o teste que estava superespecificado**, e a
+> produção estava correta. A asserção foi trocada exatamente pela alternativa que a seção
+> "Se confirmado" recomendava.
+>
+> Hoje, em [`commands/career/tests/mod.rs:4533`](../src-tauri/src/commands/career/tests/mod.rs):
+>
+> ```rust
+> assert_eq!(
+>     incumbents_still_at_team, 1,
+>     "exactly one incumbent should keep an active regular contract for the target team after the player takes a seat"
+> );
+> ```
+>
+> No lugar de cravar que o titular `piloto_1_id` perdeu a vaga, o teste conta quantos
+> titulares mantiveram contrato regular ativo no time. **Um** vale nos dois ramos, com o
+> jogador entrando como `Numero1` ou como `Numero2`, então a nondeterminância do `papel`
+> deixou de derrubar o teste. Os dois invariantes reais (`target_contracts.len() == 2` e o
+> jogador presente no lineup) continuam asseverados logo acima, nas linhas 4527 e 4529.
+>
+> `normalize_regular_contracts_for_team` **não foi tocada**, que era a recomendação
+> explícita do achado.
+>
+> **Pendente de reexecução empírica.** A confirmação acima é por leitura, e a correção
+> remove a nondeterminância por construção. A prova das ~20 execuções não foi refeita
+> porque duas outras sessões de `cargo` estavam compilando no mesmo target no momento desta
+> conferência, e disputar o link derruba as duas. Para fechar de vez:
+>
+> ```bash
+> npm run build && cd src-tauri && for i in $(seq 1 20); do cargo test --lib test_accept_proposal_to_full_team_replaces_incumbent 2>/dev/null | grep "test result"; done
+> ```
 
 **Arquivos:** [`src-tauri/src/commands/career/vacancies.rs`](../src-tauri/src/commands/career/vacancies.rs),
 [`src-tauri/src/commands/career/tests/mod.rs`](../src-tauri/src/commands/career/tests/mod.rs)
@@ -112,6 +168,41 @@ sem antes provar que a produção viola um invariante — ela parece correta.
 ---
 
 ## #2 — A fatura do fim de semana ancora numa linha de histórico não verificada
+
+> ### ✅ Veredito 11/08/2026: CONFIRMADO, e corrigido nos dois lados
+>
+> O risco estrutural era real, e o caminho que o materializa é a **corrida de fase
+> especial**: nela o caixa não se move, não existe linha de ledger, e a "mais recente"
+> seria a da última rodada REGULAR. A fatura mostraria números plausíveis para um dinheiro
+> que nunca saiu, que é exatamente o modo de falha silencioso que o achado previu.
+>
+> A heurística de "pegar a mais recente" foi substituída por casamento explícito de
+> `(season_number, round)` nos dois consumidores:
+>
+> **1. `compute_maintenance_breakdown`** ([`manutencao.rs:108`](../src-tauri/src/commands/race/manutencao.rs))
+> deixou de usar `get_team_finance_history_recent(conn, team_id, 1)` e passou a chamar uma
+> query dedicada, com a rodada na assinatura:
+>
+> ```rust
+> let debitado =
+>     team_queries::get_team_round_operations_cost(conn, &team.id, season_number, round)
+>         .ok()
+>         .flatten()
+>         .filter(|v| *v > 0.0);
+> ```
+>
+> Sem linha desta rodada, o bloco de operação simplesmente **não é emitido**, e só o
+> conserto aparece, que é debitado à parte. A escolha está registrada no docstring da
+> função (linhas 89 a 93).
+>
+> **2. `linha_do_ledger`** ([`fatura.rs:136`](../src-tauri/src/commands/race/fatura.rs)) faz
+> o mesmo para a fatura da etapa, e o docstring abre com a regra em uma frase: *"A linha do
+> ledger DESTA rodada. Nunca 'a mais recente'"*. Ele varre `HISTORICO_A_VARRER` linhas e
+> filtra por `season_number` e `round`, mais um `total_da_etapa() > 0.0`.
+>
+> A pergunta 2 do "O que confirmar" (unicidade por `(season, round)` com o time correndo em
+> duas categorias) fica resolvida por construção: a query agora é por rodada, e a fase
+> especial, que era o caso de colisão, não grava linha.
 
 **Arquivo:** [`src-tauri/src/commands/race/manutencao.rs:83-110`](../src-tauri/src/commands/race/manutencao.rs)
 
@@ -203,6 +294,29 @@ ancorado na 5.
 
 ## #3 — `dismissResult` não limpa `lastRaceMaintenance`
 
+> ### ✅ Veredito 11/08/2026: CONFIRMADO, e corrigido com uma linha
+>
+> O campo entrou no `dismissResult`, na ordem dos irmãos
+> ([`raceSlice.js:128`](../src/stores/career/raceSlice.js)):
+>
+> ```js
+> set({
+>   showResult: false,
+>   iracingRepair: null,
+>   lastRaceEvaluation: null,
+>   lastRaceTelemetry: null,
+>   lastRaceMaintenance: null,   // <-- fechado
+>   lastRaceRepercussion: null,
+>   resultIsFresh: false,
+> });
+> ```
+>
+> A avaliação de impacto da varredura continua valendo: os três setters
+> (`raceSlice.js:33`, `:68` e `:101`) escrevem `... ?? null`, então uma abertura nova sempre
+> sobrescrevia e o vazamento era cosmético. A correção é de consistência, e o valor dela é
+> não deixar o próximo leitor gastar a mesma meia hora perguntando por que um dos cinco
+> campos é diferente.
+
 **Arquivo:** [`src/stores/career/raceSlice.js:121-130`](../src/stores/career/raceSlice.js)
 
 **Confiança da varredura:** alta no fato, baixa no impacto.
@@ -248,6 +362,35 @@ setters, isto é cosmético. Documente como tal e não gaste tempo.
 ---
 
 ## #4 — Mudança silenciosa de semântica em "batida" (`is_crash`)
+
+> ### ✅ Veredito 11/08/2026: REFUTADO, e a refutação virou teste
+>
+> A condição que a seção "O que refuta" pedia **existe**: `IncidentSeverity::Minor` é
+> estruturalmente incompatível com abandono por `DriverError`. A regra removida era
+> redundante, e a mudança é inócua na prática.
+>
+> A prova está cravada em
+> [`simulation/incidents/tests/mod.rs:801-820`](../src-tauri/src/simulation/incidents/tests/mod.rs),
+> num teste que cita este achado pelo número:
+>
+> ```rust
+> #[test]
+> fn abandono_por_erro_de_pilotagem_nunca_nasce_com_severidade_minor() { ... }
+> ```
+>
+> O mecanismo, do docstring do teste: `roll_driver_error` só devolve `Minor` com
+> `is_dnf = false`, e o agravamento para stall promove a `Major` antes de virar abandono.
+> O teste roda 400 seeds sobre os 5 trechos e conta os abandonos.
+>
+> **O teste trouxe de brinde um achado que a varredura não tinha visto**, e vale mais que o
+> #4 original. Em `roll_collision` a severidade e a consequência são sorteios
+> **independentes** (55% `Minor`; 40% de DNF, decidido em `resolve_collision_consequence`),
+> então uma batida "leve" tira o carro da prova com alguma frequência. E
+> `estrategia::traz_bandeira_amarela` só neutraliza `(Collision, Major)` quando é DNF e
+> `(Collision, Critical)` sempre. Logo: **um abandono por colisão `Minor` deixa o carro
+> parado na pista sem safety car.** Amarrar as duas coisas mexeria na frequência de safety
+> car, que é balanceamento medido, então ficou como decisão em aberto, com o teste
+> garantindo que a situação não passe despercebida.
 
 **Arquivos:** [`src-tauri/src/race_signals.rs:58-68`](../src-tauri/src/race_signals.rs) (novo),
 [`src-tauri/src/narrative/incidentes.rs`](../src-tauri/src/narrative/incidentes.rs) (função removida),
@@ -316,6 +459,38 @@ achado é teórico e deve ser fechado como tal (com uma nota, no máximo).
 ---
 
 ## #5 — Duas recalibrações embutidas na unificação de limiares
+
+> ### ✅ Veredito 11/08/2026: INTENCIONAL nas duas, e agora registrado
+>
+> Era exatamente o que o achado pedia: "obrigar uma decisão consciente". A decisão foi
+> tomada, as duas recalibrações **ficam**, e as duas ganharam teste que crava o número. O
+> registro está em [`D09-despacho-r1-r2-r4.md`](briefings/D09-despacho-r1-r2-r4.md), na
+> seção "Duas recalibrações foram embutidas nesse P1", que cita este item #5 pelo nome.
+>
+> **5a, `positional_bonus` contínuo a 0,4 por posição.** O miolo ficou mais fraco de
+> propósito: preservando o salto antigo, a inclinação no miolo seria de 0,8 por posição, que
+> é repercussão demais para uma corrida em que só o tráfego se desfez. O ponto de atenção
+> que o registro levanta é a jusante, e é o mesmo que a varredura suspeitou: `score_to_tier`
+> (85/65/45/25) e `news_importance_bias` (85/55) têm faixa fixa, então um `final_score` que
+> caía em 83 a 85 ou 53 a 55 numa remontada de 5 desce um tier. `media_delta_modifier` e
+> `motivation_delta_modifier` são contínuos e não sentem.
+> Cravado em `contribuicao_posicional_e_de_04_por_posicao`
+> ([`event_interest/calculator.rs:652`](../src-tauri/src/event_interest/calculator.rs)), que
+> é o único teste daquela suíte a cravar número em vez de relação, justamente porque
+> monotonicidade e sinal continuam valendo em qualquer inclinação.
+>
+> **5b, `REMONTADA_MIN = 4`.** Dos quatro limiares que existiam (`>0`, 4, 5, 8), o debrief
+> usava 5 e o beat de recuperação usava `>0`. Um ganho de 1 posição não é história e gastava
+> vaga do boletim; 5 deixava de fora recuperação que o jogador claramente sente. 4 é o meio
+> e vale para os dois motores. **Efeito colateral aceito e escrito:** a tese "remontada" do
+> debrief dispara uma posição mais cedo do que antes. O limiar 8 continua existindo à parte
+> como `REMONTADA_EPICA_MIN`, que é outro conceito (manchete), e não um segundo limiar de
+> remontada. Cravado em `race_signals::limiares_de_remontada_e_colapso` e em
+> `remontada_dispara_com_4_posicoes_e_nao_com_3`.
+>
+> As duas mudanças de direção oposta que o achado mandava pesar juntas (o debrief afrouxando
+> de 5 para 4, o beat apertando de `>0` para 4) foram pesadas juntas e estão no mesmo
+> parágrafo do registro.
 
 **Arquivos:** [`src-tauri/src/event_interest/calculator.rs:210-230`](../src-tauri/src/event_interest/calculator.rs),
 [`src-tauri/src/commands/ai_news/tese.rs:67`](../src-tauri/src/commands/ai_news/tese.rs),
@@ -386,6 +561,36 @@ escolhida. Se existir, feche os dois itens.
 ---
 
 ## #6 — O overlay descarta a estimativa de voltas do próprio iRacing em prova por tempo
+
+> ### ✅ Veredito 11/08/2026: PARCIAL. Parte 1 REFUTADA pelo fato do SDK, parte 2 CONFIRMADA e corrigida
+>
+> **Parte 1, o gate `!timed`: REFUTADA.** O fato sobre o SDK, que o achado disse ser "o
+> ponto que decide", foi medido: em prova por tempo o iRacing manda o **sentinela de
+> ilimitado** em `SessionLapsRemainEx`, que é **32767**. O comentário removido, que dizia
+> que o valor "vale em corrida por tempo", estava errado. O gate está certo.
+>
+> O código de hoje trata os dois sentinelas explicitamente
+> ([`torre.rs:865`](../src-tauri/src/commands/overlay/torre.rs)): *"O iRacing manda
+> valores-sentinela de 'ilimitado' — 604800 s e 32767 voltas —, então os dois lados precisam
+> de teto pra não virarem número de verdade."* O teto vive em `SENTINELA_VOLTAS` e
+> `SENTINELA_TEMPO_S`, e a decisão por regime saiu para
+> [`contagem_de_voltas`](../src-tauri/src/commands/overlay/formato.rs) (`formato.rs:245`),
+> com `por_voltas` separando os dois casos e docstring próprio.
+>
+> **Parte 2, o viés do ritmo de referência: CONFIRMADA e corrigida.** A melhor volta
+> absoluta do campo subestimava sistematicamente quantas voltas ainda cabiam, como o achado
+> descreveu. Hoje o ritmo sai da **mediana das últimas voltas do líder**, com a melhor volta
+> do campo apenas como reserva quando não há histórico
+> ([`torre.rs:889`](../src-tauri/src/commands/overlay/torre.rs), helper
+> `ritmo_de_referencia`). O comentário no código cita este achado por nome: *"dividir pela
+> melhor volta absoluta subestimava o total de forma sistemática, que é a parte 2 do bug #6
+> do doc de dívida"*.
+>
+> Dois ajustes vieram junto e valem registro. O arredondamento passou de `.ceil()` para
+> `.round()`, ao mais próximo, com o código assumindo em comentário que o total é estimativa
+> e pode mexer em ±1 durante a prova. E o remendo `total_laps.max(lead_lap)` que o achado
+> apontou virou regra escrita dentro do `contagem_de_voltas`: a estimativa nunca fica atrás
+> da volta em curso, senão o "/total" some do cabeçalho na reta final.
 
 **Arquivo:** [`src-tauri/src/commands/overlay/torre.rs:625-655`](../src-tauri/src/commands/overlay/torre.rs)
 
@@ -483,15 +688,31 @@ Registrado para você não regastar tempo — mas confira por amostragem se disc
   nenhum chamador no frontend. `old_state_path` continua em uso em outros três pontos
   de `race_control.rs` — não virou dead code.
 
-## Formato da resposta esperada
+## O que ficou em aberto
 
-Para cada achado de #1 a #6, devolva:
+A varredura fechou. Duas coisas saíram dela e continuam vivas, cada uma no lugar certo:
 
-- **Veredito:** CONFIRMADO / REFUTADO / PARCIAL.
-- **Evidência:** o trecho de código, saída de teste ou comando que sustenta o
-  veredito. Não aceite raciocínio sem âncora no repositório.
-- **Se CONFIRMADO:** o menor patch que resolve, e qual suíte cobre a regressão.
-- **Se REFUTADO:** qual invariante do código a varredura não enxergou.
+1. **Abandono por colisão `Minor` sem safety car** (do #4). Achado novo, que a varredura
+   original não tinha visto. Amarrar a neutralização à consequência em vez da severidade
+   mexe na frequência de safety car, que é balanceamento medido, então é **decisão de
+   design**, e não correção. O teste
+   `abandono_por_erro_de_pilotagem_nunca_nasce_com_severidade_minor` registra a situação
+   para ela não passar despercebida.
+2. **Reexecução empírica do #1.** A correção remove a nondeterminância por construção, e as
+   ~20 execuções não foram refeitas por contenção de target do cargo. O comando está no
+   veredito do #1.
 
-Se, no caminho, você encontrar um bug que não está nesta lista, adicione — mas
-mantenha o mesmo padrão de evidência.
+## Nota de método, para a próxima varredura
+
+Três dos seis vereditos **já existiam dentro do código** quando esta conferência começou,
+escritos em doc-comment que cita "a varredura de bugs de 07/2026" e o número do achado. O
+documento aqui continuou perguntando por duas semanas.
+
+**Achado fechado volta para o documento que o levantou, no mesmo commit que o fecha.** Um
+comentário no código serve a quem já está lendo aquele arquivo; ele não alcança quem abre o
+`docs/` procurando saber se o app tem bug. Enquanto o veredito mora só no código, a
+varredura continua cobrando juros em dúvida.
+
+O formato de resposta que este documento pedia continua valendo para a próxima: veredito
+(CONFIRMADO, REFUTADO ou PARCIAL), evidência ancorada no repositório, o menor patch quando
+confirmado, e o invariante que a varredura não enxergou quando refutado.

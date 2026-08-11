@@ -1,9 +1,0 @@
-O salário do piloto passa a aparecer por ANO, como o contrato sempre foi negociado. O número muda de tamanho; o valor é o mesmo
-Correção: a virada de temporada somava pontos, vitórias, pódios, poles e DNFs em dobro na sua carreira
-O ranking mundial agora conta o que foi corrido de verdade, e anos de carreira exigem ao menos uma largada — números inflados voltam ao lugar
-Depois da sua primeira corrida no iRacing, o Loop pergunta uma vez se pode enviar dados anônimos de corrida. Dá para recusar, e mudar de ideia em Configurações
-As batidas entram no boletim graduadas pelo impacto e dizendo onde o carro foi atingido — ideia do Pacheli, valeu!
-Torre do overlay: novo modo mini com nomes curtos, sugestão do Pacheli — e ela não esvazia mais no meio da corrida
-O boletim varia como chama cada piloto — nome completo, primeiro nome e apelidos — e cada menção fica ligada ao piloto
-Bandeira amarela passa a existir também na corrida simulada, e a revista pode contar a neutralização
-A revista não abre mais fechada antes da primeira corrida: a pré-temporada agora mostra os favoritos ao título do ano
