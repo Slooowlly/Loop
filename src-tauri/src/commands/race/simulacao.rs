@@ -69,6 +69,7 @@ pub(super) fn preroll_simulated_breakdowns(
     total_laps: i32,
     sim_drivers: &[SimDriver],
     teams: &[Team],
+    wet_bias: f64,
 ) -> Option<Vec<PrerolledBreakdown>> {
     use crate::car::breakdown::{is_enduro_duration, roll_race_breakdowns_cfg};
     use crate::db::queries::race_breakdowns::RaceBreakdownRow;
@@ -82,6 +83,7 @@ pub(super) fn preroll_simulated_breakdowns(
         race_entry.week_of_year,
         ev_seed,
         false,
+        wet_bias,
     );
     let track_pha = maintenance_demand(&[race_entry.track_id]);
     // Enduro: severidade abrandada (o grid não esvazia) + rampa de desgaste no fim.
@@ -451,6 +453,38 @@ pub(super) fn simulate_category_race_with_mode(
     advance_player_round: bool,
     persistence_mode: RacePersistenceMode,
 ) -> Result<(RaceResult, Vec<Injury>), String> {
+    // Corrida SÓ DE IA (jogável, sem o jogador): o clima é resolvido AQUI pela mesma fonte
+    // única do jogador (mesma seed), com viés de chuva maior (AI_WET_BIAS) — chuva embaralha
+    // os grids que o jogador não corre. A corrida do JOGADOR chega com o clima já resolvido
+    // sem viés (race.rs), e o rascunho histórico fica com o clima sintético do calendário.
+    let ai_race =
+        persistence_mode == RacePersistenceMode::Playable && !advance_player_round;
+    let wet_bias = if ai_race {
+        crate::commands::iracing::AI_WET_BIAS
+    } else {
+        1.0
+    };
+    let entry_resolvida: Option<CalendarEntry> = if ai_race {
+        crate::constants::tracks::get_track(race_entry.track_id).and_then(|track| {
+            crate::commands::iracing::resolve_and_persist_race_weather(
+                &db.conn,
+                &career_id_from_db(db),
+                track,
+                race_entry.week_of_year,
+                &race_entry.id,
+                false,
+                wet_bias,
+            );
+            // Relê a etapa pra clima E temperatura/umidade/vento entrarem coerentes na sim.
+            calendar_queries::get_calendar_entry_by_id(&db.conn, &race_entry.id)
+                .ok()
+                .flatten()
+        })
+    } else {
+        None
+    };
+    let race_entry = entry_resolvida.as_ref().unwrap_or(race_entry);
+
     let GridDaCorrida {
         category,
         active_season,
@@ -500,6 +534,7 @@ pub(super) fn simulate_category_race_with_mode(
             ctx.total_laps,
             &sim_drivers,
             &teams,
+            wet_bias,
         )
     } else {
         None

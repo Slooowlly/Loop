@@ -18,20 +18,32 @@ pub enum RainIntensity {
 }
 
 impl RainIntensity {
-    /// Âncoras `(fator_chuva, penalidade)` que definem a curva da penalidade, em
-    /// ordem de fator. Interpolação LINEAR POR PARTES entre elas (assim cravamos os
-    /// números que o user deu, mesmo quando não caem numa reta). Os de chuva forte
-    /// têm um joelho em fator 90 (o "ás da chuva" só vira resiliente lá no topo).
+    /// Âncoras `(fator_chuva, penalidade)` que definem a curva da penalidade, em ordem de
+    /// fator. Interpolação LINEAR POR PARTES entre elas. Os de chuva forte têm um joelho em
+    /// fator 90 (o "ás da chuva" só vira resiliente lá no topo).
+    ///
+    /// **A curva ANCORA POR BAIXO.** O problema real da chuva no iRacing é que a IA não
+    /// erra: ela repete o mesmo tempo volta após volta e, quando vem atrás, põe uma pressão
+    /// que o humano não sustenta na pista molhada. O jogador tira o pé para não rodar, a IA
+    /// não. Então o debuff GERAL é o grosso da punição: ele é o que faz a IA andar com
+    /// cuidado e é o que JUSTIFICA ela não errar. Quem é bom de chuva sobe um pouco a partir
+    /// desse fundo, sem escapar dele.
+    ///
+    /// Por isso o topo de cada curva (fator 0) manteve os números originais e o fundo (fator
+    /// 100) subiu muito: o pior caso não piorou, e o ás da chuva deixou de correr quase de
+    /// graça. Antes o melhor de chuva levava 8 a 14 pontos numa prova molhada, quase nada;
+    /// agora leva de 13 a 30, e a diferença entre ele e o pior do grid ficou em 5 a 10
+    /// pontos. A punição do pelotão passou a dominar a diferenciação, que é o que se quer.
+    ///
+    /// A severidade certa MUDA COM A PISTA, e isso ainda não tem alavanca no export.
     fn anchors(self) -> &'static [(f64, f64)] {
         match self {
             RainIntensity::None => &[(0.0, 0.0), (100.0, 0.0)],
-            RainIntensity::Light => &[(0.0, 18.0), (100.0, 5.0)],
-            // Decente: 0→30, 90→10, 100→8 (reta — os três são colineares).
-            RainIntensity::Decent => &[(0.0, 30.0), (100.0, 8.0)],
+            RainIntensity::Light => &[(0.0, 18.0), (100.0, 13.0)],
+            RainIntensity::Decent => &[(0.0, 30.0), (100.0, 22.0)],
             // Forte: intermediária (interpolada — user só fixou decente e muito forte).
-            RainIntensity::Heavy => &[(0.0, 35.0), (90.0, 15.0), (100.0, 11.0)],
-            // Muito forte: 0→40, 90→20, 100→14 (pontos exatos do user; curva).
-            RainIntensity::VeryHeavy => &[(0.0, 40.0), (90.0, 20.0), (100.0, 14.0)],
+            RainIntensity::Heavy => &[(0.0, 35.0), (90.0, 27.0), (100.0, 25.0)],
+            RainIntensity::VeryHeavy => &[(0.0, 40.0), (90.0, 32.0), (100.0, 30.0)],
         }
     }
 }

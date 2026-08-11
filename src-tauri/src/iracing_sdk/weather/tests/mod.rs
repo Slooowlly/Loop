@@ -9,18 +9,43 @@ fn seco_sem_penalidade() {
 
 #[test]
 fn chuva_decente_bate_os_exemplos() {
-    // fator 100 → 8, fator 90 → 10, fator 0 → 30.
-    assert_eq!(rain_skill_penalty(100.0, RainIntensity::Decent), 8);
-    assert_eq!(rain_skill_penalty(90.0, RainIntensity::Decent), 10);
+    // PIOR caso segue no número original do user (30). O fundo subiu de 8 para 22 quando a
+    // curva passou a ancorar por baixo.
     assert_eq!(rain_skill_penalty(0.0, RainIntensity::Decent), 30);
+    assert_eq!(rain_skill_penalty(100.0, RainIntensity::Decent), 22);
 }
 
 #[test]
 fn chuva_muito_forte_bate_os_exemplos() {
-    // Números EXATOS do user: fator 0 → 40, fator 90 → 20, fator 100 → 14.
+    // Pior caso no número original do user (40); o joelho em 90 e o fundo subiram.
     assert_eq!(rain_skill_penalty(0.0, RainIntensity::VeryHeavy), 40);
-    assert_eq!(rain_skill_penalty(90.0, RainIntensity::VeryHeavy), 20);
-    assert_eq!(rain_skill_penalty(100.0, RainIntensity::VeryHeavy), 14);
+    assert_eq!(rain_skill_penalty(90.0, RainIntensity::VeryHeavy), 32);
+    assert_eq!(rain_skill_penalty(100.0, RainIntensity::VeryHeavy), 30);
+}
+
+#[test]
+fn o_debuff_geral_domina_a_diferenciacao() {
+    // DOUTRINA: na chuva o grosso da punição é GERAL. A IA não erra e repete o mesmo tempo
+    // toda volta; o debuff do pelotão inteiro é o que a faz andar com cuidado e o que
+    // justifica ela não errar. Ser bom de chuva sobe um pouco a partir desse fundo, sem
+    // escapar dele. Então o melhor de chuva do mundo leva a maior parte do que o pior leva.
+    for intensity in [
+        RainIntensity::Light,
+        RainIntensity::Decent,
+        RainIntensity::Heavy,
+        RainIntensity::VeryHeavy,
+    ] {
+        let pior = rain_skill_penalty(0.0, intensity) as f64;
+        let melhor = rain_skill_penalty(100.0, intensity) as f64;
+        assert!(
+            melhor >= pior * 0.65,
+            "{intensity:?}: o ás da chuva escapa demais ({melhor} de {pior})"
+        );
+        assert!(
+            melhor < pior,
+            "{intensity:?}: ser bom de chuva tem que valer alguma coisa"
+        );
+    }
 }
 
 #[test]
@@ -65,14 +90,14 @@ fn estacao_por_hemisferio() {
 
 #[test]
 fn tendencia_pista_e_estacao() {
-    // Chance de molhar: Rainy no inverno alta (~0.60) >> Dry no verão mínima (~0.02).
+    // Chance de molhar: Rainy no inverno é o teto (~0.27) >> Dry no verão mínima (~0.01).
     let molhada = rain_tendency(ClimateTendency::Rainy, Season::Winter);
     let seca = rain_tendency(ClimateTendency::Dry, Season::Summer);
-    assert!(molhada >= 0.55, "{molhada}");
+    assert!((0.22..0.35).contains(&molhada), "{molhada}");
     assert!(seca < 0.05, "{seca}");
-    // Normal agora TAMBÉM molha (não é mais zero): ~0.20 na primavera.
+    // Normal agora TAMBÉM molha (não é mais zero): ~0.08 na primavera.
     let normal = rain_tendency(ClimateTendency::Normal, Season::Spring);
-    assert!((0.15..0.30).contains(&normal), "{normal}");
+    assert!((0.05..0.15).contains(&normal), "{normal}");
 }
 
 #[test]
@@ -107,10 +132,10 @@ fn normal_agora_molha_as_vezes() {
             wet += 1;
         }
     }
-    // Normal no inverno ~30% → nem nunca nem maioria.
+    // Normal no inverno ~12% → nem nunca nem maioria.
     assert!(
-        (60..220).contains(&wet),
-        "Normal inverno molhou {wet}/500 (esperado ~30%)"
+        (25..110).contains(&wet),
+        "Normal inverno molhou {wet}/500 (esperado ~12%)"
     );
 }
 
@@ -471,6 +496,72 @@ fn temporal_venta_mais() {
 fn vento_deterministico() {
     let s = story(WeatherScenario::ClearDry, false, RainIntensity::None);
     assert_eq!(generate_wind(&s, 42), generate_wind(&s, 42));
+}
+
+const DRY_SCENARIOS: [WeatherScenario; 7] = [
+    WeatherScenario::ClearDry,
+    WeatherScenario::Scare,
+    WeatherScenario::LastDrops,
+    WeatherScenario::PassingDrizzle,
+    WeatherScenario::ClearingUp,
+    WeatherScenario::WetQualyDryRace,
+    WeatherScenario::FirstRaceScript,
+];
+
+#[test]
+fn corrida_seca_so_chove_no_trecho_final() {
+    // DOUTRINA: a corrida é 100% seca ou 100% molhada. Numa prova SECA (IA sem
+    // penalidade nenhuma) a chuva só pode aparecer no fim — nunca na largada nem no
+    // meio. Confere no MESMO arco que vai pro iRacing, em frações da prova.
+    for scenario in DRY_SCENARIOS {
+        let pontos = story_to_timeline(&story(scenario, false, RainIntensity::None));
+        for p in pontos {
+            if p.event_type >= 6 {
+                assert!(
+                    p.frac >= DRY_RAIN_ONSET - 0.02,
+                    "{scenario:?}: chuva (event {}) em {:.2} da prova seca",
+                    p.event_type,
+                    p.frac
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn corrida_seca_larga_com_pista_seca() {
+    // Sem água residual: numa prova sem penalidade o grid não pode ter dúvida de pneu.
+    for scenario in DRY_SCENARIOS {
+        let p = story_to_profile(&story(scenario, false, RainIntensity::None), 30);
+        assert_eq!(
+            p.track_water, 0,
+            "{scenario:?}: pista molhada na largada de uma corrida seca"
+        );
+    }
+}
+
+#[test]
+fn corrida_molhada_nunca_afrouxa_nem_passa_do_teto() {
+    // A penalidade é FIXA no fim de semana e sai da `race_intensity`. Então o arco da
+    // prova molhada tem que ficar entre "chuva de verdade" (7) e o event_type dessa
+    // mesma intensidade: nem afrouxa pra garoa (pista volta ao limiar do slick) nem
+    // roda como temporal quando foi cobrada como chuva decente.
+    for scenario in WET_SCENARIOS {
+        for (intensity, teto) in [
+            (RainIntensity::Decent, 7),
+            (RainIntensity::Heavy, 7),
+            (RainIntensity::VeryHeavy, 8),
+        ] {
+            let p = story_to_profile(&story(scenario, true, intensity), 30);
+            // kf[0] é a âncora de QUALI; o resto é a corrida.
+            for (event, offset) in p.keyframes.iter().skip(1) {
+                assert!(
+                    (7..=teto).contains(event),
+                    "{scenario:?}/{intensity:?}: event {event} no offset {offset} (esperado 7..={teto})"
+                );
+            }
+        }
+    }
 }
 
 #[test]

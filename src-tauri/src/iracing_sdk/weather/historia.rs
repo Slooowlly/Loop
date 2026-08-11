@@ -36,7 +36,7 @@ pub enum WeatherScenario {
     ClearDry,        // sol/parcial o tempo todo
     Scare,           // começa limpo, céu fecha no meio, mas NÃO chove
     LastDrops,       // seco; pingos só nos últimos minutos
-    PassingDrizzle,  // garoa de 2–3 min no meio, volta a secar
+    PassingDrizzle,  // céu fecha no meio (ameaça) e a garoa só cai na última volta
     ClearingUp,      // começa encoberto/ameaçando → vai limpando
     WetQualyDryRace, // choveu na quali; corrida seca
     // 🌧️ Molhadas (skill penalizado) — só com tendência alta.
@@ -100,9 +100,9 @@ fn season_wetness(season: Season) -> f64 {
 /// pistas Normal/Dry TAMBÉM podem molhar (raro), não só as Rainy.
 fn group_base(group: ClimateTendency) -> f64 {
     match group {
-        ClimateTendency::Dry => 0.04,
-        ClimateTendency::Normal => 0.20,
-        ClimateTendency::Rainy => 0.40,
+        ClimateTendency::Dry => 0.02,
+        ClimateTendency::Normal => 0.08,
+        ClimateTendency::Rainy => 0.18,
     }
 }
 
@@ -157,8 +157,23 @@ pub fn generate_weather(
     seed: u64,
     is_first_race: bool,
 ) -> WeatherStory {
+    generate_weather_biased(month, hemi, group, seed, is_first_race, 1.0)
+}
+
+/// Variante com VIÉS multiplicativo na chance de molhar. Corridas SÓ DE IA usam viés > 1
+/// (chuva embaralha os grids que o jogador não corre); a corrida do JOGADOR fica sempre no
+/// 1.0 — chover pra ele é raro de propósito. Mesma seed e mesma sequência de sorteios:
+/// viés 1.0 reproduz `generate_weather` bit a bit.
+pub fn generate_weather_biased(
+    month: u32,
+    hemi: Hemisphere,
+    group: ClimateTendency,
+    seed: u64,
+    is_first_race: bool,
+    wet_bias: f64,
+) -> WeatherStory {
     let season = season_for(month, hemi);
-    let tendency = rain_tendency(group, season);
+    let tendency = (rain_tendency(group, season) * wet_bias).clamp(0.0, 1.0);
 
     // 1ª corrida do save: roteiro fixo, seco com arco visível, zero penalidade.
     if is_first_race {
@@ -175,7 +190,8 @@ pub fn generate_weather(
     let mut state = seed ^ 0xA5A5_5A5A_DEAD_BEEF;
 
     // Chance DIRETA de molhar (base do grupo × estação). Sem limiar: Normal/Dry também
-    // podem molhar (raro), garantindo variação e ~2+ chuvas por temporada de 10.
+    // podem molhar (raro). Média ponderada pelo catálogo ≈ 10% → ~1 chuva por temporada
+    // de 10; seco é claramente o padrão.
     let p_wet = tendency;
     let is_wet_race = roll01(&mut state) < p_wet;
 
@@ -241,9 +257,10 @@ pub fn generate_weather(
         }
     } else {
         // SECA — sustos/pingos mais comuns quando há "motivo" pra nuvens (chance de
-        // molhar razoável). p_wet ≥ 0.15 = Normal+ ou Rainy.
+        // molhar razoável). p_wet > 0.05 = Normal fora do verão, ou Rainy em qualquer
+        // estação (mesma partição de grupos do limiar antigo de 0.15, reescalada).
         let s = roll01(&mut state);
-        let scenario = if tendency > 0.15 {
+        let scenario = if tendency > 0.05 {
             if s < 0.30 {
                 WeatherScenario::Scare
             } else if s < 0.55 {

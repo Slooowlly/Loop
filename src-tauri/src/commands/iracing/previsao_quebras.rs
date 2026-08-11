@@ -70,7 +70,8 @@ fn resolve_race_breakdown_ctx(
 
     // Clima da etapa — MESMA história determinística do export/disparo vivo.
     let ev_seed = event_seed(career_id, &race.id);
-    let weather = race_breakdown_weather(race.track_id, race.week_of_year, ev_seed, false);
+    // Forecast do JOGADOR: sem viés de chuva (1.0).
+    let weather = race_breakdown_weather(race.track_id, race.week_of_year, ev_seed, false, 1.0);
     let track_pha = maintenance_demand(&[race.track_id]);
 
     // Enduro (corrida longa) → o forecast reflete o DNF raro (severidade abrandada).

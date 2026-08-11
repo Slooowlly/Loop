@@ -146,9 +146,24 @@ fn pista_nova_cautelosa_dominio_ataca() {
 #[test]
 fn chuva_teme_vs_mestre() {
     let teme = weather(true, 10.0, 1.0);
+    let medio = weather(true, 50.0, 1.0);
     let mestre = weather(true, 95.0, 1.0);
-    assert!(teme.nudge.aggression < 0.0 && teme.nudge.smoothness > 0.0 && teme.adverse);
-    assert!(mestre.nudge.aggression > 0.0 && mestre.nudge.smoothness < 0.0 && !mestre.adverse);
+    // DOUTRINA: pista molhada recolhe o grid INTEIRO. É a cautela geral que faz a IA andar
+    // com cuidado, e é ela que justifica a IA não errar. Ninguém fica mais afoito do que
+    // ficaria no seco, nem o mestre da chuva.
+    for (rotulo, s) in [("teme", &teme), ("médio", &medio), ("mestre", &mestre)] {
+        assert!(
+            s.nudge.aggression < 0.0 && s.nudge.optimism < 0.0 && s.nudge.smoothness > 0.0,
+            "{rotulo} não recolheu na chuva: {:?}",
+            s.nudge
+        );
+    }
+    // O domínio decide QUANTO se recolhe: quem teme afunda, o mestre quase não sente.
+    assert!(teme.nudge.aggression < medio.nudge.aggression);
+    assert!(medio.nudge.aggression < mestre.nudge.aggression);
+    assert!(teme.nudge.smoothness > medio.nudge.smoothness);
+    assert!(medio.nudge.smoothness > mestre.nudge.smoothness);
+    assert!(teme.adverse && !mestre.adverse);
     assert_eq!(weather(false, 10.0, 1.0).nudge.aggression, 0.0); // seco = nada
 }
 

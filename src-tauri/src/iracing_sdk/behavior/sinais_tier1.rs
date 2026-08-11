@@ -27,9 +27,18 @@ const SURVIVAL_SMO: f64 = 12.0;
 const AFF_AGG: f64 = 10.0;
 const AFF_OPT: f64 = 12.0;
 const AFF_SMO: f64 = 12.0;
-const RAIN_AGG: f64 = 14.0;
-const RAIN_OPT: f64 = 12.0;
-const RAIN_SMO: f64 = 16.0;
+/// Desvio por DOMÍNIO da chuva, em torno do fator 50. Calibrado junto com a cautela geral
+/// abaixo para que o mestre da chuva chegue no MÁXIMO à cautela zero: na pista molhada
+/// ninguém fica mais afoito do que ficaria no seco.
+const RAIN_AGG: f64 = 8.0;
+const RAIN_OPT: f64 = 8.0;
+const RAIN_SMO: f64 = 10.0;
+/// Cautela GERAL da pista molhada, aplicada ao grid INTEIRO. No temporal (intensity 1,0) o
+/// campo médio perde 10 de agressividade e 8 de otimismo e ganha 12 de suavidade; quem teme
+/// a chuva quase dobra isso e o mestre fica só um pouco abaixo do neutro.
+const WET_CAUTION_AGG: f64 = 10.0;
+const WET_CAUTION_OPT: f64 = 8.0;
+const WET_CAUTION_SMO: f64 = 12.0;
 const HEAT_THRESHOLD: f64 = 28.0;
 const HEAT_AGG: f64 = 10.0;
 const HEAT_SMO: f64 = 12.0;
@@ -168,6 +177,18 @@ pub fn track_affinity(k: &TrackKnowledge) -> Signal {
 }
 
 /// Clima: medo da chuva = ADVERSO (recolhe); mestre = favorável (ataca). `intensity` 0–1.
+///
+/// Duas parcelas somadas:
+///
+/// 1. **Cautela GERAL da pista molhada**, igual para todo o grid. O `driverSkill` derrubado
+///    deixa a IA mais lenta; sozinho ele não a deixa mais CUIDADOSA, e o que incomoda na
+///    prática é a IA colada atrás repetindo o mesmo tempo toda volta e forçando o humano a
+///    pisar num piso onde ele escapa. Menos agressividade e mais suavidade fazem a IA
+///    recolher de verdade, e é isso que justifica ela não errar: ela está andando com
+///    cuidado, como o humano tem que andar.
+/// 2. **Domínio da chuva**, o desvio em torno do fator 50 que já existia: o mestre recupera
+///    parte da cautela (ataca mais), quem teme afunda nela. Média zero, então não desfaz a
+///    parcela geral.
 pub fn weather(is_wet: bool, fator_chuva: f64, intensity: f64) -> Signal {
     if !is_wet {
         return Signal::default();
@@ -175,9 +196,9 @@ pub fn weather(is_wet: bool, fator_chuva: f64, intensity: f64) -> Signal {
     let mastery = (fator_chuva.clamp(0.0, 100.0) - 50.0) / 50.0; // -1 teme .. 1 mestre
     let k = intensity.clamp(0.0, 1.0);
     let nudge = Nudge {
-        aggression: mastery * k * RAIN_AGG,
-        optimism: mastery * k * RAIN_OPT,
-        smoothness: -mastery * k * RAIN_SMO, // teme (mastery<0) → suavidade↑
+        aggression: -k * WET_CAUTION_AGG + mastery * k * RAIN_AGG,
+        optimism: -k * WET_CAUTION_OPT + mastery * k * RAIN_OPT,
+        smoothness: k * WET_CAUTION_SMO - mastery * k * RAIN_SMO, // teme → suavidade↑
         skill: 0.0,
     };
     Signal {

@@ -1,5 +1,10 @@
 //! Clima do evento: hemisfério, tendência climática, semente determinística e linha do tempo da corrida.
 
+/// Viés de chuva das corridas SÓ DE IA (outras categorias, fast-sim sem o jogador): dobra a
+/// chance de molhar pra embaralhar os grids que o jogador não corre. A corrida do JOGADOR
+/// usa sempre 1.0 — correr na chuva é difícil e tem que ser raro (decisão do user, 10/08/2026).
+pub(crate) const AI_WET_BIAS: f64 = 2.0;
+
 /// Hemisfério da pista pelo país (sul = Austrália, Argentina, Brasil, etc.).
 pub(crate) fn track_hemisphere(pais: &str) -> crate::iracing_sdk::weather::Hemisphere {
     use crate::iracing_sdk::weather::Hemisphere;
@@ -46,11 +51,14 @@ pub(crate) fn month_from_week(week: i32) -> u32 {
 /// MESMA história determinística (`generate_weather` sobre a `event_seed`), então o risco que
 /// o jogador vê na Sala de Estratégia é o risco sob o tempo que a corrida de fato terá — não
 /// importa se ela vai ser dirigida ou simulada. Pista desconhecida cai no clima NEUTRO.
+/// `wet_bias`: 1.0 em tudo que envolve o jogador; `AI_WET_BIAS` nas corridas só de IA (o
+/// mesmo viés usado ao resolver o `clima` delas — as duas caras da etapa seguem batendo).
 pub(crate) fn race_breakdown_weather(
     track_id: u32,
     week_of_year: i32,
     ev_seed: u64,
     force_wet: bool,
+    wet_bias: f64,
 ) -> crate::car::breakdown::Weather {
     use crate::constants::tracks::get_track;
     use crate::iracing_sdk::weather;
@@ -58,12 +66,13 @@ pub(crate) fn race_breakdown_weather(
     let Some(track) = get_track(track_id) else {
         return crate::car::breakdown::Weather::NEUTRAL;
     };
-    let mut story = weather::generate_weather(
+    let mut story = weather::generate_weather_biased(
         month_from_week(week_of_year),
         track_hemisphere(track.pais),
         climate_tendency(track.rain_group),
         ev_seed,
         false,
+        wet_bias,
     );
     if force_wet {
         story.is_wet_race = true;
@@ -117,14 +126,16 @@ pub(crate) fn resolve_and_persist_race_weather(
     week_of_year: i32,
     race_id: &str,
     is_first_race: bool,
+    wet_bias: f64,
 ) -> crate::models::enums::WeatherCondition {
     let seed = event_seed(career_id, race_id);
-    let story = crate::iracing_sdk::weather::generate_weather(
+    let story = crate::iracing_sdk::weather::generate_weather_biased(
         month_from_week(week_of_year),
         track_hemisphere(track.pais),
         climate_tendency(track.rain_group),
         seed,
         is_first_race,
+        wet_bias,
     );
     let wc = story_to_weather_condition(&story);
     // Temperatura alinhada à MESMA história (mesma fonte do export) → UI e sim batem.
@@ -231,7 +242,7 @@ fn scenario_label_pt(s: crate::iracing_sdk::weather::WeatherScenario) -> String 
         ClearDry => "Seco e limpo",
         Scare => "Céu fecha (sem chuva)",
         LastDrops => "Pingos no fim",
-        PassingDrizzle => "Garoa passageira",
+        PassingDrizzle => "Céu fecha, pingos no fim",
         ClearingUp => "Abrindo o tempo",
         WetQualyDryRace => "Secou para a corrida",
         SteadyRain => "Chuva constante",

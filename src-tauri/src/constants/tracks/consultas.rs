@@ -78,10 +78,10 @@ pub fn get_tracks_for_category(category_id: &str) -> Vec<&'static TrackInfo> {
 
 pub fn get_rain_chance(track_id: u32) -> f64 {
     match get_track(track_id).map(|track| track.rain_group) {
-        Some(RainGroup::Dry) => 0.05,
-        Some(RainGroup::Normal) => 0.15,
-        Some(RainGroup::Rainy) => 0.30,
-        None => 0.15,
+        Some(RainGroup::Dry) => 0.02,
+        Some(RainGroup::Normal) => 0.08,
+        Some(RainGroup::Rainy) => 0.18,
+        None => 0.08,
     }
 }
 

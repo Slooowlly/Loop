@@ -206,6 +206,7 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
             race_entry.week_of_year,
             &race_entry.id,
             is_first,
+            1.0, // corrida do JOGADOR: sem viés de chuva
         );
     }
 

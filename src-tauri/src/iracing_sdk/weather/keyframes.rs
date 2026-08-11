@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 use super::historia::{WeatherScenario, WeatherStory};
 use super::penalidade::RainIntensity;
 
+/// Fração da corrida a partir da qual uma prova SECA pode ter chuva (o "pingos no fim"
+/// que o design permite). Antes disso o arco de uma corrida seca é seco de verdade.
+pub const DRY_RAIN_ONSET: f64 = 0.95;
+
 /// Perfil de clima pronto pra virar o bloco do iRacing: céu/umidade/água + os
 /// keyframes `(event_type, time_offset)` (offset em min relativo ao início; quali
 /// em offsets negativos, corrida de 0 a `race_end`).
@@ -60,6 +64,16 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
     let off = |race_min: f64| ((race_min - 7.0) / 0.68).round() as i64;
     let at = |f: f64| off(r as f64 * f);
     let rend = at(1.0);
+    // DOUTRINA: a corrida é 100% SECA ou 100% MOLHADA. A penalidade de skill da IA é
+    // fixa no fim de semana inteiro, então um trecho seco numa prova molhada (ou chuva
+    // no meio de uma prova seca) descola o que o jogador enfrenta do que foi cobrado.
+    // Numa corrida SECA a chuva só pode aparecer no TRECHO FINAL (a "ameaça" que se
+    // cumpre na última volta), nunca antes.
+    let rain_on = at(DRY_RAIN_ONSET);
+    // Segura o tempo SECO até uma unidade de offset antes do gatilho. Sem este ponto o
+    // iRacing INTERPOLA do último keyframe seco até a garoa e a chuva chega bem no meio
+    // da prova — era o furo do "começou seca e choveu depois".
+    let hold_dry = rain_on - 1;
     // Água na PISTA na largada de uma corrida molhada. PISO = 4 ("Wet" firme): o
     // problema real do user foi uma corrida que "começou com chuva leve, tão leve que
     // a maioria largou de pneu seco e depois trocou pra chuva". Como a punição de
@@ -71,16 +85,20 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
     let iw = if story.is_wet_race {
         intensity_water(story.race_intensity).max(4)
     } else {
-        intensity_water(story.race_intensity)
+        // Corrida SECA larga em pista SECA. Água residual no início deixaria o grid em
+        // dúvida de pneu numa prova em que a IA corre sem penalidade nenhuma.
+        0
     };
-    // Chuva na LARGADA de uma corrida molhada nunca é garoa (event 6): piso = 7 (chuva
-    // de verdade). Garoa+pista-no-limiar é justamente o que faz o grid largar dividido.
-    let start_iet = if story.is_wet_race {
-        intensity_event_type(story.race_intensity).max(7)
-    } else {
-        intensity_event_type(story.race_intensity)
-    };
-    let iet = intensity_event_type(story.race_intensity);
+    // TETO e PISO do arco de uma corrida molhada.
+    // - Piso 7 (chuva de verdade) em TODOS os pontos, não só na largada: garoa deixa a
+    //   pista no limiar seco/molhado, o grid volta pro slick no meio da prova e a
+    //   punição — cobrada do pelotão inteiro, a corrida toda — deixa de valer.
+    // - Teto = o `event_type` da MESMA intensidade que gerou a penalidade: uma prova
+    //   `Decent` não pode rodar como temporal, nem um temporal terminar em garoa.
+    // Efeito colateral aceito: com teto 7 (Decent/Heavy) o arco fica constante — só o
+    // temporal (teto 8) tem faixa pra desenhar "afrouxa" e "adensa".
+    let wet_top = intensity_event_type(story.race_intensity).max(7);
+    let wet = |e: i64| e.clamp(7, wet_top);
     use WeatherScenario::*;
     let (skies, humidity, water, kf): (i64, i64, i64, Vec<(i64, i64)>) = match story.scenario {
         ClearDry => (
@@ -102,37 +120,41 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
                 (3, rend),
             ],
         ),
-        // Pingos só no finzinho da corrida.
+        // Céu limpo a prova toda; pingos só no TRECHO FINAL.
         LastDrops => (
             1,
             50,
-            1,
+            0,
             vec![
                 (1, QUALI),
                 (1, at(0.0)),
-                (1, at(0.6)),
-                (6, at(0.92)),
+                (1, hold_dry),
+                (6, rain_on),
                 (6, rend),
             ],
         ),
-        // Garoa passageira no meio da corrida, volta a abrir.
+        // A AMEAÇA que se cumpre no fim: o céu fecha no meio da prova (sem pingo) e a
+        // garoa só cai na última volta. ANTES a garoa caía em 45%–60% da corrida — chuva
+        // no meio de uma prova SECA, sem penalidade nenhuma na IA. Era o furo principal.
         PassingDrizzle => (
             2,
             55,
-            1,
+            0,
             vec![
                 (1, QUALI),
                 (1, at(0.0)),
-                (6, at(0.45)),
-                (2, at(0.6)),
-                (0, rend),
+                (2, at(0.45)),
+                (3, at(0.7)),
+                (3, hold_dry),
+                (6, rain_on),
+                (6, rend),
             ],
         ),
         // Começa encoberto na largada e vai LIMPANDO durante a corrida.
         ClearingUp => (
             3,
             60,
-            1,
+            0,
             vec![
                 (3, QUALI),
                 (3, at(0.0)),
@@ -145,7 +167,7 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
         WetQualyDryRace => (
             2,
             60,
-            1,
+            0,
             vec![
                 (7, QUALI),
                 (3, at(0.0)),
@@ -154,12 +176,13 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
                 (0, rend),
             ],
         ),
-        // Molhadas — ficam molhadas o tempo todo da CORRIDA (nunca seca).
+        // Molhadas — ficam molhadas do verde à bandeira (nunca afrouxam pra garoa nem
+        // passam do teto da intensidade que gerou a penalidade).
         SteadyRain => (
             3,
             88,
             iw,
-            vec![(3, QUALI), (start_iet, at(0.0)), (iet, rend)],
+            vec![(3, QUALI), (wet_top, at(0.0)), (wet_top, rend)],
         ),
         Improving => (
             3,
@@ -167,10 +190,10 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             iw,
             vec![
                 (3, QUALI),
-                (8, at(0.0)),
-                (7, at(0.4)),
-                (6, at(0.8)),
-                (6, rend),
+                (wet(8), at(0.0)),
+                (wet(7), at(0.4)),
+                (wet(7), at(0.8)),
+                (wet(7), rend),
             ],
         ),
         // "Tempestade chegando": ANTES abria de garoa (6) e crescia — mas garoa na
@@ -182,10 +205,10 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             iw,
             vec![
                 (2, QUALI),
-                (start_iet.max(7), at(0.0)),
-                (7, at(0.4)),
-                (8, at(0.8)),
-                (8, rend),
+                (wet(7), at(0.0)),
+                (wet(7), at(0.4)),
+                (wet(8), at(0.8)),
+                (wet(8), rend),
             ],
         ),
         PulsingStorm => (
@@ -194,41 +217,40 @@ pub fn story_to_profile(story: &WeatherStory, race_end_min: i64) -> WeatherProfi
             iw,
             vec![
                 (3, QUALI),
-                (8, at(0.0)),
-                (7, at(0.35)),
-                (6, at(0.5)),
-                (7, at(0.7)),
-                (8, rend),
+                (wet(8), at(0.0)),
+                (wet(7), at(0.35)),
+                (wet(7), at(0.5)),
+                (wet(7), at(0.7)),
+                (wet(8), rend),
             ],
         ),
         // Garoa na QUALI (6, aceitável — quali é sessão à parte), mas a CORRIDA já
-        // larga molhada de verdade (7) e piora (`iet` ≥ 7). Nunca larga de garoa.
+        // larga molhada de verdade e assim segue. Nunca larga de garoa.
         LightQualyWorseRace => (
             3,
             85,
             iw,
             vec![
                 (6, QUALI),
-                (start_iet.max(7), at(0.0)),
-                (7, at(0.5)),
-                (iet.max(7), rend),
+                (wet(7), at(0.0)),
+                (wet(7), at(0.5)),
+                (wet_top, rend),
             ],
         ),
-        // 1ª corrida: largada LIMPA → céu fecha no MEIO (frente entrando) → garoa leve
-        // CAINDO na 2ª metade (vento forte global ajuda a frente a chegar de verdade).
+        // 1ª corrida: largada LIMPA → céu fecha no MEIO (frente entrando) → pingos só na
+        // ÚLTIMA VOLTA. É o que o roteiro sempre disse fazer; os keyframes é que punham
+        // a garoa na METADE da prova, molhando meia corrida de estreia sem penalidade.
         FirstRaceScript => (
             0,
             55,
-            1,
-            // A corrida vive em offset NEGATIVO (offset 0 cai ~19 min depois da largada).
-            // LIMPO na largada (at 0.0) → nuvem/encoberto fechando → GAROA na 2ª metade
-            // (at 0.5) até a bandeirada (rend). Vento forte traz a frente a tempo.
+            0,
             vec![
                 (0, QUALI),
                 (0, at(0.0)),
                 (2, at(0.35)),
-                (3, at(0.45)),
-                (6, at(0.5)),
+                (3, at(0.6)),
+                (3, hold_dry),
+                (6, rain_on),
                 (6, rend),
             ],
         ),

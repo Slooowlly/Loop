@@ -92,6 +92,7 @@ pub fn iracing_auto_import_if_ready(
                 entry.week_of_year,
                 &summary.race_id,
                 false,
+                1.0, // corrida do JOGADOR: sem viés de chuva
             );
         }
     }

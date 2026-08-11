@@ -91,9 +91,9 @@ fn test_tracks_for_tier_3_includes_paid() {
 
 #[test]
 fn test_rain_chance_by_group() {
-    assert_eq!(get_rain_chance(586), 0.05); // Laguna Seca (Dry)
-    assert_eq!(get_rain_chance(9), 0.15); // Summit Point (Normal)
-    assert_eq!(get_rain_chance(181), 0.30); // Oulton Park Fosters (Rainy)
+    assert_eq!(get_rain_chance(586), 0.02); // Laguna Seca (Dry)
+    assert_eq!(get_rain_chance(9), 0.08); // Summit Point (Normal)
+    assert_eq!(get_rain_chance(181), 0.18); // Oulton Park Fosters (Rainy)
 }
 
 #[test]
