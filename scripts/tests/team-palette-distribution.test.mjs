@@ -115,7 +115,7 @@ test("team templates use one color per team and stay diverse by category tier", 
 test("team identity UI renders a single team color", async () => {
   const teamCardSource = await readFile(path.join(projectRoot, "src/components/wizard/TeamCard.jsx"), "utf8");
   const driverDetailSource = await readFile(
-    path.join(projectRoot, "src/components/driver/DriverDetailModal.jsx"),
+    path.join(projectRoot, "src/components/driver/v2/DriverDetailModalV2.jsx"),
     "utf8",
   );
 

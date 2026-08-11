@@ -20,30 +20,44 @@ import { fileURLToPath } from "node:url";
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const FALA_RS = path.join(raiz, "src-tauri", "src", "engenheiro", "fala.rs");
-const PACK_MJS = path.join(raiz, "scripts", "spotter-pack.mjs");
+// As redações vivem em `spotter-falas.mjs` desde que o leitor do registro do rádio passou a
+// precisar do texto sem disparar a geração. O gerador segue sendo `spotter-pack.mjs`.
+const PACK_MJS = path.join(raiz, "scripts", "spotter-falas.mjs");
 const ASSETS = path.join(raiz, "src", "assets", "spotter");
 
 /** As chaves declaradas em `PECAS_DO_SPOTTER`, lidas do Rust como texto. */
 function pecasEmprestadas() {
   const fonte = fs.readFileSync(FALA_RS, "utf8");
-  const bloco = fonte.match(/pub const PECAS_DO_SPOTTER:\s*\[&str;\s*\d+\]\s*=\s*\[([^\]]+)\]/);
+  const bloco = fonte.match(/pub const PECAS_DO_SPOTTER:\s*\[&str;\s*(\d+)\]\s*=\s*\[([^\]]+)\]/);
   assert.ok(bloco, "não achei PECAS_DO_SPOTTER em fala.rs — o guard perdeu o alvo");
-  return [...bloco[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  const chaves = [...bloco[2].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  // O piso vem do próprio Rust: `[&str; N]` diz quantas peças a lista tem, e o compilador já
+  // garante o N. Comparar a extração com ele é o piso exato, e ele cresce junto com a lista.
+  assert.equal(
+    chaves.length,
+    Number(bloco[1]),
+    `PECAS_DO_SPOTTER declara ${bloco[1]} peças e a extração leu ${chaves.length} — ` +
+      "a forma do array mudou e os dois testes deste arquivo passariam conferindo menos.",
+  );
+  return chaves;
 }
 
 /** As chaves que o gerador do spotter produz, lidas do objeto de falas. */
 function pecasDoSpotter() {
   const fonte = fs.readFileSync(PACK_MJS, "utf8");
-  return new Set([...fonte.matchAll(/^\s{2}(\w+):\s*"/gm)].map((m) => m[1]));
+  const chaves = new Set([...fonte.matchAll(/^\s{2}(\w+):\s*"/gm)].map((m) => m[1]));
+  // O piso mora AQUI, e não dentro de um dos testes: o de baixo também chama esta função, e
+  // uma extração que voltasse vazia o deixaria verde comparando com nada.
+  assert.ok(chaves.size >= 40, `só ${chaves.size} falas lidas de ${path.basename(PACK_MJS)} (piso 40) — a extração furou`);
+  return chaves;
 }
 
 test("toda peça emprestada existe no gerador do spotter", () => {
   const spotter = pecasDoSpotter();
-  assert.ok(spotter.size > 20, `li poucas falas do spotter-pack.mjs (${spotter.size})`);
   for (const chave of pecasEmprestadas()) {
     assert.ok(
       spotter.has(chave),
-      `o engenheiro empresta '${chave}', que NÃO existe mais em spotter-pack.mjs. ` +
+      `o engenheiro empresta '${chave}', que NÃO existe mais em spotter-falas.mjs. ` +
         "Ou a fala foi renomeada lá, ou a lista PECAS_DO_SPOTTER ficou para trás — nos dois " +
         "casos o engenheiro fica mudo nessa resposta, sem erro nenhum em tempo de execução.",
     );

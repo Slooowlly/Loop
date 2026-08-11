@@ -32,9 +32,23 @@ const FONTES_JS = [
 /** As chaves declaradas em `PECAS_DE_OUTRA_CAMADA`, lidas do Rust como texto. */
 function isentadasNoRust() {
   const fonte = fs.readFileSync(FALA_RS, "utf8");
-  const bloco = fonte.match(/pub const PECAS_DE_OUTRA_CAMADA:\s*\[&str;\s*\d+\]\s*=\s*\[([^\]]+)\]/);
+  const bloco = fonte.match(/pub const PECAS_DE_OUTRA_CAMADA:\s*\[&str;\s*(\d+)\]\s*=\s*\[([^\]]+)\]/);
   assert.ok(bloco, "não achei PECAS_DE_OUTRA_CAMADA em fala.rs — o guard perdeu o alvo");
-  return [...bloco[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  const chaves = [...bloco[2].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  // O piso desta extração não é um número escolhido a dedo: o próprio Rust declara o tamanho
+  // do array em `[&str; N]`, e o compilador já garante que ele bate com o conteúdo. Conferir
+  // contra o N é o piso EXATO, e ele acompanha o crescimento da lista sozinho.
+  //
+  // Sem isso, uma mudança de forma que fizesse o `matchAll` casar menos chaves — aspas cruas
+  // virando `concat!`, um item por linha virando um item comentado — deixaria os quatro casos
+  // deste arquivo iterando uma lista curta, ou vazia, e passando verdes.
+  assert.equal(
+    chaves.length,
+    Number(bloco[1]),
+    `PECAS_DE_OUTRA_CAMADA declara ${bloco[1]} peças e a extração leu ${chaves.length} — ` +
+      "a forma do array mudou e o guard passaria a conferir menos do que existe.",
+  );
+  return chaves;
 }
 
 /** Toda string literal citada pelos arquivos de push-to-talk. */
@@ -44,6 +58,12 @@ function citadasNoApp() {
     const fonte = fs.readFileSync(arquivo, "utf8");
     for (const m of fonte.matchAll(/"([a-z][a-z0-9_]*)"/g)) citadas.add(m[1]);
   }
+  // Piso de extração: um dos dois arquivos ser renomeado ou trocar aspas por crase faria a
+  // varredura devolver pouco ou nada, e o guard passaria comparando com um conjunto vazio.
+  assert.ok(
+    citadas.size >= 25,
+    `só ${citadas.size} strings lidas dos arquivos de push-to-talk (piso 25) — a extração furou`,
+  );
   return citadas;
 }
 
@@ -59,7 +79,11 @@ function geradasNoRust() {
   const fonte = fs.readFileSync(FALA_RS, "utf8").replace(/\s+/g, " ");
   // O ` ?` depois do parêntese é o que sobra da quebra de linha do `rustfmt` — sem ele o
   // par de quatro linhas continua invisível, agora por um espaço em vez de um `\n`.
-  return new Set([...fonte.matchAll(/\( ?"([a-z][a-z0-9_]*)", "/g)].map((m) => m[1]));
+  const chaves = new Set([...fonte.matchAll(/\( ?"([a-z][a-z0-9_]*)", "/g)].map((m) => m[1]));
+  // O piso mora AQUI, e não dentro de um dos testes: os outros casos também consultam esta
+  // função, e uma extração que voltasse vazia os deixaria verdes comparando nada com nada.
+  assert.ok(chaves.size >= 20, `só ${chaves.size} chaves lidas de fala.rs (piso 20) — a extração furou`);
+  return chaves;
 }
 
 test("toda peça isentada é realmente gerada pelo catálogo do Rust", () => {

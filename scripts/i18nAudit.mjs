@@ -12,9 +12,22 @@
 //   • `i18n-ignore-file` em qualquer lugar do arquivo → pula o arquivo inteiro
 //     (ex.: telas de dados-de-exemplo/WIP, ou código morto).
 //
-// LIMITAÇÃO consciente: varre só `.jsx` (nós de texto JSX + atributos title/aria-label/
-// placeholder/alt). Prosa retornada de módulos `.js` (ex.: helpers de fato/display) NÃO
-// é coberta aqui — essa continua no olho + no guard de paridade `localeParity.test.js`.
+// LIMITAÇÃO consciente: varre só `.jsx`. Prosa retornada de módulos `.js` (ex.: helpers de
+// fato/display) NÃO é coberta aqui — essa continua no olho + no guard de paridade
+// `localeParity.test.js` + no guard de acentos `scripts/tests/portuguese-copy-accents`.
+//
+// O QUE ELE ENXERGA dentro do `.jsx` (as cinco formas de escrever copy):
+//   1. nó de texto na mesma linha das tags:  <p>Texto</p>
+//   2. nó de texto sozinho na linha, entre a abertura e o fechamento (o que o Prettier
+//      produz para qualquer rótulo longo)
+//   3. atributo de UI em aspas:              title="Texto"
+//   4. atributo de UI em template literal:   aria-label={`Texto ${x}`}
+//   5. prosa colada a uma expressão:         <span>Criado: {x}</span> / <span>{n} corridas</span>
+//
+// As formas 2, 4 e 5 entraram em 11/08/2026. Antes disso o auditor via só as formas 1 e 3, e a
+// varredura que motivou a extensão encontrou 8 strings de UI em português vivas em produção,
+// todas em telas que já estavam traduzidas no resto — o vão pegava justamente a copy longa e a
+// copy com número, que são as duas mais comuns.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
@@ -48,6 +61,57 @@ const IGNORE_FILE = /i18n-ignore-file/;
 // nós de texto `>Texto<` e literais de atributos de UI
 const TEXT_NODE = />\s*([A-Za-zÀ-ú][^<>{}]*[A-Za-zÀ-ú])\s*</g;
 const UI_ATTR = /(?:title|aria-label|placeholder|alt)\s*=\s*"([^"]*[A-Za-zÀ-ú][^"]*)"/g;
+
+// O mesmo atributo de UI, escrito como TEMPLATE LITERAL. Este é o vão que o `UI_ATTR` acima
+// deixava aberto: assim que a copy ganha uma interpolação — `aria-label={`Ver títulos de
+// ${nome}`}` — as aspas viram crase, o padrão de aspas para de casar e a prosa some do
+// auditor. Foi assim que dois aria-label em PT sobreviveram até 11/08/2026 numa tela que
+// já estava traduzida por inteiro no resto.
+const UI_ATTR_TEMPLATE = /(?:title|aria-label|placeholder|alt)\s*=\s*\{`([^`]*[A-Za-zÀ-ú][^`]*)`\}/g;
+
+// Texto de UI escrito como template literal no CORPO do JSX: `<p>{`${n} de ${t} pilotos`}</p>`.
+// O `TEXT_NODE` não o vê de propósito (ele exclui `{` e `}` para não confundir expressão com
+// prosa), então a forma mais natural de montar uma frase com número escapava inteira.
+const CHILDREN_TEMPLATE = /[>{]\s*\{`([^`]*[A-Za-zÀ-ú][^`]*)`\}/g;
+
+// Prosa COLADA numa expressão na mesma linha: `<span>Criado: {formatDateTime(x)}</span>`. O
+// `TEXT_NODE` exige `>` e `<` com só letras no meio, então a metade de prosa some junto com a
+// chave. Cobre os dois lados da expressão, porque `{n} corridas no calendário` é tão copy
+// quanto `Criado: {x}`.
+const ANTES_DA_EXPRESSAO = />\s*([A-Za-zÀ-ú][^<>{}]{2,}?)\s*\{/g;
+const DEPOIS_DA_EXPRESSAO = /\}\s*([A-Za-zÀ-ú][^<>{}]{2,}?)\s*</g;
+
+/// Descarta o que é CÓDIGO e não prosa. O padrão de "texto colado a expressão" também casa o
+/// `>` de uma arrow function (`(e) => e.id === x`), e um falso positivo por linha em cada
+/// callback tornaria o auditor inutilizável no pre-commit.
+function pareceCodigo(texto) {
+  return /[=()[\];.]|=>|&&|\|\|/.test(texto);
+}
+
+/// Nó de texto que ocupa a LINHA INTEIRA, com a tag de abertura na linha de cima e a de
+/// fechamento na de baixo:
+///
+///     <button ...>
+///       Voltar para Classificação      <- esta linha
+///     </button>
+///
+/// É a forma que o Prettier dá a qualquer rótulo que não caiba na largura da linha, e era o
+/// maior dos vãos: o `TEXT_NODE` exige `>` e `<` na MESMA linha, então toda copy longa o
+/// bastante para quebrar escapava do auditor inteiro.
+function noDeTextoSozinho(lines, i) {
+  const texto = lines[i].trim();
+  if (texto.length < 4) return null;
+  if (!/^[A-Za-zÀ-ú][^<>{}"'`]*$/.test(texto)) return null;
+  if (!/>\s*$/.test(lines[i - 1] ?? "")) return null;
+  if (!/^\s*<\//.test(lines[i + 1] ?? "")) return null;
+  return [texto];
+}
+
+/// A parte FIXA de um template literal: o que sobra depois de tirar as interpolações. É só
+/// isso que cabe traduzir; `${row.nome}` é dado, não copy.
+function parteFixa(texto) {
+  return texto.replace(/\$\{[^}]*\}/g, " ");
+}
 
 function listJsxFiles() {
   return readdirSync(SRC, { recursive: true })
@@ -84,6 +148,11 @@ function scanFile(absPath) {
     const hits = [
       ...[...line.matchAll(TEXT_NODE)].map((m) => m[1]),
       ...[...line.matchAll(UI_ATTR)].map((m) => m[1]),
+      ...[...line.matchAll(UI_ATTR_TEMPLATE)].map((m) => parteFixa(m[1])),
+      ...[...line.matchAll(CHILDREN_TEMPLATE)].map((m) => parteFixa(m[1])),
+      ...[...line.matchAll(ANTES_DA_EXPRESSAO)].map((m) => m[1]).filter((s) => !pareceCodigo(s)),
+      ...[...line.matchAll(DEPOIS_DA_EXPRESSAO)].map((m) => m[1]).filter((s) => !pareceCodigo(s)),
+      ...(noDeTextoSozinho(lines, i) ?? []),
     ];
     for (const text of hits) {
       if (PT.test(` ${text} `)) {

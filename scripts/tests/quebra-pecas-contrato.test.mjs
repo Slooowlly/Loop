@@ -71,6 +71,14 @@ test("a despedida cabe no tempo que o Rust declara para ela", () => {
 });
 
 test("toda peça da classificação tem o .opus gravado em disco", () => {
+  // Piso de extração. As outras famílias deste arquivo têm contagem exata (`pecas`, `tempos`,
+  // `doNossoCarro`), que já as protege; a da classificação é a única filtrada por prefixo sem
+  // âncora nenhuma. Renomear `cl_` do lado do Rust esvaziaria a lista e este teste passaria
+  // conferindo o disco de zero peças — verde, e cego para a família inteira.
+  assert.ok(
+    daClassificacao.length >= 14,
+    `só ${daClassificacao.length} peças 'cl_' no catálogo (piso 14, 17 hoje) — o prefixo mudou`,
+  );
   const faltando = daClassificacao
     .map((i) => i.chave)
     .filter((c) => !fs.existsSync(path.join(raiz, "src/assets/engenheiro", `${c}.opus`)));
@@ -120,7 +128,11 @@ test("o nosso carro tem aviso e desfecho para toda peça, mais os 3 conselhos", 
   //
   // O desfecho existe porque a quebra do carro do JOGADOR saía pelo rádio da grade, em 3ª
   // pessoa — "o piloto um da tal equipe abandonou", sobre ele mesmo, 1,3 vez por corrida.
-  assert.equal(doNossoCarro.length, 12 * 3 + 12 * 3 * 3 + 3);
+  //
+  // Mais as 5 da CLASSIFICAÇÃO (`meu_quali_*`): o veredito da batida na quali e o motivo do
+  // castigo na largada. Família fixa, sem variação — cada uma sai no máximo uma vez por fim
+  // de semana, com o carro parado.
+  assert.equal(doNossoCarro.length, 12 * 3 + 12 * 3 * 3 + 3 + 5);
   const faltando = doNossoCarro
     .map((i) => i.chave)
     .filter((c) => !fs.existsSync(path.join(raiz, "src/assets/engenheiro", `${c}.opus`)));
@@ -135,6 +147,21 @@ test("o aviso do nosso carro é em 2ª pessoa e nunca diz o número do desgaste"
   for (const { chave, texto } of doNossoCarro) {
     assert.ok(!/\d/.test(texto), `${chave} tem número: "${texto}"`);
     if (chave.startsWith("meu_poupar")) continue; // o conselho fala do carro sem possessivo
+    if (chave.startsWith("meu_quali")) {
+      // A família da classificação fala do FIM DE SEMANA, não de uma peça — "largamos em
+      // último", "nosso fim de semana acabou aqui" —, então o possessivo não cabe. A pessoa
+      // gramatical continua valendo, e é ela que este guard cobra: ou o "você", ou o nós, que
+      // em português mora na DESINÊNCIA do verbo e não num pronome.
+      const baixo = texto.toLowerCase();
+      const comOPiloto = ["você", "tenta", "seu ", "sua ", "nosso", "a gente"].some((m) =>
+        baixo.includes(m),
+      );
+      assert.ok(
+        comOPiloto || /\b\w{2,}mos\b/.test(baixo),
+        `${chave} não fala COM o piloto: "${texto}"`,
+      );
+      continue;
+    }
     assert.match(texto, /\b(seu|sua|seus|suas)\b/, `${chave} não está na 2ª pessoa: "${texto}"`);
   }
 });

@@ -1,3 +1,9 @@
+// Guarda a CASCA DE COMANDO da carreira: os `#[tauri::command]` vivem num módulo próprio e
+// só resolvem o base_dir e delegam, sem lógica de domínio.
+//
+// O irmão `career-types-module-structure.test.mjs` vigia a outra metade: o módulo de DTOs.
+// Ver a nota de renomeação lá.
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";

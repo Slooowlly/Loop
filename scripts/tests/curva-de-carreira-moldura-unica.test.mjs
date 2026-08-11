@@ -14,8 +14,12 @@ const MOLDURA = "src/components/driver/v2/curvaDeCarreira.jsx";
 // Os dois gráficos que dividem a moldura: a curva de mercado (aba Mercado) e a
 // curva de campeonato (aba Histórico). Eles vivem no MESMO modal, a uma aba de
 // distância, e qualquer desalinhamento entre os dois aparece lado a lado.
+//
+// A de mercado saiu de dentro de `DriverDetailModalV2.jsx` em 11/08/2026 e ganhou
+// arquivo próprio, como a de campeonato já tinha: o guard segue o arquivo, não o
+// modal.
 const CURVAS = [
-  "src/components/driver/v2/DriverDetailModalV2.jsx",
+  "src/components/driver/v2/CurvaDeMercado.jsx",
   "src/components/driver/v2/CurvaDeCampeonato.jsx",
 ];
 

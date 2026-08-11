@@ -1,3 +1,11 @@
+// Guarda o MÓDULO DE TIPOS da carreira: os DTOs serde que cruzam a ponte Rust/React vivem em
+// `career_types/`, separados da lógica e da casca de comando.
+//
+// O irmão `career-command-shell-structure.test.mjs` vigia a OUTRA metade: a casca fina de
+// `#[tauri::command]`. Os dois se chamavam `career-command-structure` e
+// `career-commands-structure` — um "s" de diferença, o que fazia editar o arquivo errado ser
+// o desfecho provável. Renomeados em 11/08/2026 para o que cada um de fato vigia.
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { access, readdir, readFile } from "node:fs/promises";

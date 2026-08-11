@@ -17,7 +17,10 @@ import { fileURLToPath } from "node:url";
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ler = (p) => fs.readFileSync(path.join(raiz, p), "utf8");
 
-const pack = ler("scripts/spotter-pack.mjs");
+// As REDAÇÕES saíram do gerador para um módulo próprio (`spotter-falas.mjs`), importável sem
+// efeito colateral — o leitor do registro do rádio precisa do texto e não pode disparar a
+// geração. O gerador continua gravando o `.wav`; o que mudou de casa foi a frase.
+const pack = ler("scripts/spotter-falas.mjs");
 const voz = ler("src/lib/spotterVoice.js");
 const spotterRs = ler("src-tauri/src/iracing_sdk/spotter.rs");
 const frenteRs = ler("src-tauri/src/iracing_sdk/spotter_frente.rs");
@@ -31,11 +34,28 @@ const climaRs = ler("src-tauri/src/iracing_sdk/spotter_clima.rs");
 // gravar `.wav` para uma família que decidimos não usar ainda — ver a ordem de confiança
 // em `docs/spotter-obstaculo.md`. Quando ele for fiado, acrescente-o nesta linha.
 
-/** As chaves declaradas no bloco `const FALAS = { ... }` do gerador. */
+// PISO DE EXTRAÇÃO. Todo este guard é montado por regex sobre código-fonte alheio, e o modo
+// de falha dele é PASSAR VAZIO: renomear `CHAVE_*` no Rust, trocar a indentação do `FALAS`
+// ou mudar a forma da tabela `PRIORIDADE` faz a extração casar zero, e um `deepEqual([], [])`
+// é verde. O guard morre calado exatamente quando o contrato mais mexeu.
+//
+// Os pisos abaixo são o valor de hoje com folga para baixo. Eles não travam crescimento —
+// só cobram que a extração continue enxergando o grosso do que existe.
+const MINIMO_CHAVES_RUST = 24; // 28 hoje (21 const + 7 da vizinhança)
+const MINIMO_FALAS = 45; // 51 hoje
+const MINIMO_PRIORIDADES = 22; // 26 hoje
+
+/** As chaves declaradas no bloco `export const FALAS = { ... }` das redações. */
 function falasDoPacote() {
   const bloco = /const FALAS = \{([\s\S]*?)\n\};/.exec(pack);
-  assert.ok(bloco, "não achei o bloco FALAS em scripts/spotter-pack.mjs");
-  return [...bloco[1].matchAll(/^\s{2}([a-z_0-9]+):\s*"/gm)].map((m) => m[1]);
+  assert.ok(bloco, "não achei o bloco FALAS em scripts/spotter-falas.mjs");
+  const chaves = [...bloco[1].matchAll(/^\s{2}([a-z_0-9]+):\s*"/gm)].map((m) => m[1]);
+  assert.ok(
+    chaves.length >= MINIMO_FALAS,
+    `só ${chaves.length} falas extraídas de spotter-falas.mjs (piso ${MINIMO_FALAS}) — ` +
+      `a forma do bloco FALAS mudou e a extração parou de enxergar as redações.`,
+  );
+  return chaves;
 }
 
 /** As chaves que o Rust emite: `pub const CHAVE_* : &str = "..."` mais as da vizinhança. */
@@ -48,14 +68,28 @@ function chavesDoRust() {
     (m) => m[1],
   );
   const vizinhanca = [...spotterRs.matchAll(/Vizinhanca::\w+ => "([a-z_0-9]+)"/g)].map((m) => m[1]);
-  return [...new Set([...consts, ...vizinhanca])].filter((c) => c !== "desligado");
+  const chaves = [...new Set([...consts, ...vizinhanca])].filter((c) => c !== "desligado");
+  assert.ok(
+    chaves.length >= MINIMO_CHAVES_RUST,
+    `só ${chaves.length} chaves extraídas do Rust (piso ${MINIMO_CHAVES_RUST}) — ` +
+      `ou um spotter foi renomeado, ou a forma de declarar a chave mudou. ` +
+      `Sem isso o guard inteiro passaria a comparar listas vazias.`,
+  );
+  assert.ok(vizinhanca.length >= 5, `só ${vizinhanca.length} chaves de vizinhança — a extração furou`);
+  return chaves;
 }
 
 /** As chaves com prioridade declarada em spotterVoice.js. */
 function chavesComPrioridade() {
   const bloco = /const PRIORIDADE = \{([\s\S]*?)\n\};/.exec(voz);
   assert.ok(bloco, "não achei a tabela PRIORIDADE em src/lib/spotterVoice.js");
-  return [...bloco[1].matchAll(/^\s{2}([a-z_0-9]+):\s*(\d+)/gm)].map((m) => [m[1], Number(m[2])]);
+  const pares = [...bloco[1].matchAll(/^\s{2}([a-z_0-9]+):\s*(\d+)/gm)].map((m) => [m[1], Number(m[2])]);
+  assert.ok(
+    pares.length >= MINIMO_PRIORIDADES,
+    `só ${pares.length} prioridades extraídas (piso ${MINIMO_PRIORIDADES}) — ` +
+      `a forma da tabela PRIORIDADE mudou e as asserções de degrau ficariam sem dado.`,
+  );
+  return pares;
 }
 
 test("toda chave que o Rust emite tem uma fala escrita no pacote", () => {
