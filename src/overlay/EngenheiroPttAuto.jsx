@@ -26,7 +26,9 @@ const POLL_SESSAO_MS = 2000;
 
 export default function EngenheiroPttAuto() {
   const orqRef = useRef(null);
-  const armadoRef = useRef(false);
+  // Só a trava de "há um `armar()` em voo". Se o microfone ESTÁ armado quem responde é o
+  // módulo, que confere a faixa; uma cópia aqui envelhece na primeira faixa que morre.
+  const armandoRef = useRef(false);
   const aquecidoRef = useRef(false);
 
   // O orquestrador é criado uma vez e sobrevive a re-renderizações: ele guarda a geração
@@ -176,45 +178,77 @@ export default function EngenheiroPttAuto() {
   }, []);
 
   // Sessão aberta = microfone armado + servidor aquecido.
+  //
+  // O portão é `iracing_connected`, e não a vizinhança do spotter. Aquele comando devolve
+  // uma ESTRUTURA, e `Boolean(estrutura)` é `true` em toda leitura — com o simulador
+  // aberto, fechado ou nunca instalado. O portão não abria nem fechava: dava sempre
+  // aberto. E é essa constante que deixa o engenheiro surdo em corrida — o microfone abria
+  // UMA vez, na primeira volta do laço, que acontece no menu principal segundos depois do
+  // boot. É o pior instante possível para abri-lo: o rig
+  // ainda não está ligado, então o dispositivo ESCOLHIDO costuma não existir e a captura
+  // cai no padrão do Windows, exatamente o defeito que passar o `deviceId` foi posto para
+  // evitar. E, como o portão nunca mais mudava de valor, não havia segunda tentativa: a
+  // corrida inteira era ouvida pela placa errada, ou por uma faixa já morta.
+  //
+  // Quem sabe se há microfone é o módulo do microfone, que confere a FAIXA. Um `useRef`
+  // espelhando isso aqui era a segunda fonte de verdade que travava o rearme.
   useEffect(() => {
     if (!estaNoTauri()) return undefined;
     let parado = false;
 
     const tick = async () => {
-      let vivo = false;
-      try {
-        vivo = Boolean(await invoke("iracing_spotter_vizinhanca"));
-      } catch {
-        vivo = false;
-      }
-      if (parado || vivo === armadoRef.current) return;
+      // A bancada das configurações abre e fecha o mesmo microfone. Enquanto ela está
+      // aberta, quem manda é ela: desarmar por baixo a cada 2 s quebraria a única tela em
+      // que o jogador consegue provar que o hardware responde.
+      if (estaEmTeste()) return;
 
-      if (vivo) {
-        armadoRef.current = true;
-        // Aqui NÃO se aquece o acervo. Ele tem 3.943 peças e 324 MB, e este bloco roda de
-        // novo a cada 2 s enquanto o microfone falhar ao armar (o `catch` abaixo devolve
-        // `armadoRef` para `false`, e o guard lá em cima volta a deixar passar). Aquecer
-        // daqui multiplicava o acervo inteiro por tentativa e afogava o carregamento das
-        // falas do spotter. Quem aquece agora é `tocarSequencia`, com a lista da resposta.
-        if (!aquecidoRef.current) {
-          aquecidoRef.current = true;
-          // Tira o Cloud Run do zero AGORA. O aquecimento que já existia dispara nas
-          // voltas finais, para o debrief; a primeira pergunta ao engenheiro pode vir na
-          // volta 1, e seria ela a pagar os 20 a 40 s de cold start.
-          invoke("ptt_aquecer").catch(() => {});
+      let emSessao = false;
+      try {
+        emSessao = Boolean(await invoke("iracing_connected"));
+      } catch {
+        emSessao = false;
+      }
+      if (parado) return;
+
+      if (!emSessao) {
+        // Só na BORDA de fechar. `cancelar()` cala o rádio, e chamá-lo a cada volta do
+        // laço cortaria as falas que o engenheiro dá fora de sessão.
+        if (microfone.estaArmado()) {
+          orqRef.current.cancelar();
+          microfone.desarmar();
         }
+        return;
+      }
+
+      // Aqui NÃO se aquece o acervo. Ele tem 3.943 peças e 324 MB, e este bloco roda de
+      // novo a cada 2 s enquanto o microfone falhar ao armar. Aquecer daqui multiplicava o
+      // acervo inteiro por tentativa e afogava o carregamento das falas do spotter. Quem
+      // aquece agora é `tocarSequencia`, com a lista da resposta.
+      if (!aquecidoRef.current) {
+        aquecidoRef.current = true;
+        // Tira o Cloud Run do zero AGORA. O aquecimento que já existia dispara nas voltas
+        // finais, para o debrief; a primeira pergunta ao engenheiro pode vir na volta 1, e
+        // seria ela a pagar os 20 a 40 s de cold start.
+        invoke("ptt_aquecer").catch(() => {});
+      }
+
+      // Armado e vivo: nada a fazer. `armar()` sozinho já é barato nesse caso, e a
+      // pergunta é feita aqui só para a trava de concorrência não ser paga à toa.
+      if (microfone.estaArmado() || armandoRef.current) return;
+      // `getUserMedia` leva de 100 a 500 ms e o laço bate a cada 2 s — sem a trava, um
+      // dispositivo lento renderia duas aberturas concorrentes do mesmo microfone.
+      armandoRef.current = true;
+      try {
         // COM o dispositivo escolhido. Sem isto a corrida abria o padrão do Windows, que
         // num rig de VR costuma ser o áudio virtual do headset — o engenheiro ficava
         // ouvindo a placa errada e nada indicava por quê.
-        microfone.armar({ deviceId: lerMicSalvo() }).catch(() => {
-          // Sem microfone o resto do encanamento não tem o que fazer. O erro aparece nas
-          // configurações, onde há espaço para explicá-lo.
-          armadoRef.current = false;
-        });
-      } else {
-        armadoRef.current = false;
-        orqRef.current.cancelar();
-        microfone.desarmar();
+        await microfone.armar({ deviceId: lerMicSalvo() });
+      } catch {
+        // Sem microfone o resto do encanamento não tem o que fazer. O erro aparece nas
+        // configurações, onde há espaço para explicá-lo; aqui a próxima volta do laço
+        // tenta de novo, que é o que resolve o dispositivo que ainda estava subindo.
+      } finally {
+        armandoRef.current = false;
       }
     };
 

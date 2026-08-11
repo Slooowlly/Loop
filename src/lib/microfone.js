@@ -52,8 +52,23 @@ function escolherFormato() {
   return null;
 }
 
+/**
+ * A faixa aberta ainda grava?
+ *
+ * `stream` continuar não-nulo NÃO quer dizer que há captura. Quando o dispositivo sai
+ * debaixo da captura — o headset de VR que desliga, o iRacing que toma a placa, o Windows
+ * que troca o padrão — a `MediaStreamTrack` vai para `ended` e o objeto do stream continua
+ * ali, idêntico ao de antes. Sem esta conferência `estaArmado()` mente, o `MediaRecorder`
+ * nasce em cima de uma faixa morta, e o que sobe para o Scribe é silêncio: o piloto
+ * pergunta, o engenheiro não responde, e nada na tela diz por quê.
+ */
+function faixaViva() {
+  const faixa = stream?.getAudioTracks()[0];
+  return Boolean(faixa) && faixa.readyState === "live";
+}
+
 export function estaArmado() {
-  return Boolean(stream);
+  return faixaViva();
 }
 
 /** O que o navegador chama de microfone. Os rótulos só aparecem depois da permissão. */
@@ -86,11 +101,15 @@ export async function armar({ deviceId = null, cancelamentoDeEco = true } = {}) 
 
   if (stream) {
     const atual = stream.getAudioTracks()[0]?.getSettings?.().deviceId;
+    // Faixa morta não conta como "já aberto": os dois atalhos abaixo devolveriam o retrato
+    // de um microfone que não grava mais nada, e quem chamou iria embora achando que
+    // rearmou. É o caso que este módulo passou a existir para pegar — ver `faixaViva`.
+    const viva = faixaViva();
     // Já aberto no dispositivo pedido: nada a fazer. Note que "sem pedido" NÃO conta como
     // acerto — quem chama sem `deviceId` e encontra outro aberto está pedindo o padrão, e
     // devolver o que está aberto esconderia a diferença.
-    if (deviceId && deviceId === atual) return retrato();
-    if (!deviceId && !pedidoAnterior) return retrato();
+    if (viva && deviceId && deviceId === atual) return retrato();
+    if (viva && !deviceId && !pedidoAnterior) return retrato();
     desarmar();
   }
 

@@ -187,7 +187,13 @@ export function criarOrquestrador({
       return;
     }
     if (!microfone.estaArmado()) {
+      // Sai no RASTRO, e não só em `ultimoErro`. Esta é a perna que falha calada: o piloto
+      // segura o botão, nada acontece, e "o engenheiro não me ouviu" fica idêntico a "o
+      // servidor não respondeu" visto de fora. Com o passo, a bancada mostra qual das duas
+      // é — que é a razão de o rastro existir.
       ultimoErro = "Microfone não está armado.";
+      marco = performance.now();
+      passo("sem_microfone", ultimoErro);
       return;
     }
     try {

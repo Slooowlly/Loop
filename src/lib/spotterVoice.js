@@ -131,12 +131,15 @@ let ctx = null;
 let master = null;
 let atual = null; // fonte tocando agora
 let prioridadeAtual = 0; // prioridade do que está tocando
-let adiada = null; // { chave, ate } — a fala que perdeu a vez
-// Ordem de chegada das chamadas a `falar`. Existe por causa do `await` da decodificação:
-// entre decidir tocar e efetivamente cortar o que estava tocando há um ponto de suspensão,
-// e uma fala mais nova pode passar na frente ali dentro. Sem este contador, a mais VELHA
-// venceria por chegar depois ao final da função — o oposto exato da regra da casa.
-// Custa nada e só morde no primeiro uso de cada arquivo, antes do `preaquecer`.
+let adiada = null; // { chave, prio, ate } — a fala que perdeu a vez
+// A fala que já foi ESCOLHIDA para tocar e ainda está no `await` da decodificação:
+// { seq, prio, chave }. Existe porque entre decidir tocar e o som sair há um ponto de
+// suspensão, e as falas de um mesmo lote de poll caem todas ali dentro. Sem este registro,
+// quem chegasse por último ganhava a corrida SEM olhar prioridade — um "esquerda" morria
+// calado porque um "carro atrás" veio no mesmo lote, que é exatamente a troca que a tabela
+// de prioridade existe para impedir. `null` quando nada está entre a decisão e o início.
+let decidida = null;
+// Ordem de chegada das chamadas a `falar` — o desempate entre iguais (mais nova ganha).
 let sequencia = 0;
 // Quem quer saber se o spotter está com a palavra. Existe por causa do ENGENHEIRO: os
 // dois são a mesma pessoa, separados só pelo imediatismo, e a mesma pessoa não fala por
@@ -290,9 +293,10 @@ function cortar() {
   avisarOuvintes();
 }
 
-/** Silêncio total: corta e esquece o que estava esperando. */
+/** Silêncio total: corta, esquece o que estava esperando e cancela o que decodificava. */
 export function parar() {
   adiada = null;
+  decidida = null;
   cortar();
 }
 
@@ -306,6 +310,18 @@ function aindaVale(p) {
 }
 
 /**
+ * Guarda a fala para depois. O lugar de espera é UM só, e quem fica é a de MAIOR
+ * prioridade: um "verde" que cedeu a vez não pode ser esquecido porque um lembrete
+ * chegou depois e também cedeu. A mesma chave (e prioridade igual ou maior) substitui —
+ * é a informação mais recente do mesmo assunto, e renova a validade.
+ */
+function adiar(chave) {
+  const prio = prioridade(chave);
+  if (adiada && adiada.chave !== chave && prio < adiada.prio && aindaVale(adiada)) return;
+  adiada = { chave, prio, ate: Date.now() + VALIDADE_ADIADA_MS };
+}
+
+/**
  * Toca a fala da chave. `forcar` ignora o interruptor e a prioridade — é o botão
  * "Testar", que precisa soar mesmo com a voz desligada, senão não testa nada.
  *
@@ -316,28 +332,46 @@ function aindaVale(p) {
 export async function falar(chave, { forcar = false } = {}) {
   if (!forcar && !estaLigada()) return false;
 
-  // Cedeu a vez: guarda e sai. `atual` só é limpo no `onended`, então "há algo tocando"
-  // é uma pergunta que a própria fonte responde.
+  // Cedeu a vez ao que está TOCANDO: guarda e sai. `atual` só é limpo no `onended`,
+  // então "há algo tocando" é uma pergunta que a própria fonte responde.
   if (!forcar && atual && prioridade(chave) < prioridadeAtual) {
-    adiada = { chave, ate: Date.now() + VALIDADE_ADIADA_MS };
+    adiar(chave);
     return false;
+  }
+  // Cedeu a vez ao que está DECODIFICANDO. Vale a mesma regra da interrupção:
+  // prioridade menor não atropela — espera a vez na fila de adiadas.
+  if (!forcar && decidida && prioridade(chave) < decidida.prio) {
+    adiar(chave);
+    return false;
+  }
+  // O contrário: esta fala toma a vez de uma menos urgente que ainda decodificava. A
+  // destronada não é descartada — fica guardada e sai depois, como na interrupção.
+  if (!forcar && decidida && decidida.chave !== chave && prioridade(chave) > decidida.prio) {
+    adiar(decidida.chave);
   }
 
   sequencia += 1;
   const minhaVez = sequencia;
+  decidida = { seq: minhaVez, prio: forcar ? 0 : prioridade(chave), chave };
   const variacao = proximaVariacao(chave);
   if (LIBERACAO.has(chave)) rodizio.clear();
   const buf = await carregar(variacao);
   const c = contexto();
-  if (!buf || !c) return false;
-  // Alguém entrou depois de mim enquanto eu decodificava. Ela é a informação mais
-  // recente; desistir é o certo.
-  if (sequencia !== minhaVez) return false;
+  // Alguém de prioridade IGUAL OU MAIOR entrou depois de mim enquanto eu decodificava
+  // (as menores nem chegam aqui — viram adiadas na entrada). Ela é a informação mais
+  // recente e mais urgente; desistir é o certo.
+  if (decidida?.seq !== minhaVez) return false;
+  if (!buf || !c) {
+    // A fala escolhida não tem como tocar; solta a vez para não represar as próximas.
+    decidida = null;
+    return false;
+  }
   // A que estava na espera é esta mesma — não precisa mais esperar. Uma fala de OUTRA
   // chave continua guardada mesmo através de uma interrupção: quem cedeu a vez a um
   // "esquerda" não deve perdê-la porque um "três largos" chegou logo depois.
   if (adiada?.chave === chave) adiada = null;
   cortar();
+  decidida = null;
   const fonte = c.createBufferSource();
   fonte.buffer = buf;
   fonte.connect(master);
