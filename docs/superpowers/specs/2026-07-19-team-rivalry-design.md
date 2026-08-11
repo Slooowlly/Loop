@@ -1,8 +1,12 @@
 # Rivalidade entre Equipes — Design
 
 **Data:** 2026-07-19
-**Status:** DESIGN TRAVADO (não implementado)
-**Relacionado:** `2026-07-18-track-rivalry-perception-design.md`, `2026-07-11-team-living-reputation-design.md`
+**Status:** ⚠️ **Retrato histórico, conferido em 11/08/2026.** Dizia "não implementado", e a
+rivalidade entre equipes está no ar: `rivalry/team.rs`, `models/team_rivalry.rs` e a tabela
+`team_rivalries`. Leia como a intenção original, e não como estado do app.
+**Relacionado:** `2026-07-18-track-rivalry-perception-design.md`. O
+`2026-07-11-team-living-reputation-design.md` foi removido na limpeza de 11/08/2026 e continua
+recuperável pelo histórico do git.
 **Memórias:** `project_team_rivalry_backlog`, `project_team_living_system`, `project_market_live_engine`
 
 ---

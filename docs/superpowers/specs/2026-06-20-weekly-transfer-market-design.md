@@ -1,6 +1,10 @@
 # Design — Janela de Transferências Semanal (mercado realista)
 
-**Status:** design aprovado nas decisões grandes; pendente de detalhamento numérico e implementação.
+**Status:** ⚠️ **Retrato histórico, conferido em 11/08/2026.** Dizia "pendente de implementação",
+e a janela está no ar: `market/transfer_window.rs`, a tabela `transfer_window` e os comandos
+`get_transfer_window_state` e `advance_transfer_window` registrados. O que falta é a **condução
+na UI**, que é o item F-01 do [backlog.md](../../backlog.md): `advance_transfer_window` não tem
+consumidor no frontend. Leia como a intenção original, e não como estado do app.
 **Data:** 2026-06-20.
 **Substitui:** o casamento guloso vaga-por-vaga de `market/pipeline.rs::run_market` (loop sequencial: primeira equipe que oferta + piloto aceita, fecha).
 

@@ -1,13 +1,19 @@
 # Rivalidades nascidas em pista — a camada de PERCEPÇÃO (SDK iRacing)
 
 **Data:** 2026-07-18
-**Status:** design travado com o usuário; NÃO implementado.
+**Status:** ⚠️ **Retrato histórico, conferido em 11/08/2026.** Dizia "NÃO implementado", e a
+percepção está no ar: `iracing_sdk/rivalry_perception.rs` mais o comando
+`iracing_perceive_rivalries`, citados por `commands/iracing/resultado.rs` e
+`corridas_salvas.rs`. Leia como a intenção original, e não como estado do app. O estado de hoje
+está no [DESIGN.md](../../DESIGN.md) §15.2 e §19.3.
 **Escopo:** como o jogo PERCEBE, dos dados reais do SDK do iRacing, que uma
 rivalidade nasceu/cresceu numa corrida que o JOGADOR disputou de verdade. É a camada
 de ENTRADA que alimenta o motor de rivalidade que já existe.
 
-**Relacionado:** `2026-07-18-player-rivalry-nemesis-design.md` (o Nemesis vivido + a
-Pressão de Duelo, que consomem o que esta camada produz). `project_iracing_results_import`
+**Relacionado:** `2026-07-18-player-rivalry-nemesis-design.md`, o Nemesis vivido mais a Pressão
+de Duelo, que consomem o que esta camada produz. Esse arquivo foi removido na limpeza de
+11/08/2026 e continua recuperável pelo histórico do git; o Nemesis está no ar, na tabela
+`player_nemesis`. `project_iracing_results_import`
 (onde roda). `project_iracing_ai_roster` (resolução de identidade). `project_export_behavior`
 (o sinal `nemesis` primitivo que isto formaliza).
 
@@ -243,4 +249,4 @@ rivalidade. **Descoberta-chave: metade da ponte já existe** no caminho de impor
 ### Fronteira
 A **seleção do Nemesis** (trocar o proxy posicional de `build_primary_rival_summary`)
 lê o estado ACUMULADO do motor — é downstream desta ponte, na spec
-`2026-07-18-player-rivalry-nemesis-design.md`. Esta ponte é o pré-requisito dela.
+`2026-07-18-player-rivalry-nemesis-design.md` (removido na limpeza de 11/08/2026, recuperável pelo histórico do git; o Nemesis está no ar na tabela `player_nemesis`). Esta ponte é o pré-requisito dela.

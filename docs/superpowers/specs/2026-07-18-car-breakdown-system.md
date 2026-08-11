@@ -1,7 +1,14 @@
 # Sistema de Quebra do Carro (falha mecânica em corrida)
 
-> Status: **DESIGN VALIDADO** — modelo travado e calibrado por Monte Carlo
-> (harness em `src-tauri/src/car/breakdown_sim.rs`); produção **não construída**.
+> ⚠️ **Retrato histórico, conferido em 11/08/2026.** Este cabeçalho dizia "produção não
+> construída", e a quebra está no ar: `car/breakdown.rs`, a tabela `race_breakdowns` e os
+> comandos `get_breakdown_forecast` e `get_grid_breakdown_risk` registrados. O arquivo continua
+> aqui porque `car/breakdown.rs` e `car/wear.rs` o citam como referência de design.
+>
+> **Leia como a intenção original, e não como estado do app.** O estado de hoje está no
+> [DESIGN.md](../../DESIGN.md) §10.3.
+
+> Modelo travado e calibrado por Monte Carlo (harness em `src-tauri/src/car/breakdown_sim.rs`).
 > Construído EM CIMA do [Sistema de Nível do Carro](2026-07-17-car-level-system-design.md)
 > e do [comando de chat de texto livre](../../../src-tauri/src/iracing_sdk/mod.rs)
 > (`send_chat_text` → `!black`/`!dq` no iRacing ao vivo).

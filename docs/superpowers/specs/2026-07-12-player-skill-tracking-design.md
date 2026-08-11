@@ -1,7 +1,9 @@
 # Dossiê de Habilidade do Jogador — atributos reais rastreados da pista
 
 **Data:** 2026-07-12
-**Status:** Design travado, não implementado
+**Status:** ⚠️ **Retrato histórico, conferido em 11/08/2026.** Dizia "não implementado", e o
+módulo `src-tauri/src/player_skill.rs` está no ar e cita este arquivo como referência de design.
+Leia como a intenção original, e não como estado do app.
 **Autor:** design conjunto (jogador + assistente)
 
 ## 1. Objetivo

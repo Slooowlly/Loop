@@ -1,8 +1,17 @@
 # Sistema de Nível do Carro (motor de peças, desgaste e economia)
 
-> Status: **DESIGN** — não implementado. Inspirado no modelo de peças do GPRO
-> (Grand Prix Racing Online), adaptado às categorias do iRacerApp.
-> Export pro iRacing fica para uma **fase futura** (ver §11).
+> ⚠️ **Retrato histórico, conferido em 11/08/2026.** Este cabeçalho dizia "não implementado",
+> e o sistema está no ar: `car/parts.rs`, `car/wear.rs`, `car/cost.rs`, `car/seed.rs`,
+> `car/sim_bridge.rs` e a tabela `team_car`. O arquivo continua aqui porque **8 pontos do Rust
+> em produção o citam como referência de design** (`car/mod.rs`, `car/parts.rs`, `car/cost.rs`,
+> `car/seed.rs`, `car/sim_bridge.rs`, `car/wear.rs`, `db/queries/team_car.rs`,
+> `market/car_maintenance.rs`, `simulation/car_build.rs`).
+>
+> **Leia como a intenção original, e não como estado do app.** O estado de hoje está no
+> [DESIGN.md](../../DESIGN.md) §10.3.
+
+> Inspirado no modelo de peças do GPRO (Grand Prix Racing Online), adaptado às categorias do
+> Loop. Export pro iRacing ficou para uma fase futura (ver §11).
 
 ## 1. Objetivo e princípios
 
