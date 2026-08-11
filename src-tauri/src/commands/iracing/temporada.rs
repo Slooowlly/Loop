@@ -151,6 +151,17 @@ pub(crate) fn field_car_advantages(
 /// No fluxo de reexportar antes de cada corrida, recebe a pista daquela corrida.
 /// VALORES calibrados na escada ANTIGA (rookie sweet spot = 73 + offset); a escada atual
 /// está 10 pontos abaixo (ver `tier_difficulty_base`) — preencher conforme o user for testando:
+///
+/// **CALIBRAÇÃO PENDENTE, e ela é o item mais caro desta tabela.** Cada offset abaixo foi
+/// medido contra uma base de tier 10 pontos mais alta, e o rebaixamento de 10/08/2026
+/// mexeu na base sem revalidar nenhum offset. O que está no ar hoje é offset velho somado
+/// a baseline nova: em pista já calibrada, o sweet spot efetivo caiu 10 pontos em relação
+/// ao que foi medido na pista. Corrigir de gabinete seria escolher número no chute — cada
+/// entrada precisa de uma corrida de verdade na pista, que é como todas as outras
+/// nasceram. Até lá a dificuldade parte mais fácil do que o medido, o que é o lado seguro
+/// de errar, e o adaptativo por custid tende a fechar a diferença ao longo das etapas.
+///
+/// A tabela também só cresce por edição manual de código: pista nova cai no default 0.
 fn track_skill_offset(track_id: i64) -> i64 {
     match track_id {
         // Lédenon: no sweet spot 83 a ponta (Alvarez 1:35.946) EMPATOU com o jogador
@@ -211,12 +222,33 @@ fn track_skill_offset(track_id: i64) -> i64 {
     }
 }
 
+/// `minSkill`/`maxSkill` do arquivo de temporada, a partir da banda absoluta que o roster
+/// deixou no post-it. Este é o CONSUMIDOR de `normalize_to_roster` — o outro lado do
+/// contrato, e é por isso que os casos degenerados dele são testados aqui.
+///
+/// A banda chega em ponto flutuante e sai como os dois inteiros que o iRacing aceita
+/// (0 a 125). Os degenerados são convenção do lado que gera e precisam envelhecer junto:
+/// grid de um piloto (ou empate exato de skill) chega como `min` e `min + 1`, então a
+/// faixa nunca sai com `min == max` — que é o valor pelo qual o esticão do iRacing divide.
+/// O `min` é limitado pelo `max` JÁ arredondado, para que o arredondamento não produza um
+/// `minSkill` acima do `maxSkill`, que é arquivo inválido para o sim.
+pub(crate) fn limites_da_banda(min: f64, max: f64) -> (i64, i64) {
+    let max = (max.round() as i64).clamp(0, 125);
+    ((min.round() as i64).clamp(0, max), max)
+}
+
 /// Gera a **AI season** (calendário) da categoria, espelhando o exemplo do
 /// usuário: lê o calendário da carreira (track_ids já são do iRacing), filtra
 /// pistas grátis, usa a duração da categoria e o clima do calendário. Aponta para
 /// o roster `roster_name`. Sai em `aiseasons/<série> - <ano>.json`.
 /// `target_track_id` (opcional) = a pista da corrida que vai ser disputada: aplica
 /// a margem por pista no teto de skill. None → só o teto do tier (sem offset).
+///
+/// **Escreve no save.** O nome promete gerar um arquivo, e ele também faz um `UPDATE` em
+/// `calendar` gravando clima e temperatura de cada etapa. É deliberado: a história do
+/// clima é determinística e precisa de UMA fonte, senão a UI, a simulação offline e o que
+/// o iRacing roda divergem. Fica declarado aqui porque um efeito colateral escondido num
+/// export é exatamente o tipo de coisa que ninguém procura quando o clima não bate.
 #[tauri::command]
 pub fn iracing_generate_season(
     app: tauri::AppHandle,
@@ -357,10 +389,19 @@ pub fn iracing_generate_season(
             // UI e a simulação offline baterem com o que o iRacing vai rodar (e a
             // temp nunca destoar da chuva real).
             let wc = story_to_weather_condition(&story);
-            let _ = db.conn.execute(
+            // Sim, um comando chamado "gerar temporada" ESCREVE no calendário do save. É de
+            // propósito (fonte única de clima), e está declarado na doc do comando; o que
+            // não pode é a escrita falhar calada e a UI passar a mostrar um clima que o
+            // iRacing não vai rodar.
+            if let Err(e) = db.conn.execute(
                 "UPDATE calendar SET clima = ?1, temperatura = ?2 WHERE id = ?3",
                 rusqlite::params![wc.as_str(), ew.temp_c as f64, entry.id],
-            );
+            ) {
+                crate::diagnostico::linha(
+                    "iracing",
+                    &format!("Falha ao persistir o clima da etapa {}: {e}", entry.id),
+                );
+            }
             stories.insert(entry.id.clone(), (entry.track_id as i64, story));
             // Etapa já disputada no app → escreve os resultados (iRacing "pula").
             // No modo teste (zerado) nunca escreve resultados.
@@ -539,15 +580,24 @@ pub fn iracing_generate_season(
     // roster — o líder com dia ruim voltava ao topo e ainda empurrava o grid inteiro junto.
     // A chuva já entra por piloto no roster, então a faixa dela vem pronta e o `rain_pen`
     // NÃO se aplica aqui.
-    // Só vale quando categoria E pista casam; post-it de outro export é post-it velho.
+    // Só vale quando categoria E pista casam; post-it de outro export é post-it velho. O
+    // carimbo de tempo é conferido dentro do `load` (ver `postit_esta_fresco`): antes dele
+    // um bilhete de dias atrás, na mesma pista e categoria, passava como se fosse de agora.
     let roster_band = load_export_skill_band(&base_dir, custid).filter(|b| {
         b.categoria == categoria && Some(b.track_id) == resolved_track_id && b.max > b.min
     });
+    if roster_band.is_none() {
+        // A ausência tem consequência (a faixa cai na fórmula antiga e o esticão do
+        // iRacing volta a apagar o que o roster pretendia), então ela é registrada em vez
+        // de acontecer calada.
+        crate::diagnostico::linha(
+            "iracing",
+            "temporada sem a faixa do roster: exporte o roster desta pista antes da season \
+             (a banda cai na fórmula antiga)",
+        );
+    }
     let (min_skill, max_skill) = match &roster_band {
-        Some(b) => {
-            let max = (b.max.round() as i64).clamp(0, 125);
-            ((b.min.round() as i64).clamp(0, max), max)
-        }
+        Some(b) => limites_da_banda(b.min, b.max),
         // Sem post-it (roster não exportado, ou exportado para outra pista): fórmula antiga,
         // com a penalidade de chuva na banda. Continua correta como aproximação.
         None => {
@@ -618,16 +668,26 @@ pub fn iracing_generate_season(
     // campeonato atual. (Opção "Guardar" — exata, sem varrer/adivinhar.)
     let pointer = serde_json::json!({
         "aiseason_file": path.to_string_lossy(),
+        "gravado_em_unix": agora_unix(),
         "events": event_race_map
             .iter()
             .map(|(rid, tid)| serde_json::json!({ "race_id": rid, "track_id": tid }))
             .collect::<Vec<_>>(),
     });
+    // Este bilhete é o único caminho do import: sem ele o auto-import repete
+    // "não achei o registro do aiseason exportado" para sempre. Falhar em silêncio aqui
+    // era transformar um erro de disco num mistério do outro lado da corrida.
     if let Some(ppath) = season_pointer_path(&base_dir, &career_id) {
-        if let Some(parent) = ppath.parent() {
-            let _ = std::fs::create_dir_all(parent);
+        let escrita = ppath
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::write(&ppath, pointer.to_string()));
+        if let Err(e) = escrita {
+            crate::diagnostico::linha(
+                "iracing",
+                &format!("Falha ao gravar o registro do aiseason (o import não vai achar): {e}"),
+            );
         }
-        let _ = std::fs::write(&ppath, pointer.to_string());
     }
 
     Ok(SeasonGenResult {

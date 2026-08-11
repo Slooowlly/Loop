@@ -17,13 +17,14 @@
 //! mais e uma dependência nova para nada — este módulo é um relé.
 
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
 use crate::config::app_config::AppConfig;
 use crate::narrative::client::APP_SECRET;
 
-const RAIZ: &str = "https://iracer-news-124606451488.southamerica-east1.run.app";
+/// Mesma porta dos boletins — o host mora em `narrative::client`, junto do segredo.
+const RAIZ: &str = crate::narrative::client::host_do_servidor!();
 
 /// Teto da transcrição. Bem mais curto que os 45 s dos boletins, e de propósito: aqui
 /// existe alguém segurando o volante à espera de uma resposta. Passou disto, a resposta
@@ -70,6 +71,54 @@ fn erro_de_status(status: u16) -> String {
     }
 }
 
+/// Separa os três jeitos de a ida morrer. Vale a distinção: "estourou o teto" é servidor
+/// lento (e o teto é nosso, ajustável), "não conectou" é rede do jogador, e o resto é o que
+/// merece ser olhado no servidor. Vistos como um "falhou" só, os três pedem a mesma
+/// investigação, que é a errada em dois casos de três.
+fn desfecho_de_rede(e: &reqwest::Error) -> &'static str {
+    if e.is_timeout() {
+        "timeout"
+    } else if e.is_connect() {
+        "sem_conexao"
+    } else {
+        "rede"
+    }
+}
+
+/// A mensagem do erro, para o `detalhe` da linha. Vale guardar por inteiro: a do `reqwest` diz
+/// qual camada recusou, e ela é a diferença entre um certificado e um DNS.
+fn json_erro(e: &impl std::fmt::Display) -> serde_json::Value {
+    serde_json::json!({ "erro": e.to_string() })
+}
+
+/// **A saúde de uma ida ao servidor**, no mesmo arquivo das falas.
+///
+/// Um engenheiro mudo por síntese lenta e um engenheiro mudo por portão fechado produziam o
+/// mesmo registro: nenhuma linha. Esta é a metade que faltava, e o `ms` é o número que separa
+/// "não falou" de "ainda está falando" — com o teto da resposta em 25 s, uma ida de 9 s é
+/// sucesso no log e silêncio para quem está com o capacete na cabeça.
+///
+/// O relógio começa antes de montar o cliente HTTP, de propósito: o que se quer é o tempo até
+/// a fala poder sair, e a montagem está dentro dele.
+fn registrar_ida(rota: &str, inicio: Instant, desfecho: &str, extra: serde_json::Value) {
+    let mut detalhe = serde_json::json!({
+        "rota": rota,
+        "ms": inicio.elapsed().as_millis(),
+    });
+    if let (Some(alvo), Some(campos)) = (detalhe.as_object_mut(), extra.as_object()) {
+        for (chave, valor) in campos {
+            alvo.insert(chave.clone(), valor.clone());
+        }
+    }
+    crate::radio_registro::registrar(&crate::radio_registro::Registro {
+        canal: "servidor".to_string(),
+        fase: "chamada".to_string(),
+        desfecho: desfecho.to_string(),
+        detalhe: Some(detalhe),
+        ..Default::default()
+    });
+}
+
 #[derive(Deserialize)]
 struct RespostaTranscricao {
     texto: String,
@@ -99,20 +148,49 @@ pub async fn ptt_transcrever(
             "lang": lang,
             "install_id": install_id,
         });
+        // A transcrição não deixava rastro NENHUM no registro do rádio, e é a primeira coisa
+        // que acontece quando o piloto aperta o botão: sem ela, um push-to-talk que morre aqui
+        // aparece no arquivo como se o botão nunca tivesse sido apertado.
+        let inicio = Instant::now();
         let resp = cliente(TIMEOUT_TRANSCRICAO_S)?
             .post(format!("{RAIZ}/ptt-transcrever"))
             .header("x-app-secret", APP_SECRET)
             .json(&corpo)
             .send()
-            .map_err(|e| format!("Falha de rede ao transcrever: {e}"))?;
+            .map_err(|e| {
+                registrar_ida(
+                    "ptt-transcrever",
+                    inicio,
+                    desfecho_de_rede(&e),
+                    json_erro(&e),
+                );
+                format!("Falha de rede ao transcrever: {e}")
+            })?;
         let status = resp.status();
         if !status.is_success() {
+            registrar_ida(
+                "ptt-transcrever",
+                inicio,
+                &format!("http_{}", status.as_u16()),
+                serde_json::json!({}),
+            );
             return Err(erro_de_status(status.as_u16()));
         }
-        let parsed: RespostaTranscricao = resp
-            .json()
-            .map_err(|e| format!("Resposta de transcrição inesperada: {e}"))?;
-        Ok(parsed.texto.trim().to_string())
+        let parsed: RespostaTranscricao = resp.json().map_err(|e| {
+            registrar_ida("ptt-transcrever", inicio, "corpo", json_erro(&e));
+            format!("Resposta de transcrição inesperada: {e}")
+        })?;
+        let texto = parsed.texto.trim().to_string();
+        // O tamanho, e não o texto: a pergunta transcrita já vai por inteiro no registro da
+        // resposta, e repeti-la aqui só dobraria o que se lê depois. Zero caracteres é o caso
+        // que interessa — é o aperto de botão que não virou pergunta nenhuma.
+        registrar_ida(
+            "ptt-transcrever",
+            inicio,
+            "ok",
+            serde_json::json!({ "chars": texto.chars().count() }),
+        );
+        Ok(texto)
     })
     .await
     .map_err(|e| format!("A transcrição não chegou ao fim: {e}"))?
@@ -158,6 +236,13 @@ pub async fn ptt_responder(
 ) -> Result<FalaSintetizada, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let (install_id, lang) = identidade(&app);
+        // Guardados antes de o corpo consumir os originais: os dois entram no registro do rádio
+        // junto com a frase que desceu, e é esse par (o que pedimos, o que ele escreveu) que
+        // permite julgar a fala depois sem estar com o capacete na cabeça.
+        let ocasiao_txt = ocasiao.clone().unwrap_or_default();
+        let pergunta = transcricao.clone();
+        let intencao_txt = intencao.clone();
+        let fatos = linhas.len();
         let corpo = serde_json::json!({
             "transcricao": transcricao,
             "intencao": intencao,
@@ -167,22 +252,65 @@ pub async fn ptt_responder(
             "ocasiao": ocasiao.unwrap_or_default(),
             "tratamento": tratamento.unwrap_or_default(),
         });
+        let inicio = Instant::now();
         let resp = cliente(TIMEOUT_RESPOSTA_S)?
             .post(format!("{RAIZ}/ptt-responder"))
             .header("x-app-secret", APP_SECRET)
             .json(&corpo)
             .send()
-            .map_err(|e| format!("Falha de rede ao pedir a resposta: {e}"))?;
+            .map_err(|e| {
+                registrar_ida("ptt-responder", inicio, desfecho_de_rede(&e), json_erro(&e));
+                format!("Falha de rede ao pedir a resposta: {e}")
+            })?;
         let status = resp.status();
         if !status.is_success() {
+            registrar_ida(
+                "ptt-responder",
+                inicio,
+                &format!("http_{}", status.as_u16()),
+                serde_json::json!({ "ocasiao": &ocasiao_txt }),
+            );
             return Err(erro_de_status(status.as_u16()));
         }
-        let parsed: FalaSintetizada = resp
-            .json()
-            .map_err(|e| format!("Resposta falada inesperada: {e}"))?;
+        let parsed: FalaSintetizada = resp.json().map_err(|e| {
+            registrar_ida("ptt-responder", inicio, "corpo", json_erro(&e));
+            format!("Resposta falada inesperada: {e}")
+        })?;
         if parsed.audio_b64.is_empty() {
+            registrar_ida("ptt-responder", inicio, "sem_audio", serde_json::json!({}));
             return Err("O servidor respondeu sem áudio.".into());
         }
+        // A FRASE QUE O MODELO ESCREVEU, no registro. Ela não existe em lugar nenhum além
+        // daqui: o front recebe áudio e toca. Sem esta linha, a fala mais longa do rádio é a
+        // única que não dá para reler depois.
+        //
+        // E o ÁUDIO junto, pelo mesmo motivo levado um passo adiante: a redação dá para julgar
+        // lendo, o tom não. Esta é a única fala do rádio que acontece uma vez e desaparece — as
+        // outras 3.900 estão gravadas em `src/assets/`.
+        let audio = crate::radio_registro::guardar_audio(&parsed.audio_b64, &parsed.mime);
+        crate::radio_registro::registrar(&crate::radio_registro::Registro {
+            canal: if ocasiao_txt.is_empty() {
+                "resposta".to_string()
+            } else {
+                "ocasiao".to_string()
+            },
+            fase: "redigida".to_string(),
+            texto: parsed.texto.clone(),
+            audio,
+            detalhe: Some(serde_json::json!({
+                "ocasiao": ocasiao_txt,
+                "intencao": intencao_txt,
+                "pergunta": pergunta,
+                "fatos": fatos,
+                "audio_bytes": parsed.audio_b64.len(),
+                // O tempo do servidor entra AQUI, e não numa linha própria de sucesso: a fala
+                // redigida já é a prova de que a ida terminou, e uma segunda linha para dizer o
+                // mesmo instante só faria o arquivo repetir. A ida que FALHA é que ganha linha
+                // própria, porque nela não existe fala nenhuma para carregar o número.
+                "ms": inicio.elapsed().as_millis(),
+            })),
+            ..Default::default()
+        });
         Ok(parsed)
     })
     .await

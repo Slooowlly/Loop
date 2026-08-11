@@ -32,6 +32,23 @@ pub struct BreakdownForecastView {
 /// clima, pista, seed determinística e enduro. Base tanto do card do jogador
 /// ([`get_breakdown_forecast`]) quanto do aviso na tabela do campeonato
 /// ([`get_grid_breakdown_risk`]). `None` quando não dá pra prever (sem time/corrida).
+// ─── Limiares da consequência mostrada ao jogador ────────────────────────────
+// Decidem a cor do card na Sala de Estratégia E o marcador 🔧 na tabela do campeonato.
+// Viviam duplicados: o card usava constantes locais e a tabela repetia os mesmos números
+// inline, então ajustar um lado e esquecer o outro dessincronizava os dois — a peça
+// "vermelha" no card sem o time aparecer marcado na tabela, ou o contrário.
+//
+// CALIBRAÇÃO PENDENTE: os três nasceram como primeiro corte ("ainda por afinar na pista")
+// e continuam sem medição registrada. Mexer neles agora seria trocar um chute por outro.
+/// Acima disto a peça pode ENCERRAR a corrida (vermelho, "pode_abandonar").
+const DNF_VERMELHO: f64 = 0.03;
+/// Acima disto a peça provavelmente custa uma penalidade pesada (laranja, "custa_tempo").
+const CUSTO_LARANJA: f64 = 0.08;
+/// Ou tantas idas ao box que doem, mesmo sem penalidade (laranja).
+const IDAS_LARANJA: f64 = 0.50;
+/// Risco de ABANDONO do carro inteiro que já basta para marcar a equipe na tabela.
+const DNF_DA_EQUIPE: f64 = 0.05;
+
 struct RaceBreakdownCtx {
     player_team_id: String,
     categoria: String,
@@ -75,9 +92,10 @@ fn resolve_race_breakdown_ctx(
     let track_pha = maintenance_demand(&[race.track_id]);
 
     // Enduro (corrida longa) → o forecast reflete o DNF raro (severidade abrandada).
-    let is_enduro = crate::constants::categories::get_category_config(&categoria)
-        .map(|c| crate::car::breakdown::is_enduro_duration(c.duracao_corrida_min))
-        .unwrap_or(false);
+    // A duração vem da ETAPA (`CalendarEntry::duracao_efetiva_min`), nunca da constante
+    // da categoria: no Endurance ela é a sentinela 0, e com ela o gate dava falso — o
+    // forecast de uma prova de 6 horas saía com a régua de sprint.
+    let is_enduro = crate::car::breakdown::is_enduro_duration(race.duracao_efetiva_min());
 
     Some(RaceBreakdownCtx {
         player_team_id: team_id,
@@ -139,6 +157,12 @@ pub fn get_breakdown_forecast(
     };
 
     // 18 voltas = referência de sprint (a escala calibrada). 400 amostras dão um % estável.
+    //
+    // CALIBRAÇÃO PENDENTE (enduro): a prova de Endurance dura de 120 a 360 min e fecha muito
+    // mais que 18 voltas, então o card subestima o risco lá. Trocar 18 pela contagem real da
+    // etapa mudaria a escala inteira do card sem medição por trás — a régua do hazard foi
+    // calibrada nesta referência. Fica pendente de uma medição do harness de quebra nas
+    // durações reais do calendário (o mesmo dado que falta ao teto do sobrecusto de enduro).
     let f = crate::car::breakdown::forecast_breakdown_risk(
         &car,
         18,
@@ -161,13 +185,6 @@ pub fn get_breakdown_forecast(
             "alto"
         }
     };
-    // CONSEQUÊNCIA (o que a UI mostra). Limiares de calibração — ainda por afinar na pista:
-    //  · "pode_abandonar" (vermelho): há risco REAL de a peça encerrar a corrida.
-    //  · "custa_tempo" (laranja): penalidade pesada provável, OU tantas idas ao box que doem.
-    //  · "confiavel" (verde): no máximo desgaste trivial.
-    const DNF_VERMELHO: f64 = 0.03;
-    const CUSTO_LARANJA: f64 = 0.08;
-    const IDAS_LARANJA: f64 = 0.50;
     let consequencia = |r: &crate::car::breakdown::PartRisk| {
         if r.dnf_prob >= DNF_VERMELHO {
             "pode_abandonar"
@@ -265,12 +282,13 @@ pub fn get_grid_breakdown_risk(
             ctx.is_enduro,
             crate::car::cost::category_ceiling(&ctx.categoria) > 2,
         );
-        // "Risco real" = mesma régua do card (peça que custa tempo de verdade ou pode abandonar);
-        // o desgaste trivial (any_prob) fica de fora pra o marcador não virar ruído.
-        let notable = f.dnf_prob >= 0.05
+        // "Risco real" = mesma régua do card (peça que custa tempo de verdade ou pode
+        // abandonar), agora pelas MESMAS constantes que o card usa; o desgaste trivial
+        // (any_prob) fica de fora pra o marcador não virar ruído.
+        let notable = f.dnf_prob >= DNF_DA_EQUIPE
             || f.parts
                 .iter()
-                .any(|p| p.dnf_prob >= 0.03 || p.costly_prob >= 0.08);
+                .any(|p| p.dnf_prob >= DNF_VERMELHO || p.costly_prob >= CUSTO_LARANJA);
         if notable {
             risky.push(team.id);
         }

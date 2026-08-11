@@ -143,7 +143,7 @@ pub fn ler_final(max_bytes: usize) -> String {
 
 /// Rota de recebimento de logs, na MESMA porta do resto (prévia de temporada,
 /// telemetria). Um host só, um segredo só, um lugar só para trocar.
-const ENDPOINT_LOG: &str = "https://iracer-news-124606451488.southamerica-east1.run.app/log";
+const ENDPOINT_LOG: &str = concat!(crate::narrative::client::host_do_servidor!(), "/log");
 
 /// 45s como o cliente de notícias: o Cloud Run faz scale-to-zero e a primeira
 /// chamada depois de um tempo ocioso paga o cold start. Aqui é um envio pedido

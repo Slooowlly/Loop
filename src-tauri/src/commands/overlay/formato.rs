@@ -36,6 +36,45 @@ pub(crate) fn dbg_state(state: &str) {
     }
 }
 
+/// Quantas voltas recentes do líder entram na mediana do ritmo de referência.
+///
+/// Cinco cobre uma janela curta o bastante para acompanhar a evolução da prova (pista
+/// borrachando, combustível queimando) e longa o bastante para uma parada de box ou uma
+/// volta sob amarela não arrastarem a mediana — que é justamente o que a mediana resolve
+/// e a média não resolveria.
+const VOLTAS_DO_RITMO: usize = 5;
+
+/// Ritmo de referência para estimar quantas voltas ainda cabem numa prova por TEMPO.
+///
+/// `voltas_do_lider` vem em ordem cronológica; `melhor_do_campo` é a reserva.
+///
+/// A conta antiga dividia o tempo restante pela MELHOR volta absoluta do campo, e
+/// subestimava o total de forma sistemática: a melhor volta é mais rápida que o ritmo
+/// real de corrida (tráfego, combustível, pneu), então cabiam menos voltas do que a
+/// divisão dizia. A mediana das últimas voltas do líder é o ritmo que a prova está de
+/// fato andando.
+///
+/// A reserva continua sendo a melhor volta: no começo da corrida ninguém tem cinco voltas
+/// fechadas ainda, e um número aproximado no cabeçalho é melhor que nenhum.
+pub(crate) fn ritmo_de_referencia(
+    voltas_do_lider: &[f64],
+    melhor_do_campo: Option<f64>,
+) -> Option<f64> {
+    let mut recentes: Vec<f64> = voltas_do_lider
+        .iter()
+        .copied()
+        .filter(|t| *t > 0.0)
+        .rev()
+        .take(VOLTAS_DO_RITMO)
+        .collect();
+    // Menos de três voltas não formam mediana que valha: um in-lap sozinho mandaria.
+    if recentes.len() < 3 {
+        return melhor_do_campo.filter(|t| *t > 0.0);
+    }
+    recentes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    Some(recentes[recentes.len() / 2])
+}
+
 pub(crate) fn fmt_lap(secs: f64) -> String {
     if secs <= 0.0 {
         return String::new();

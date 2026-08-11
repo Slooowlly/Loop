@@ -5,21 +5,42 @@
 /// usa sempre 1.0 — correr na chuva é difícil e tem que ser raro (decisão do user, 10/08/2026).
 pub(crate) const AI_WET_BIAS: f64 = 2.0;
 
+/// Países do hemisfério SUL, pela bandeira que o catálogo de pistas usa no campo `pais`
+/// (ex.: `"🇧🇷 Brasil"`). Inclui países que ainda não têm pista no catálogo: o custo de
+/// deixar a linha pronta é zero, e a pista nova já nasce com a estação certa.
+///
+/// A heurística é por bandeira porque o hemisfério não existe como campo no catálogo. O
+/// perigo é o silêncio: país fora da lista cai no norte sem avisar, e a estação inteira
+/// daquela etapa se inverte — corrida de julho em Interlagos vira verão. Por isso existe o
+/// teste `todo_pais_do_catalogo_tem_hemisferio_declarado`: pista de país novo quebra a
+/// suíte em vez de sortear uma estação errada na carreira de alguém.
+pub(crate) const PAISES_DO_SUL: [&str; 8] = [
+    "🇦🇺", // Austrália
+    "🇦🇷", // Argentina
+    "🇧🇷", // Brasil
+    "🇿🇦", // África do Sul
+    "🇳🇿", // Nova Zelândia
+    "🇨🇱", // Chile
+    "🇺🇾", // Uruguai
+    "🇮🇩", // Indonésia
+];
+
+/// Países do hemisfério NORTE já vistos no catálogo. Só existe para o guard: é a lista
+/// contra a qual o teste confere que nenhum país entrou sem alguém decidir de que lado
+/// do equador ele fica.
+#[cfg(test)]
+pub(crate) const PAISES_DO_NORTE: [&str; 15] = [
+    "🇦🇹", "🇧🇪", "🇨🇦", "🇩🇪", "🇪🇸", "🇫🇷", "🇬🇧", "🇭🇺", "🇮🇹", "🇯🇵", "🇲🇽", "🇳🇱", "🇳🇴", "🇵🇹", "🇺🇸",
+];
+
 /// Hemisfério da pista pelo país (sul = Austrália, Argentina, Brasil, etc.).
 pub(crate) fn track_hemisphere(pais: &str) -> crate::iracing_sdk::weather::Hemisphere {
     use crate::iracing_sdk::weather::Hemisphere;
-    const SOUTH: [&str; 9] = [
-        "🇦🇺",
-        "🇦🇷",
-        "🇧🇷",
-        "🇿🇦",
-        "🇳🇿",
-        "🇨🇱",
-        "🇺🇾",
-        "Austrália",
-        "Australia",
-    ];
-    if SOUTH.iter().any(|s| pais.contains(s)) {
+    // O nome por extenso continua aceito: saves e testes antigos passam "Austrália" cru.
+    if PAISES_DO_SUL.iter().any(|s| pais.contains(s))
+        || pais.contains("Austrália")
+        || pais.contains("Australia")
+    {
         Hemisphere::South
     } else {
         Hemisphere::North
@@ -194,9 +215,10 @@ pub(crate) fn build_event_weather(
         story.race_intensity = weather::RainIntensity::Heavy;
         story.scenario = weather::WeatherScenario::SteadyRain;
     }
-    let is_lit = track.track_id == 556; // Charlotte Roval — única com iluminação
-                                        // Etapa designada como noturna pelo calendário força a hora no escuro (sobrepõe
-                                        // o sorteio por-pista, mas nunca em rookie — o calendário nunca designa tier 0).
+    // Charlotte Roval é a única pista iluminada; o id vem do catálogo.
+    let is_lit = track.track_id == crate::constants::tracks::LIT_TRACK_ID;
+    // Etapa designada como noturna pelo calendário força a hora no escuro (sobrepõe
+    // o sorteio por-pista, mas nunca em rookie — o calendário nunca designa tier 0).
     let hour = if force_night {
         weather::night_start_hour(story.season, seed ^ 0x55)
     } else {

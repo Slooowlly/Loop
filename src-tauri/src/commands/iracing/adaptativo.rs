@@ -62,6 +62,52 @@ pub(crate) struct CarDifficultyContext {
     pub(crate) player_advantage: f64,
     /// número do carro (string) → vantagem de carro (car-perf) na pista.
     pub(crate) by_number: std::collections::HashMap<String, f64>,
+    /// Quando o export gravou este bilhete (segundos desde a época). `0` em arquivo
+    /// gravado antes deste campo existir. Ver [`postit_esta_fresco`].
+    #[serde(default)]
+    pub(crate) gravado_em_unix: i64,
+}
+
+/// Validade de um "post-it" do export (contexto de carro, faixa de skill).
+///
+/// Estes arquivos são bilhetes que uma etapa do fluxo deixa para a próxima: o roster
+/// escreve, a temporada e o pós-corrida leem. A validade era conferida só por
+/// categoria + pista, sem carimbo de tempo — então um bilhete deixado por um fluxo
+/// INTERROMPIDO dias atrás, na mesma pista e categoria, era lido como se fosse de agora e
+/// produzia banda de skill errada sem nenhum aviso.
+///
+/// Um dia é o teto: um fim de semana de corrida no Loop (exportar, correr, importar) cabe
+/// numa sessão, inclusive um enduro de seis horas. Bilhete de ontem é de outro fluxo.
+const VALIDADE_DO_POSTIT_SEGS: i64 = 24 * 60 * 60;
+
+/// Agora, em segundos desde a época. `0` quando o relógio do sistema está antes de 1970 —
+/// caso em que o carimbo simplesmente não filtra nada (ver [`postit_esta_fresco`]).
+pub(crate) fn agora_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// O carimbo ainda vale? `0` (post-it gravado antes de este campo existir) passa: recusar
+/// um bilhete legítimo é pior do que aceitar um velho, e o log diz qual é o caso.
+pub(crate) fn postit_esta_fresco(gravado_em_unix: i64, rotulo: &str) -> bool {
+    if gravado_em_unix <= 0 {
+        return true;
+    }
+    let idade = agora_unix() - gravado_em_unix;
+    if idade > VALIDADE_DO_POSTIT_SEGS {
+        crate::diagnostico::linha(
+            "iracing",
+            &format!(
+                "{rotulo}: registro do export tem {} h — velho demais, ignorado \
+                 (exporte a etapa de novo)",
+                idade / 3600
+            ),
+        );
+        return false;
+    }
+    true
 }
 
 pub(crate) fn car_difficulty_context_path(
@@ -88,14 +134,16 @@ pub(crate) fn save_car_difficulty_context(
     std::fs::write(&path, json).map_err(|e| format!("Falha ao gravar: {e}"))
 }
 
-/// Lê o contexto de carro do último export (None se não existe).
+/// Lê o contexto de carro do último export. `None` se não existe ou se o bilhete é velho
+/// demais para ser deste fluxo (ver [`postit_esta_fresco`]).
 pub(crate) fn load_car_difficulty_context(
     base_dir: &std::path::Path,
     custid: i64,
 ) -> Option<CarDifficultyContext> {
     std::fs::read_to_string(car_difficulty_context_path(base_dir, custid))
         .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
+        .and_then(|s| serde_json::from_str::<CarDifficultyContext>(&s).ok())
+        .filter(|c| postit_esta_fresco(c.gravado_em_unix, "contexto de carro"))
 }
 
 /// Faixa de skill EFETIVA do último roster exportado — o post-it que fecha o ciclo entre
@@ -116,6 +164,10 @@ pub(crate) struct ExportSkillBand {
     /// Menor e maior skill PRETENDIDA do grid, na escala efetiva (vai até 125).
     pub(crate) min: f64,
     pub(crate) max: f64,
+    /// Quando o roster gravou este bilhete (segundos desde a época). `0` em arquivo
+    /// gravado antes deste campo existir. Ver [`postit_esta_fresco`].
+    #[serde(default)]
+    pub(crate) gravado_em_unix: i64,
 }
 
 pub(crate) fn export_skill_band_path(
@@ -142,14 +194,16 @@ pub(crate) fn save_export_skill_band(
     std::fs::write(&path, json).map_err(|e| format!("Falha ao gravar: {e}"))
 }
 
-/// Lê a faixa efetiva do último roster exportado (None se não existe).
+/// Lê a faixa efetiva do último roster exportado. `None` se não existe ou se o bilhete é
+/// velho demais para ser deste fluxo (ver [`postit_esta_fresco`]).
 pub(crate) fn load_export_skill_band(
     base_dir: &std::path::Path,
     custid: i64,
 ) -> Option<ExportSkillBand> {
     std::fs::read_to_string(export_skill_band_path(base_dir, custid))
         .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
+        .and_then(|s| serde_json::from_str::<ExportSkillBand>(&s).ok())
+        .filter(|b| postit_esta_fresco(b.gravado_em_unix, "faixa de skill do roster"))
 }
 
 /// Resultado do processamento adaptativo pós-corrida (para a UI).

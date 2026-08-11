@@ -76,6 +76,156 @@ pub(crate) fn ensure_driver_numbers(
     Ok(map)
 }
 
+// ─── Partes puras do contexto comportamental ─────────────────────────────────
+// Saíram de dentro de `iracing_generate_roster` (uma função de ~620 linhas que lia o
+// banco, montava o contexto por piloto, resolvia clima, calculava dificuldade, gravava
+// três arquivos e instalava o diretor de quebra). Estas duas decidem ATITUDE da IA na
+// pista — vingança, desconfiança no carro, nêmesis — a partir de listas simples, e por
+// isso podem ser conferidas sem banco, sem Tauri e sem o sim aberto.
+
+/// O que os abandonos das últimas rodadas dizem sobre o estado de espírito de cada piloto.
+#[derive(Default, Debug, PartialEq, Eq)]
+pub(crate) struct SinaisDeAbandono {
+    /// Foi tirado de corrida na ÚLTIMA rodada (colisão de terceiro) — quer desforra.
+    pub tirado_na_ultima: std::collections::HashSet<String>,
+    /// Abandonos que NÃO foram culpa dele nem do carro — frustração acumulada.
+    pub azar: std::collections::HashMap<String, u32>,
+    /// Abandonos por falha mecânica/operacional — desconfiança no carro, poupa.
+    pub mecanico: std::collections::HashMap<String, u32>,
+}
+
+/// Classifica os abandonos por FONTE nas últimas rodadas.
+///
+/// `rodadas` vem da mais recente para a mais antiga: `rodadas[0]` é a última corrida.
+/// Cada entrada é `(piloto, fonte, abandonou)`, com a fonte como o banco a grava
+/// (`DriverError`, `Mechanical`, `Operational`, `PostCollision`, ...).
+///
+/// As fontes são disjuntas de propósito: culpa própria não vira nem azar nem
+/// desconfiança, senão o piloto que roda sozinho passaria a correr com raiva de alguém.
+pub(crate) fn classificar_abandonos(
+    rodadas: &[Vec<(String, Option<String>, bool)>],
+) -> SinaisDeAbandono {
+    let mut sinais = SinaisDeAbandono::default();
+    for (indice, rodada) in rodadas.iter().enumerate() {
+        for (pid, fonte, abandonou) in rodada {
+            if !abandonou {
+                continue;
+            }
+            match fonte.as_deref() {
+                Some("DriverError") => {} // culpa própria: nem azar nem desconfiança
+                Some("Mechanical") | Some("Operational") => {
+                    *sinais.mecanico.entry(pid.clone()).or_default() += 1;
+                }
+                fonte => {
+                    // Tirado de corrida na ÚLTIMA rodada = vingança.
+                    if indice == 0 && fonte == Some("PostCollision") {
+                        sinais.tirado_na_ultima.insert(pid.clone());
+                    }
+                    *sinais.azar.entry(pid.clone()).or_default() += 1;
+                }
+            }
+        }
+    }
+    sinais
+}
+
+/// Quantas vezes dois pilotos precisam cruzar a linha em posições VIZINHAS, nas últimas
+/// rodadas, para virarem nêmesis um do outro.
+const NEMESIS_MIN_VIZINHANCAS: u32 = 2;
+
+/// Pilotos que viraram nêmesis de alguém: cruzaram a linha em posições vizinhas com o
+/// MESMO rival ao menos [`NEMESIS_MIN_VIZINHANCAS`] vezes nas rodadas dadas.
+///
+/// `rodadas` traz, por rodada, `(piloto, posição de chegada)` só de quem TERMINOU — quem
+/// abandonou não estava disputando com ninguém no fim.
+pub(crate) fn nemesis_por_vizinhanca(
+    rodadas: &[Vec<(String, i32)>],
+) -> std::collections::HashSet<String> {
+    use std::collections::HashMap;
+    let mut vizinhancas: HashMap<String, HashMap<String, u32>> = HashMap::new();
+    for rodada in rodadas {
+        let mut chegada: Vec<(String, i32)> =
+            rodada.iter().filter(|(_, pos)| *pos > 0).cloned().collect();
+        chegada.sort_by_key(|(_, pos)| *pos);
+        for i in 0..chegada.len() {
+            for j in [i.wrapping_sub(1), i + 1] {
+                if j < chegada.len() && j != i {
+                    *vizinhancas
+                        .entry(chegada[i].0.clone())
+                        .or_default()
+                        .entry(chegada[j].0.clone())
+                        .or_default() += 1;
+                }
+            }
+        }
+    }
+    vizinhancas
+        .into_iter()
+        .filter(|(_, rivais)| rivais.values().any(|c| *c >= NEMESIS_MIN_VIZINHANCAS))
+        .map(|(id, _)| id)
+        .collect()
+}
+
+/// Pontuação do MELHOR outro membro da mesma equipe — o duelo interno, que é o que faz a
+/// IA correr contra o companheiro e não só contra o campeonato.
+///
+/// `None` quando o piloto é o único do time na lista: aí não há duelo interno, e é
+/// diferente de "o companheiro fez zero ponto". A distinção importa porque o consumidor
+/// (`DriverCtx::teammate_points`) usa `Option` justamente para não inventar um duelo com
+/// ninguém no time de um carro só.
+pub(crate) fn pontos_do_melhor_companheiro(membros: &[(String, f64)], piloto: &str) -> Option<f64> {
+    membros
+        .iter()
+        .filter(|(id, _)| id != piloto)
+        .map(|(_, pontos)| *pontos)
+        .fold(None, |melhor: Option<f64>, p| {
+            Some(melhor.map_or(p, |m: f64| m.max(p)))
+        })
+}
+
+/// Posição do piloto no ranking MUNDIAL como percentil, de 0 (último) a 1 (primeiro).
+///
+/// `rank` é 1-based, como o ranking devolve. Ranking de um piloto só (ou vazio) devolve
+/// 0.5: sem ninguém para comparar, o neutro é a única resposta honesta — dizer 1.0 daria
+/// ao único piloto do mundo o bônus de quem venceu todos os outros.
+pub(crate) fn percentil_mundial(rank: i64, total: usize) -> f64 {
+    if total <= 1 {
+        return 0.5;
+    }
+    1.0 - (rank as f64 - 1.0) / (total as f64 - 1.0)
+}
+
+/// O piloto trocou de equipe para chegar onde está? `contratos_anteriores` são os pares
+/// `(temporada de início, equipe)` de todo o histórico dele.
+///
+/// Verdadeiro só quando ele assinou o contrato atual NESTA temporada **e** já teve OUTRA
+/// equipe antes. As duas condições existem para separar a troca de verdade de dois casos
+/// que se parecem com ela: o rookie no primeiro time (não trocou, chegou) e a
+/// re-assinatura com o mesmo time (não trocou, ficou).
+pub(crate) fn trocou_de_equipe(
+    temporada_do_contrato_atual: i32,
+    equipe_atual: &str,
+    temporada_corrente: i32,
+    contratos_anteriores: &[(i32, String)],
+) -> bool {
+    temporada_do_contrato_atual == temporada_corrente
+        && contratos_anteriores
+            .iter()
+            .any(|(inicio, equipe)| *inicio < temporada_do_contrato_atual && equipe != equipe_atual)
+}
+
+/// Nome de pasta seguro para o roster: tira o que o Windows recusa e recorta o vazio.
+/// `None` quando não sobra nada — aí o export falha com mensagem, em vez de criar uma
+/// pasta sem nome dentro do `airosters` do jogador.
+pub(crate) fn nome_seguro_de_roster(bruto: &str) -> Option<String> {
+    let limpo: String = bruto
+        .chars()
+        .filter(|c| !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        .collect();
+    let limpo = limpo.trim().to_string();
+    (!limpo.is_empty()).then_some(limpo)
+}
+
 /// Gera o `roster.json` da IA a partir do grid de uma categoria da carreira e o
 /// grava em `Documentos/iRacing/airosters/<roster_name>/roster.json`.
 #[tauri::command]
@@ -187,14 +337,18 @@ pub fn iracing_generate_roster(
         let switched_teams = contract
             .as_ref()
             .map(|cur| {
-                cur.temporada_inicio == season_num
-                    && cq::get_contracts_for_pilot(&db.conn, &driver.id)
+                let anteriores: Vec<(i32, String)> =
+                    cq::get_contracts_for_pilot(&db.conn, &driver.id)
                         .unwrap_or_default()
-                        .iter()
-                        .any(|p| {
-                            p.temporada_inicio < cur.temporada_inicio
-                                && p.equipe_id != cur.equipe_id
-                        })
+                        .into_iter()
+                        .map(|p| (p.temporada_inicio, p.equipe_id))
+                        .collect();
+                trocou_de_equipe(
+                    cur.temporada_inicio,
+                    &cur.equipe_id,
+                    season_num,
+                    &anteriores,
+                )
             })
             .unwrap_or(false);
         driver_ctx.insert(
@@ -247,14 +401,7 @@ pub fn iracing_generate_roster(
     for members in team_members.values() {
         for (id, _) in members {
             if let Some(ctx) = driver_ctx.get_mut(id) {
-                let best_other = members
-                    .iter()
-                    .filter(|(oid, _)| oid != id)
-                    .map(|(_, p)| *p)
-                    .fold(f64::MIN, f64::max);
-                if best_other > f64::MIN {
-                    ctx.teammate_points = Some(best_other);
-                }
+                ctx.teammate_points = pontos_do_melhor_companheiro(members, id);
             }
         }
     }
@@ -289,12 +436,10 @@ pub fn iracing_generate_roster(
                     .rows
                     .iter()
                     .map(|r| {
-                        let pct = if total <= 1 {
-                            0.5
-                        } else {
-                            1.0 - (r.historical_rank as f64 - 1.0) / (total as f64 - 1.0)
-                        };
-                        (r.id.clone(), pct)
+                        (
+                            r.id.clone(),
+                            percentil_mundial(r.historical_rank as i64, total),
+                        )
                     })
                     .collect()
             }
@@ -338,70 +483,48 @@ pub fn iracing_generate_roster(
         // Fontes disjuntas: DriverError = culpa própria (ignora); Mechanical/Operational =
         // carro quebrou (desconfiança, poupa); resto (PostCollision etc.) = tirado/azar
         // (frustração). Nêmesis = cruzou a linha lado a lado com o mesmo rival ≥2 vezes.
-        let mut last_crashout: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let mut bad_luck: HashMap<String, u32> = HashMap::new();
-        let mut mechanical: HashMap<String, u32> = HashMap::new();
-        let mut adjacency: HashMap<String, HashMap<String, u32>> = HashMap::new();
+        // Lê o banco aqui e decide FORA: a classificação é regra de jogo e vive em
+        // `classificar_abandonos`/`nemesis_por_vizinhanca`, que são puras e testadas.
+        // As rodadas vêm da mais recente para a mais antiga (`back` 1, 2, 3).
+        let mut abandonos_por_rodada: Vec<Vec<(String, Option<String>, bool)>> = Vec::new();
+        let mut chegadas_por_rodada: Vec<Vec<(String, i32)>> = Vec::new();
         for back in 1..=3 {
             let round = race.rodada - back;
             if round < 1 {
                 break;
             }
-            if let Ok(facts) =
+            abandonos_por_rodada.push(
                 rhq::get_dnf_incident_facts_for_round(&db.conn, &season.id, &categoria, round)
-            {
-                for (pid, source, dnf, _seg) in facts {
-                    if !dnf {
-                        continue;
-                    }
-                    match source.as_deref() {
-                        Some("DriverError") => {} // culpa própria: nem azar nem desconfiança
-                        Some("Mechanical") | Some("Operational") => {
-                            *mechanical.entry(pid).or_default() += 1;
-                        }
-                        src => {
-                            // tirado de corrida (PostCollision) na última = vingança.
-                            if back == 1 && src == Some("PostCollision") {
-                                last_crashout.insert(pid.clone());
-                            }
-                            *bad_luck.entry(pid).or_default() += 1;
-                        }
-                    }
-                }
-            }
-            // Nêmesis: rivais que terminaram em posições vizinhas (±1 no grid de chegada).
-            if let Ok(rows) = rhq::get_results_for_round(&db.conn, &season.id, &categoria, round) {
-                let mut finishers: Vec<(String, i32)> = rows
-                    .into_iter()
-                    .filter(|(_, _, fin, dnf)| !dnf && *fin > 0)
-                    .map(|(id, _, fin, _)| (id, fin))
-                    .collect();
-                finishers.sort_by_key(|(_, fin)| *fin);
-                for i in 0..finishers.len() {
-                    for j in [i.wrapping_sub(1), i + 1] {
-                        if j < finishers.len() && j != i {
-                            *adjacency
-                                .entry(finishers[i].0.clone())
-                                .or_default()
-                                .entry(finishers[j].0.clone())
-                                .or_default() += 1;
-                        }
-                    }
-                }
-            }
+                    .map(|facts| {
+                        facts
+                            .into_iter()
+                            .map(|(pid, source, dnf, _seg)| (pid, source, dnf))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            );
+            chegadas_por_rodada.push(
+                rhq::get_results_for_round(&db.conn, &season.id, &categoria, round)
+                    .map(|rows| {
+                        rows.into_iter()
+                            .filter(|(_, _, fin, dnf)| !dnf && *fin > 0)
+                            .map(|(id, _, fin, _)| (id, fin))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            );
         }
+        let sinais = classificar_abandonos(&abandonos_por_rodada);
+        let nemeses = nemesis_por_vizinhanca(&chegadas_por_rodada);
         // Trauma de pista: já bateu (DriverError/PostCollision) na pista alvo.
         let track_crash_set =
             rhq::get_track_crash_pilots(&db.conn, race.track_id).unwrap_or_default();
         for (id, ctx) in driver_ctx.iter_mut() {
-            ctx.crashed_out_last_race = last_crashout.contains(id);
-            ctx.not_at_fault_dnfs = bad_luck.get(id).copied().unwrap_or(0);
-            ctx.mechanical_dnfs = mechanical.get(id).copied().unwrap_or(0);
+            ctx.crashed_out_last_race = sinais.tirado_na_ultima.contains(id);
+            ctx.not_at_fault_dnfs = sinais.azar.get(id).copied().unwrap_or(0);
+            ctx.mechanical_dnfs = sinais.mecanico.get(id).copied().unwrap_or(0);
             ctx.track_crash = track_crash_set.contains(id);
-            ctx.nemesis = adjacency
-                .get(id)
-                .map(|rivals| rivals.values().any(|&c| c >= 2))
-                .unwrap_or(false);
+            ctx.nemesis = nemeses.contains(id);
         }
     }
 
@@ -523,15 +646,23 @@ pub fn iracing_generate_roster(
                 .iter()
                 .filter_map(|(id, adv)| numbers.get(id).map(|n| (n.to_string(), *adv)))
                 .collect();
-            let _ = save_car_difficulty_context(
+            // A falha vai pro log: sem este bilhete o pós-corrida não desconta a
+            // vantagem de carro e a dificuldade adaptativa aprende errado, em silêncio.
+            if let Err(e) = save_car_difficulty_context(
                 &base_dir,
                 custid,
                 &CarDifficultyContext {
                     track_id: race.track_id as i64,
                     player_advantage: player_adv,
                     by_number,
+                    gravado_em_unix: agora_unix(),
                 },
-            );
+            ) {
+                crate::diagnostico::linha(
+                    "iracing",
+                    &format!("Falha ao gravar o contexto de carro do export: {e}"),
+                );
+            }
         }
         // Bônus de rivalidade (Pressão de Duelo, export): Nemesis +2 / Rivais +1 no
         // AI rival do jogador — corre mais forte contra ele na pista.
@@ -587,7 +718,10 @@ pub fn iracing_generate_roster(
     // apagaria tudo o que só existe no roster. Best-effort: só grava quando há corrida alvo
     // (a temporada exige que categoria e pista casem para usar).
     if let Some((_, race)) = next.as_ref() {
-        let _ = save_export_skill_band(
+        // A falha vai pro log: sem este bilhete a temporada recalcula a faixa pelas skills
+        // CRUAS e o esticão do iRacing apaga tudo o que só existe no roster. O sintoma é a
+        // grade inteira correndo diferente do previsto, sem nada acusando.
+        if let Err(e) = save_export_skill_band(
             &base_dir,
             crate::iracing_sdk::cached_custid().unwrap_or(0),
             &ExportSkillBand {
@@ -595,22 +729,22 @@ pub fn iracing_generate_roster(
                 track_id: race.track_id as i64,
                 min: built.band.min,
                 max: built.band.max,
+                gravado_em_unix: agora_unix(),
             },
-        );
+        ) {
+            crate::diagnostico::linha(
+                "iracing",
+                &format!("Falha ao gravar a faixa de skill do roster: {e}"),
+            );
+        }
     }
 
     // Grava em airosters/<roster_name>/roster.json.
-    let safe_name: String = roster_name
-        .chars()
-        .filter(|c| !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
-        .collect();
-    let safe_name = safe_name.trim();
-    if safe_name.is_empty() {
-        return Err("Nome do roster inválido.".to_string());
-    }
+    let safe_name = nome_seguro_de_roster(&roster_name)
+        .ok_or_else(|| "Nome do roster inválido.".to_string())?;
     let dir = paths::airosters_dir()
         .ok_or("Não foi possível localizar a pasta airosters do iRacing.")?
-        .join(safe_name);
+        .join(&safe_name);
     std::fs::create_dir_all(&dir).map_err(|e| format!("Falha ao criar pasta: {e}"))?;
     let path = dir.join("roster.json");
     let json =
@@ -648,10 +782,11 @@ pub fn iracing_generate_roster(
         };
 
         // Enduro (corrida longa): o disparo ao vivo abranda o DNF (grid não esvazia) e agrava o
-        // desgaste da metade pro fim da corrida. Gate único por duração da categoria.
-        let is_enduro = get_category_config(&categoria)
-            .map(|c| crate::car::breakdown::is_enduro_duration(c.duracao_corrida_min))
-            .unwrap_or(false);
+        // desgaste da metade pro fim da corrida. A duração vem da ETAPA
+        // (`CalendarEntry::duracao_efetiva_min`), nunca da constante da categoria: no Endurance
+        // ela é a sentinela 0 e o gate dava falso — o disparo ao vivo tratava uma prova de 6
+        // horas como sprint, com DNF cheio e sem a rampa de fim.
+        let is_enduro = crate::car::breakdown::is_enduro_duration(race.duracao_efetiva_min());
         // Tenda de durabilidade por nível (§4.8) só em categoria GERIDA (teto ≥ 3); spec fica de fora.
         let apply_tent = crate::car::cost::category_ceiling(&categoria) > 2;
 

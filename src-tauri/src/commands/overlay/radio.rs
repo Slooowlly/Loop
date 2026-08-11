@@ -205,7 +205,7 @@ pub fn get_breakdown_feed(
     let abandonos_ate: Vec<u32> = log
         .iter()
         .map(|o| {
-            if o.severity == "dnf" {
+            if o.severity.e_abandono() {
                 acumulado += 1;
             }
             acumulado
@@ -231,7 +231,7 @@ pub fn get_breakdown_feed(
                 piloto_id.as_deref(),
                 &name,
                 &o.part,
-                &o.severity,
+                o.severity.key(),
                 variant,
                 abandonos_ate[i],
             )
@@ -259,7 +259,7 @@ pub fn get_breakdown_feed(
             Some(fala) => {
                 out.push(BreakdownMessage {
                     id: i + 1,
-                    severity: log[i].severity.clone(),
+                    severity: log[i].severity.key().to_string(),
                     // O detalhe some na fusão: são duas causas concretas, e escolher uma seria
                     // dizer que a outra não houve.
                     detail: String::new(),
@@ -272,7 +272,7 @@ pub fn get_breakdown_feed(
                 let fala = quebra::montar(&contextos[i]);
                 out.push(BreakdownMessage {
                     id: race_monitor::radio_epoch() + i,
-                    severity: log[i].severity.clone(),
+                    severity: log[i].severity.key().to_string(),
                     text: fala.texto,
                     detail: log[i].label.clone(),
                     pecas: fala.pecas,

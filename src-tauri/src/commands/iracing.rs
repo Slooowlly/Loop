@@ -55,3 +55,6 @@ pub use sessao::*;
 pub use spotter::*;
 pub use temporada::*;
 pub use teste_chuva::*;
+
+#[cfg(test)]
+mod tests;

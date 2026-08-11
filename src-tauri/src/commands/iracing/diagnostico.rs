@@ -82,3 +82,56 @@ pub fn iracing_log_revelar() -> Result<(), String> {
         Err("Disponível apenas no Windows.".to_string())
     }
 }
+
+// ── Registro do RÁDIO ───────────────────────────────────────────────────────
+//
+// Canal separado do `loop.log`, e não uma categoria dentro dele. O log de diagnóstico é
+// pequeno, rotativo e feito para caber num anexo; o registro do rádio é uma linha por fala e
+// existe para ser LIDO por script. Misturar os dois faria o log encher de rádio e perder o
+// que ele existe para mostrar. Ver [`crate::radio_registro`].
+
+/// **Registra uma fala que acabou de tocar** (ou que foi engolida no caminho).
+///
+/// Quem chama é o front, no instante em que o áudio começa — é a única ponta que sabe o que o
+/// jogador de fato ouviu, e qual variação do rodízio saiu. O tempo de sessão é anexado aqui,
+/// do último tique do amostrador, e não vem do JavaScript: o front não tem relógio do sim, e
+/// mandá-lo daqui é o que faz as duas fases da linha do tempo serem comparáveis.
+///
+/// Nunca falha. Um registro que devolve erro faria o `catch` do front virar ruído no console
+/// no meio de uma corrida, e o áudio não pode pagar nada por causa da medição.
+#[tauri::command]
+pub fn radio_registrar(registro: crate::radio_registro::Registro) {
+    crate::radio_registro::registrar(&registro);
+}
+
+/// Caminho do registro desta execução. `None` até a primeira fala.
+#[tauri::command]
+pub fn radio_log_caminho() -> Option<String> {
+    crate::radio_registro::caminho().map(|p| p.to_string_lossy().to_string())
+}
+
+/// Abre o Explorer na pasta dos registros, com o arquivo desta execução selecionado quando ele
+/// já existe. Sem fala nenhuma ainda, abre a pasta — que é onde estão os das sessões anteriores.
+#[tauri::command]
+pub fn radio_log_revelar() -> Result<(), String> {
+    let alvo = crate::radio_registro::caminho();
+    let pasta = crate::radio_registro::pasta();
+    #[cfg(windows)]
+    {
+        let arg = match (&alvo, &pasta) {
+            (Some(p), _) => format!("/select,{}", p.display()),
+            (None, Some(d)) => d.display().to_string(),
+            (None, None) => return Err("A pasta de registros do rádio não foi criada.".to_string()),
+        };
+        std::process::Command::new("explorer.exe")
+            .arg(arg)
+            .spawn()
+            .map_err(|e| format!("Falha ao abrir o Explorer: {e}"))?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (alvo, pasta);
+        Err("Disponível apenas no Windows.".to_string())
+    }
+}

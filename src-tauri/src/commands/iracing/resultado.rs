@@ -128,30 +128,79 @@ pub(crate) struct BatidaDaQuali {
     pub direcao: String,
 }
 
+/// Por que o resultado da sessão não pôde ser montado.
+///
+/// A distinção existe porque o poller do auto-import chama isto ~1x/s e engole o erro:
+/// sem separar as duas famílias, "o jogador ainda está correndo" e "o post-it do export
+/// aponta para um arquivo apagado" produziam a MESMA linha de log e o mesmo silêncio, e o
+/// jogador nunca via o motivo de a corrida não entrar na carreira.
+pub(crate) struct FalhaDaSessao {
+    /// `true` = **ainda não**: o estado é normal e a próxima tentativa pode dar certo
+    /// sozinha (jogador correndo, sem corrida pendente, resultado ainda não gravado).
+    /// `false` = **estado quebrado**: repetir não resolve; alguém precisa agir.
+    pub transitoria: bool,
+    pub mensagem: String,
+}
+
+impl FalhaDaSessao {
+    /// Ainda não: o poller tenta de novo e isso é esperado.
+    fn aguardando(mensagem: impl Into<String>) -> Self {
+        Self {
+            transitoria: true,
+            mensagem: mensagem.into(),
+        }
+    }
+
+    /// Estado quebrado: repetir para sempre não resolve.
+    fn quebrado(mensagem: impl Into<String>) -> Self {
+        Self {
+            transitoria: false,
+            mensagem: mensagem.into(),
+        }
+    }
+}
+
+impl From<FalhaDaSessao> for String {
+    fn from(f: FalhaDaSessao) -> String {
+        f.mensagem
+    }
+}
+
+/// Tudo o que o preview e o auto-import precisam da sessão que acabou de ser corrida.
+///
+/// Era uma tupla posicional de 11 elementos, desestruturada nos dois consumidores. Dois
+/// dos campos eram `String` sem tipo próprio (severidade e direção do impacto), e inserir
+/// um campo no meio trocava o significado de dois vizinhos em silêncio, sem o compilador
+/// dizer nada. Nomear os campos elimina a classe de erro inteira.
+pub(crate) struct ResultadoDaSessao {
+    /// Banco da carreira, já aberto.
+    pub db: crate::db::connection::Database,
+    /// Pasta do save (onde a tela pós-corrida é persistida).
+    pub career_dir: std::path::PathBuf,
+    /// Pista da corrida importada.
+    pub track_id: i64,
+    /// Pior severidade de batida do jogador na CORRIDA — a base do conserto do carro.
+    pub batida_do_jogador: String,
+    /// O resultado já mapeado para o que a carreira consome.
+    pub resultado: crate::simulation::race::RaceResult,
+    /// Ritmo, consistência, rival e setores (fase 2 da telemetria).
+    pub telemetria: crate::iracing_sdk::telemetry_analysis::TelemetryAnalysis,
+    /// O histórico volta a volta do monitor ao vivo.
+    pub historico: crate::iracing_sdk::race_monitor::RaceHistory,
+    /// Número do carro → `driver_id`, para resolver a identidade dos rivais percebidos.
+    pub por_numero: std::collections::HashMap<i64, String>,
+    /// Direção do impacto no pico do jogador (front/rear/side/vertical; vazia sem batida).
+    pub direcao_do_impacto: String,
+    /// Estilo de pilotagem do jogador (fatores de desgaste por peça; neutro sem sinal).
+    pub estilo: crate::car::driving_style::StyleFactors,
+    /// A batida do jogador na CLASSIFICAÇÃO (ver [`BatidaDaQuali`]).
+    pub batida_da_quali: BatidaDaQuali,
+}
+
 pub(crate) fn build_session_race_result(
     app: &tauri::AppHandle,
     career_id: &str,
-) -> Result<
-    (
-        crate::db::connection::Database,
-        std::path::PathBuf,
-        i64,
-        String, // pior severidade de batida do jogador (base do conserto)
-        crate::simulation::race::RaceResult,
-        crate::iracing_sdk::telemetry_analysis::TelemetryAnalysis,
-        crate::iracing_sdk::race_monitor::RaceHistory,
-        // Mapa número do carro → driver_id (para resolver a identidade dos rivais
-        // percebidos do SDK na ponte de rivalidade).
-        std::collections::HashMap<i64, String>,
-        // Direção do impacto no pico do jogador (front/rear/side/vertical; vazia se sem batida).
-        String,
-        // Estilo de pilotagem do jogador (fatores de desgaste por peça; neutro se sem estilo).
-        crate::car::driving_style::StyleFactors,
-        // A batida do jogador na CLASSIFICAÇÃO (ver [`BatidaDaQuali`]).
-        BatidaDaQuali,
-    ),
-    String,
-> {
+) -> Result<ResultadoDaSessao, FalhaDaSessao> {
     use crate::config::app_config::AppConfig;
     use crate::constants::tracks::get_track;
     use crate::db::connection::Database;
@@ -163,7 +212,7 @@ pub(crate) fn build_session_race_result(
     let base_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
+        .map_err(|e| FalhaDaSessao::quebrado(format!("Falha ao obter app_data_dir: {e}")))?;
 
     // Mapa de números: driver_id → número → reverte para número → driver_id.
     let numbers: std::collections::HashMap<String, i64> =
@@ -177,27 +226,35 @@ pub(crate) fn build_session_race_result(
     let config = AppConfig::load_or_default(&base_dir);
     let career_dir = config.saves_dir().join(career_id);
     let db_path = career_dir.join("career.db");
-    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
+    let db = Database::open_existing(&db_path)
+        .map_err(|e| FalhaDaSessao::quebrado(format!("Falha ao abrir banco: {e}")))?;
     let player_driver = dq::get_player_driver(&db.conn).ok();
 
     // ── Post-it: arquivo de aiseason + mapa evento→corrida ──────────────────
+    // Post-it ausente é ESTADO QUEBRADO, não "ainda não": nenhuma quantidade de espera
+    // faz um export que não aconteceu aparecer. Quem vê a linha no log sabe o que fazer.
     let pointer: serde_json::Value = season_pointer_path(&base_dir, career_id)
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|s| serde_json::from_str(&s).ok())
         .ok_or_else(|| {
-            "Não achei o registro do aiseason exportado. Exporte os dados (gerar AI Season) antes de importar.".to_string()
+            FalhaDaSessao::quebrado(
+                "Não achei o registro do aiseason exportado. Exporte os dados (gerar AI Season) antes de importar.",
+            )
         })?;
     let aiseason_file = pointer
         .get("aiseason_file")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| "Registro do aiseason inválido.".to_string())?;
+        .ok_or_else(|| FalhaDaSessao::quebrado("Registro do aiseason inválido."))?;
 
     // ── Próxima corrida pendente da carreira → índice do evento ─────────────
     let active_season = sq::get_active_season(&db.conn)
-        .map_err(|e| format!("Falha ao ler temporada: {e}"))?
-        .ok_or("Nenhuma temporada ativa.")?;
-    let next_race = crate::commands::race::get_next_player_race(&db.conn, &active_season)?
-        .ok_or("O jogador não possui corrida pendente.")?;
+        .map_err(|e| FalhaDaSessao::quebrado(format!("Falha ao ler temporada: {e}")))?
+        .ok_or_else(|| FalhaDaSessao::quebrado("Nenhuma temporada ativa."))?;
+    // "Sem corrida pendente" é o estado NORMAL logo depois de um import: é assim que a
+    // idempotência se manifesta, e o poller pode bater aqui a corrida inteira.
+    let next_race = crate::commands::race::get_next_player_race(&db.conn, &active_season)
+        .map_err(FalhaDaSessao::quebrado)?
+        .ok_or_else(|| FalhaDaSessao::aguardando("O jogador não possui corrida pendente."))?;
     let events = pointer.get("events").and_then(|v| v.as_array());
     let event_index = events
         .and_then(|evs| {
@@ -206,23 +263,28 @@ pub(crate) fn build_session_race_result(
             })
         })
         .ok_or_else(|| {
-            format!(
+            FalhaDaSessao::quebrado(format!(
                 "A próxima corrida ({}) não está no aiseason exportado. Exporte novamente.",
                 next_race.track_name
-            )
+            ))
         })?;
 
     // ── Lê o resultado oficial do JSON ──────────────────────────────────────
     let season_json: serde_json::Value = std::fs::read_to_string(aiseason_file)
-        .map_err(|e| format!("Falha ao ler o aiseason: {e}"))
-        .and_then(|s| serde_json::from_str(&s).map_err(|e| format!("aiseason inválido: {e}")))?;
+        .map_err(|e| FalhaDaSessao::quebrado(format!("Falha ao ler o aiseason: {e}")))
+        .and_then(|s| {
+            serde_json::from_str(&s)
+                .map_err(|e| FalhaDaSessao::quebrado(format!("aiseason inválido: {e}")))
+        })?;
+    // Daqui para baixo é "ainda não": o jogador está correndo e o iRacing ainda não
+    // gravou. É o caminho que o poller percorre a corrida inteira, e o único que pode
+    // se repetir em silêncio sem esconder problema.
     let event = aiseason_results::parse_event_result(&season_json, event_index)
-        .ok_or("Evento sem resultado no aiseason.")?;
+        .ok_or_else(|| FalhaDaSessao::aguardando("Evento sem resultado no aiseason."))?;
     if !event.is_final() {
-        return Err(
-            "O iRacing ainda não gravou o resultado dessa corrida. Termine/saia da corrida no iRacing (ele simula o resto e salva) e tente de novo."
-                .to_string(),
-        );
+        return Err(FalhaDaSessao::aguardando(
+            "O iRacing ainda não gravou o resultado dessa corrida. Termine/saia da corrida no iRacing (ele simula o resto e salva) e tente de novo.",
+        ));
     }
     // Pista de fato EXPORTADA para este evento — pode ser uma FREE substituta quando a
     // pista real do calendário é conteúdo pago (ver `free_or_substitute` no export).
@@ -234,10 +296,10 @@ pub(crate) fn build_session_race_result(
         .and_then(|v| v.as_i64())
         .unwrap_or(next_race.track_id as i64);
     if event.track_id != exported_track_id {
-        return Err(format!(
+        return Err(FalhaDaSessao::quebrado(format!(
             "A pista do resultado (id {}) não bate com a corrida exportada ({}, id {}).",
             event.track_id, next_race.track_name, exported_track_id
-        ));
+        )));
     }
 
     let track_name = get_track(next_race.track_id)
@@ -388,19 +450,19 @@ pub(crate) fn build_session_race_result(
     let telemetry =
         telemetry_analysis::analyze(&history, &name_by_idx, &team_by_idx, &player_incidents);
 
-    Ok((
+    Ok(ResultadoDaSessao {
         db,
         career_dir,
-        next_race.track_id as i64,
-        player_crash,
-        result,
-        telemetry,
-        history,
-        by_number,
-        player_impact_dir,
-        player_style,
-        player_quali_crash,
-    ))
+        track_id: next_race.track_id as i64,
+        batida_do_jogador: player_crash,
+        resultado: result,
+        telemetria: telemetry,
+        historico: history,
+        por_numero: by_number,
+        direcao_do_impacto: player_impact_dir,
+        estilo: player_style,
+        batida_da_quali: player_quali_crash,
+    })
 }
 
 /// Peça 3: converte o log de quebras drenado do monitor em linhas prontas pra persistir,
@@ -453,9 +515,7 @@ pub fn iracing_preview_race_result(
     app: tauri::AppHandle,
     career_id: String,
 ) -> Result<crate::simulation::race::RaceResult, String> {
-    let (_db, _dir, _track_id, _sev, result, _tel, _hist, _by_number, _impact_dir, _style, _quali) =
-        build_session_race_result(&app, &career_id)?;
-    Ok(result)
+    Ok(build_session_race_result(&app, &career_id)?.resultado)
 }
 
 /// Ponte de rivalidade de PISTA: aplica no motor de rivalidade as rivalidades que a
@@ -575,7 +635,15 @@ pub(crate) fn apply_track_rivalries(
             },
         ) {
             Ok(a) => a,
-            Err(_) => continue,
+            Err(e) => {
+                // Rivalidade do JOGADOR que não entrou no ledger: o duelo aconteceu na
+                // pista e some da carreira. Era engolido; agora ao menos deixa rastro.
+                crate::diagnostico::linha(
+                    "iracing",
+                    &format!("Rivalidade do jogador com {opp_id} não foi aplicada: {e}"),
+                );
+                continue;
+            }
         };
 
         // Capítulo do arco: interação real + quem levou a melhor hoje.
@@ -614,7 +682,10 @@ pub(crate) fn apply_track_rivalries(
                 opp.duel_laps, race_result.track_name
             )
         };
-        let _ = crate::db::queries::rivalry_episodes::insert_episode(
+        // O capítulo é o que a IA recapita para o jogador depois. Falhar aqui não desfaz o
+        // import (o eixo já foi aplicado acima), mas cria um buraco na novela — e um
+        // buraco silencioso é indistinguível de "não houve duelo".
+        if let Err(e) = crate::db::queries::rivalry_episodes::insert_episode(
             conn,
             &crate::db::queries::rivalry_episodes::RivalryEpisode {
                 piloto1_id: player_id.clone(),
@@ -629,7 +700,12 @@ pub(crate) fn apply_track_rivalries(
                 summary,
                 perceived: applied.new_perceived,
             },
-        );
+        ) {
+            crate::diagnostico::linha(
+                "iracing",
+                &format!("Capítulo do arco com {opp_id} não foi gravado: {e}"),
+            );
+        }
     }
 
     // Rivalidade IA-vs-IA: o motor de percepção aceita QUALQUER carro-sonda, não só o jogador.
@@ -638,15 +714,36 @@ pub(crate) fn apply_track_rivalries(
     // jogador. Sem contato atribuído (só o jogador tem a semente do monitor) e SEM episódio (o
     // arco recapitulado é player-facing). Dedupe por par normalizado — o ledger é simétrico
     // (`normalize_pair`), então cada par de IA é aplicado UMA vez (o outro lado repetiria e
-    // dobraria os deltas). Pares que envolvem o jogador já vieram do probe-jogador acima. O
-    // custo é O(n²) sobre os snapshots, mas roda uma única vez no import.
+    // dobraria os deltas). Pares que envolvem o jogador já vieram do probe-jogador acima.
+    //
+    // CUSTO, medido pelo que o laço faz: uma passada de percepção por carro-sonda, e cada
+    // passada varre todos os snapshots contra todos os carros — O(carros² × voltas). Num
+    // grid de 20 em sprint isso é ruído; num enduro de 60 carros e 200 voltas são ~720 mil
+    // comparações, e a metade é jogada fora, porque o par (A,B) é calculado das duas
+    // pontas e o dedupe descarta a segunda. Cortar essa metade exige uma percepção que
+    // aceite VÁRIAS sondas numa varredura só, e isso é dentro de
+    // `iracing_sdk/rivalry_perception.rs` — outra frente. Aqui fica o que dá para fazer
+    // deste lado: sondar só quem realmente apareceu na corrida, e MEDIR, para a conta
+    // aparecer no log antes de o enduro fazer doer.
+    let comecou_em = std::time::Instant::now();
     let mut seen_ai_pairs: std::collections::HashSet<(String, String)> =
         std::collections::HashSet::new();
+    // Carros que aparecem em algum snapshot. Quem nunca apareceu (inscrito que não largou,
+    // número mapeado sem carro na pista) não pode ter rivalidade com ninguém, e sondá-lo
+    // custaria uma varredura inteira do histórico para devolver lista vazia.
+    let idxs_com_volta: std::collections::HashSet<i32> = history
+        .laps
+        .iter()
+        .flat_map(|snap| snap.cars.iter().map(|c| c.idx))
+        .collect();
     let ai_idxs: Vec<i32> = driver_by_idx
         .keys()
         .copied()
-        .filter(|&idx| idx != history.player_car_idx)
+        .filter(|&idx| idx != history.player_car_idx && idxs_com_volta.contains(&idx))
         .collect();
+    let sondas = ai_idxs.len();
+    let mut pares_aplicados = 0usize;
+    let mut falhas = 0usize;
     for probe_idx in ai_idxs {
         let Some(probe_id) = driver_by_idx.get(&probe_idx) else {
             continue;
@@ -678,7 +775,7 @@ pub(crate) fn apply_track_rivalries(
             } else {
                 RivalryType::Pista
             };
-            let _ = apply_rivalry_event(
+            match apply_rivalry_event(
                 conn,
                 &RivalryEvent {
                     piloto_a: probe_id.clone(),
@@ -688,7 +785,30 @@ pub(crate) fn apply_track_rivalries(
                     recent_delta: opp.recent_delta,
                     temporada,
                 },
-            );
+            ) {
+                Ok(_) => pares_aplicados += 1,
+                Err(e) => {
+                    falhas += 1;
+                    // Uma linha por par que falhou. São poucos por definição (o banco é
+                    // local e a escrita é a mesma do jogador); se virar enxurrada, a
+                    // enxurrada é o sintoma que se quer ver.
+                    crate::diagnostico::linha(
+                        "iracing",
+                        &format!("Rivalidade IA {probe_id} × {opp_id} não foi aplicada: {e}"),
+                    );
+                }
+            }
         }
     }
+    // A conta do laço, sempre — é o único lugar em que o custo quadrático aparece antes de
+    // alguém sentir. `sondas` e `voltas` são os dois fatores que o multiplicam.
+    crate::diagnostico::linha(
+        "iracing",
+        &format!(
+            "rivalidade IA×IA: {sondas} sondas × {} snapshots → {pares_aplicados} pares, \
+             {falhas} falhas, {} ms",
+            history.laps.len(),
+            comecou_em.elapsed().as_millis()
+        ),
+    );
 }

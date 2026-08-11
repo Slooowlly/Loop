@@ -6,12 +6,6 @@ use crate::iracing_sdk::race_monitor;
 
 // ───────────────────── AVISO PESSOAL (peça do jogador na zona de risco) ─────────────────────
 
-/// Peça com preposição na 2ª pessoa ("no seu motor", "na sua suspensão") — pro engenheiro.
-///
-/// A redação (e a gravação) vivem em [`crate::engenheiro::peca_propria`], junto com o resto do
-/// acervo de voz. Aqui só se resolve o card.
-pub(crate) use crate::engenheiro::peca_propria::part_com_seu;
-
 /// O detalhe do card — a linha de baixo, que o áudio NÃO fala.
 ///
 /// A fala é a de cima; esta é a explicação escrita, e por isso pode ter travessão e ser mais
@@ -75,6 +69,9 @@ pub(crate) fn quali_destruida_msg(severidade: &str, id: usize) -> BreakdownMessa
         "quali_destruido" => ("dnf", "carro destruído na classificação"),
         "quali_catastrofico" => ("dnf", "batida catastrófica na classificação"),
         "dq" => ("dnf", "destruído na classificação"),
+        // A legenda do card diz a REGRA que o áudio só insinua: sem ela, "largamos em último"
+        // depois de um bom tempo de quali continua parecendo defeito do jogo.
+        "eol" => ("heavy", "parque fechado quebrado — largada no fim do grid"),
         _ => ("heavy", "castigo pelo carro destruído na classificação"),
     };
     // O TEXTO vem do acervo, não daqui: é a mesma frase que a peça de voz grava, e duas
@@ -101,6 +98,52 @@ pub(crate) fn poupar_msg(id: usize) -> BreakdownMessage {
         detail: "a pista está cobrando caro hoje".to_string(),
         pecas: vec![chave.to_string()],
     }
+}
+
+/// Registra, UMA vez por execução, que alguém está de fato consultando este canal.
+///
+/// Sem ela o silêncio do rádio era indistinguível de "a janela nunca perguntou" — que foi o
+/// caso medido em 2026-08-11: o castigo da classificação apareceu no log do Rust e o canal
+/// não tinha um único leitor, porque a janela do rádio só liga quando o app reconhece uma
+/// sessão ao vivo (carreira carregada + dados de overlay). Uma linha por execução é barata e
+/// separa "não produzi" de "ninguém pediu".
+fn registrar_primeira_consulta() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static PRIMEIRA: AtomicBool = AtomicBool::new(true);
+    if PRIMEIRA.swap(false, Ordering::Relaxed) {
+        crate::diagnostico::linha("overlay", "o rádio começou a consultar os avisos do nosso carro");
+    }
+}
+
+/// Registra no log de arquivo que o aviso CHEGOU ao rádio, uma vez por fala.
+///
+/// Existe porque o silêncio do overlay é indistinguível de três causas muito diferentes: o
+/// backend não produziu a fala, a janela do rádio não está consultando, ou a fala chegou e o
+/// áudio não saiu. As duas primeiras o log já separava; esta linha separa a terceira — se ela
+/// aparece e o piloto não ouviu nada, o defeito está no front, não aqui.
+///
+/// Estrangulado pelo ÚLTIMO id entregue, e não por tempo: o overlay consulta a cada 800 ms, e
+/// uma linha por consulta afogaria o log com a mesma fala repetida uma dezena de vezes.
+fn registrar_entrega(out: &[BreakdownMessage]) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static ULTIMO: AtomicUsize = AtomicUsize::new(usize::MAX);
+    registrar_primeira_consulta();
+    let Some(ultimo) = out.last() else {
+        return;
+    };
+    if ULTIMO.swap(ultimo.id, Ordering::Relaxed) == ultimo.id {
+        return;
+    }
+    crate::diagnostico::linha(
+        "overlay",
+        &format!(
+            "aviso entregue ao rádio: id={} sev={} pecas={} — \"{}\"",
+            ultimo.id,
+            ultimo.severity,
+            ultimo.pecas.len(),
+            ultimo.text
+        ),
+    );
 }
 
 /// AVISOS pessoais do jogador (peça DELE entrou na zona de risco) — o overlay mostra num card
@@ -130,7 +173,7 @@ pub fn get_player_warnings() -> Result<Vec<BreakdownMessage>, String> {
     // mostra id INÉDITO, e sem ela o log esvaziado devolvia ids repetidos e o canal emudecia
     // para o resto da sessão. Ver `race_monitor::radio_epoch`.
     let base = race_monitor::radio_epoch();
-    Ok(warns
+    let out: Vec<BreakdownMessage> = warns
         .iter()
         .enumerate()
         .map(|(i, w)| (base + i, w))
@@ -144,7 +187,9 @@ pub fn get_player_warnings() -> Result<Vec<BreakdownMessage>, String> {
                 quali_destruida_msg(w.severidade, i)
             }
         })
-        .collect())
+        .collect();
+    registrar_entrega(&out);
+    Ok(out)
 }
 
 /// `true` se algum comando de quebra (`!black`/`!dq`) falhou em chegar ao iRacing nesta

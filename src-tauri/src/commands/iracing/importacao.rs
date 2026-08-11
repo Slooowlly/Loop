@@ -30,30 +30,41 @@ pub fn iracing_auto_import_if_ready(
     // "Não está pronto / nada a importar" não é erro: o resultado só existe depois
     // que o jogador termina/sai da corrida no iRacing. Qualquer falha de "ainda
     // não" vira None silencioso; o poller tenta de novo no próximo tick.
-    let (
-        mut db,
-        career_dir,
-        track_id,
-        player_crash,
-        result,
-        telemetry,
-        history,
-        by_number,
-        player_impact_dir,
-        player_style,
-        player_quali_crash,
-    ) = match build_session_race_result(&app, &career_id) {
+    let sessao = match build_session_race_result(&app, &career_id) {
         Ok(v) => v,
-        Err(e) => {
-            // O poller engole este Err de propósito (ainda-não-pronto não é erro),
-            // mas "corrida terminou e nada aconteceu" era invisível: o motivo real
-            // (post-it do export sumiu, resultado ainda não gravado, pista não bate)
-            // morria aqui. `linha_unica` registra só a TRANSIÇÃO de motivo — uma
-            // linha por estado, não uma por tick de poll.
-            crate::diagnostico::linha_unica("import", &format!("aguardando: {e}"));
+        Err(falha) => {
+            // O poller engole este Err de propósito (ainda-não-pronto não é erro), mas
+            // "corrida terminou e nada aconteceu" era invisível: o motivo real morria
+            // aqui. Agora o motivo vem TIPADO e as duas famílias são registradas
+            // diferente — "aguardando" é o curso normal da corrida, "bloqueado" é
+            // estado que repetir não conserta (post-it apontando para arquivo apagado,
+            // aiseason corrompido, pista que não bate) e que exige alguém agir.
+            //
+            // `linha_unica` registra só a TRANSIÇÃO de motivo: uma linha por estado, não
+            // uma por tick de poll. O log é lido pela própria UI (`iracing_log_ler`),
+            // então a explicação chega ao jogador em vez de morrer no silêncio.
+            let rotulo = if falha.transitoria {
+                "aguardando"
+            } else {
+                "BLOQUEADO"
+            };
+            crate::diagnostico::linha_unica("import", &format!("{rotulo}: {}", falha.mensagem));
             return Ok(None);
         }
     };
+    let ResultadoDaSessao {
+        mut db,
+        career_dir,
+        track_id,
+        batida_do_jogador: player_crash,
+        resultado: result,
+        telemetria: telemetry,
+        historico: history,
+        por_numero: by_number,
+        direcao_do_impacto: player_impact_dir,
+        estilo: player_style,
+        batida_da_quali: player_quali_crash,
+    } = sessao;
     // Peça 3: drena os desfechos de quebra (one-shot, só aqui) e resolve para driver_id.
     let breakdowns = resolve_breakdown_rows(&db.conn, &history, &by_number);
     let (summary, race_result) = crate::commands::race::import_iracing_race_result(

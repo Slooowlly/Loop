@@ -41,16 +41,39 @@
 //!
 //! O servidor conta "rolando agora" como `start` sem `end` e visto há < 35 min.
 
-use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use crate::narrative::client::APP_SECRET;
+#[path = "telemetry/entrega.rs"]
+mod entrega;
+#[path = "telemetry/fila.rs"]
+pub(crate) mod fila;
+#[path = "telemetry/uso.rs"]
+mod uso;
 
-const ENDPOINT: &str = "https://iracer-news-124606451488.southamerica-east1.run.app/telemetry";
+pub use fila::drenar_fila;
+pub use uso::{uso_enviar_pendente, uso_ptt_aperto, uso_ptt_pergunta, uso_tela, uso_virar_rodada};
+
+/// Teto da fila em disco. Um evento tem ~400 bytes, então 200 é da ordem de 80 KB
+/// no pior caso. Quem estoura isso está offline há semanas, e aí o que interessa é
+/// o começo da fila, não o fim.
+pub(crate) const FILA_MAX_EVENTOS: usize = 200;
+
+/// Idade máxima na fila. Passou disso, o evento não descreve mais nada de útil e
+/// só atrapalharia a leitura do servidor.
+pub(crate) const FILA_MAX_IDADE_SECS: i64 = 7 * 24 * 60 * 60;
+
+/// Fracassos seguidos que abortam a drenagem. Servidor fora do ar é servidor fora
+/// do ar: insistir nos 200 seguintes só queima tempo e o resto volta pra fila.
+pub(crate) const FILA_FRACASSOS_ATE_DESISTIR: u32 = 3;
+
+/// Rota da telemetria de produto, no MESMO host do resto (boletins, PTT, log). O host
+/// vem de `narrative::client`, que já guarda o segredo desta porta.
+pub(crate) const ENDPOINT: &str =
+    concat!(crate::narrative::client::host_do_servidor!(), "/telemetry");
 
 /// Ping de vida da corrida aberta. Ver o cabeçalho: 2× a corrida mais curta
 /// (15 min), então uma corrida normal termina antes de pingar uma única vez.
@@ -60,29 +83,16 @@ const PING_INTERVAL: Duration = Duration::from_secs(30 * 60);
 /// a primeira chamada depois de um tempo parado paga o cold start (subir o
 /// container + init do Firestore) antes de responder qualquer coisa. Isto roda numa
 /// thread de fundo que não segura nada, então esperar aqui não custa ao jogo.
-const TIMEOUT_SECS: u64 = 20;
+pub(crate) const TIMEOUT_SECS: u64 = 20;
 
 /// Espera entre as tentativas de um MESMO evento, em segundos. Três tentativas no
 /// total. O cold start acontece uma vez: quando a primeira paga a subida do
 /// container, a segunda costuma achá-lo de pé.
-const ESPERAS_SECS: [u64; 2] = [3, 12];
-
-/// Teto da fila em disco. Um evento tem ~400 bytes, então 200 é da ordem de 80 KB
-/// no pior caso. Quem estoura isso está offline há semanas, e aí o que interessa é
-/// o começo da fila, não o fim.
-const FILA_MAX_EVENTOS: usize = 200;
-
-/// Idade máxima na fila. Passou disso, o evento não descreve mais nada de útil e
-/// só atrapalharia a leitura do servidor.
-const FILA_MAX_IDADE_SECS: i64 = 7 * 24 * 60 * 60;
-
-/// Fracassos seguidos que abortam a drenagem. Servidor fora do ar é servidor fora
-/// do ar: insistir nos 200 seguintes só queima tempo e o resto volta pra fila.
-const FILA_FRACASSOS_ATE_DESISTIR: u32 = 3;
+pub(crate) const ESPERAS_SECS: [u64; 2] = [3, 12];
 
 /// Abaixo disso o `atraso_s` não vai no payload. O evento leva alguns segundos até
 /// ser aceito no caso normal, e carimbar isso em todo mundo só polui.
-const ATRASO_MINIMO_SECS: i64 = 30;
+pub(crate) const ATRASO_MINIMO_SECS: i64 = 30;
 
 static INSTALL_ID: OnceLock<String> = OnceLock::new();
 /// UUID de UMA abertura do app. Viaja em todo evento e é o que permite ao servidor
@@ -98,12 +108,6 @@ static ACTIVE: Mutex<Option<ActiveRace>> = Mutex::new(None);
 /// Contexto da carreira carregada (temporada/categoria). Vive fora do
 /// `ActiveRace` porque quem sabe disso é a camada de comandos, não o sampler.
 static CAREER: Mutex<Option<CareerContext>> = Mutex::new(None);
-/// Arquivo da fila de reenvio. `None` antes do `init()` do boot — sem ele a
-/// telemetria continua funcionando, só sem rede-de-segurança.
-static FILA: OnceLock<PathBuf> = OnceLock::new();
-/// Serializa leitura e escrita da fila: cada envio tem sua própria thread, e a
-/// drenagem do boot é mais uma.
-static FILA_TRAVA: Mutex<()> = Mutex::new(());
 
 struct ActiveRace {
     subsession_id: i64,
@@ -169,16 +173,16 @@ pub struct RaceOutcome {
 /// roda numa thread de fundo sem `AppHandle`, então o `install_id` precisa
 /// estar num estático antes de qualquer borda poder disparar.
 pub fn init(base_dir: &Path, install_id: String, enabled: bool) {
-    let _ = FILA.set(base_dir.join("telemetria-fila.jsonl"));
-    let _ = USO.set(base_dir.join("telemetria-uso.json"));
+    fila::definir_arquivo(base_dir.join("telemetria-fila.jsonl"));
+    uso::definir_arquivo(base_dir.join("telemetria-uso.json"));
     let _ = INSTALL_ID.set(install_id);
     let _ = SESSION_ID.set(uuid::Uuid::new_v4().to_string());
     ENABLED.store(enabled, Ordering::Relaxed);
     if !enabled {
         // Quem abriu com a telemetria desligada não tem fila nem acumulado para
         // guardar. Inclui quem recusou DEPOIS de já ter enfileirado algo.
-        apagar_fila();
-        apagar_uso();
+        fila::apagar();
+        uso::apagar();
     }
 }
 
@@ -209,8 +213,8 @@ pub fn set_enabled(enabled: bool) {
         if let Ok(mut active) = ACTIVE.lock() {
             *active = None;
         }
-        apagar_fila();
-        apagar_uso();
+        fila::apagar();
+        uso::apagar();
     }
 }
 
@@ -456,616 +460,14 @@ fn send(event: &str, payload: serde_json::Value) {
 
     let criado_em = agora();
     std::thread::spawn(move || {
-        if !entregar(&body, criado_em, &ESPERAS_SECS) {
-            enfileirar(body, criado_em);
+        if !entrega::entregar(&body, criado_em, &ESPERAS_SECS) {
+            fila::enfileirar(body, criado_em);
         }
     });
-}
-
-/// Desfecho de um POST, na granularidade que decide o que fazer em seguida.
-enum Resultado {
-    Entregue(u16),
-    /// O servidor entendeu e recusou (corpo malformado, segredo errado). Repetir
-    /// não conserta, e enfileirar só encheria o disco com um evento natimorto.
-    Recusado(u16),
-    /// Rede, timeout ou 5xx. Vale tentar de novo.
-    Falhou(String),
-}
-
-/// Entrega um evento, com até `esperas.len() + 1` tentativas. Devolve `true`
-/// quando o assunto está resolvido — entregue OU recusado em definitivo.
-///
-/// `criado_em` é o carimbo de quando o evento NASCEU. Ele não vai no payload como
-/// data (quem carimba a hora é o servidor, porque o relógio da máquina do jogador
-/// não é confiável); vira o campo `atraso_s`, que é a informação de que o servidor
-/// precisa para não tratar um evento drenado de ontem como se fosse de agora.
-fn entregar(corpo: &serde_json::Value, criado_em: i64, esperas: &[u64]) -> bool {
-    let evento = corpo
-        .get("event")
-        .and_then(|e| e.as_str())
-        .unwrap_or("?")
-        .to_string();
-
-    let Ok(cliente) = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(TIMEOUT_SECS))
-        .build()
-    else {
-        crate::diagnostico::linha("telemetria", &format!("{evento}: sem cliente HTTP"));
-        return false;
-    };
-
-    let mut corpo = corpo.clone();
-    for tentativa in 0..=esperas.len() {
-        // Recalculado a cada tentativa: entre a primeira e a última passam ~35s, e
-        // na drenagem podem ter passado dias.
-        let atraso = (agora() - criado_em).max(0);
-        if let Some(map) = corpo.as_object_mut() {
-            if atraso >= ATRASO_MINIMO_SECS {
-                map.insert("atraso_s".into(), json!(atraso));
-            }
-        }
-
-        match postar(&cliente, &corpo) {
-            Resultado::Entregue(status) => {
-                let sufixo = if tentativa > 0 {
-                    format!(" na tentativa {}", tentativa + 1)
-                } else {
-                    String::new()
-                };
-                crate::diagnostico::linha(
-                    "telemetria",
-                    &format!("{evento}: entregue ({status}){sufixo}, atraso {atraso}s"),
-                );
-                return true;
-            }
-            Resultado::Recusado(status) => {
-                crate::diagnostico::linha(
-                    "telemetria",
-                    &format!("{evento}: recusado pelo servidor ({status}), descartado"),
-                );
-                return true;
-            }
-            Resultado::Falhou(motivo) => {
-                crate::diagnostico::linha(
-                    "telemetria",
-                    &format!("{evento}: falhou ({motivo}) na tentativa {}", tentativa + 1),
-                );
-                if let Some(espera) = esperas.get(tentativa) {
-                    std::thread::sleep(Duration::from_secs(*espera));
-                }
-            }
-        }
-    }
-    false
-}
-
-fn postar(cliente: &reqwest::blocking::Client, corpo: &serde_json::Value) -> Resultado {
-    match cliente
-        .post(ENDPOINT)
-        .header("x-app-secret", APP_SECRET)
-        .json(corpo)
-        .send()
-    {
-        Ok(resposta) => {
-            let status = resposta.status();
-            let codigo = status.as_u16();
-            if status.is_success() {
-                // 202 com `dropped: daily_cap` cai aqui de propósito: o servidor
-                // recebeu e decidiu não guardar. Reenviar não muda a decisão dele.
-                Resultado::Entregue(codigo)
-            } else if status.is_client_error() && codigo != 408 && codigo != 429 {
-                Resultado::Recusado(codigo)
-            } else {
-                Resultado::Falhou(format!("HTTP {codigo}"))
-            }
-        }
-        Err(e) if e.is_timeout() => Resultado::Falhou("timeout".to_string()),
-        Err(e) if e.is_connect() => Resultado::Falhou("sem conexão".to_string()),
-        Err(e) => Resultado::Falhou(e.to_string()),
-    }
-}
-
-// ── Uso do app por fim de semana ────────────────────────────────────────────
-
-/// Quanto tempo o jogador passou nas telas que CUSTAM geração de IA, mais o uso do
-/// push-to-talk, acumulado por rodada.
-///
-/// Por que só três telas: notícias, briefing e debriefing são as que consomem o
-/// servidor de IA. Calendário, tabela e ficha de piloto não custam nada, e medir a
-/// permanência nelas seria vigiar por vigiar.
-///
-/// Por que por RODADA e não por sessão: o número sozinho ("12 minutos de notícias")
-/// não decide nada. Cruzado com a corrida, ele responde se a matéria que foi gerada
-/// para aquela etapa chegou a ser lida — que é a pergunta que paga a conta.
-///
-/// O bloco fecha quando a rodada VIRA. O que se mede é a janela entre uma corrida e a
-/// seguinte: o debriefing da rodada N, as notícias da semana e o briefing da N+1 caem
-/// todos no bloco rotulado N. Fechar no `race_end` perderia justamente o debriefing,
-/// que só é lido depois.
-#[derive(Serialize, Deserialize, Clone, Default)]
-struct UsoRodada {
-    /// `None` até a primeira corrida da instalação. O tempo lido antes disso não
-    /// pertence a rodada nenhuma.
-    temporada: Option<i32>,
-    rodada: Option<i32>,
-    categoria: Option<String>,
-    #[serde(default)]
-    segundos_noticias: i64,
-    #[serde(default)]
-    segundos_briefing: i64,
-    #[serde(default)]
-    segundos_debriefing: i64,
-    /// Apertos que abriram o microfone.
-    #[serde(default)]
-    ptt_apertos: i64,
-    /// Apertos que viraram pergunta de verdade. A diferença para os apertos é o que
-    /// foi descartado como toque acidental ou cortado pelo freio do rádio, e é
-    /// exatamente o aperto que NÃO custou transcrição nem geração.
-    #[serde(default)]
-    ptt_perguntas: i64,
-}
-
-impl UsoRodada {
-    /// Só o rótulo da rodada, sem um segundo lido nem um aperto. É o estado de quem
-    /// abriu o app e fechou sem ler nada.
-    fn vazio(&self) -> bool {
-        self.segundos_noticias == 0
-            && self.segundos_briefing == 0
-            && self.segundos_debriefing == 0
-            && self.ptt_apertos == 0
-    }
-}
-
-/// Arquivo do acumulado corrente. Em disco, e não só em memória, porque o bloco
-/// atravessa o fechamento do app: quem lê o debriefing e fecha o Loop não pode levar
-/// esse tempo embora.
-static USO: OnceLock<PathBuf> = OnceLock::new();
-static USO_TRAVA: Mutex<()> = Mutex::new(());
-
-/// Somou tempo numa das três telas. `tela` é `noticias` | `briefing` | `debriefing`;
-/// qualquer outra coisa é ignorada em silêncio, para o front não conseguir inventar
-/// uma métrica nova sem passar por aqui.
-pub fn uso_tela(tela: &str, segundos: i64) {
-    if !is_enabled() || segundos <= 0 {
-        return;
-    }
-    com_uso(|uso| match tela {
-        "noticias" => uso.segundos_noticias += segundos,
-        "briefing" => uso.segundos_briefing += segundos,
-        "debriefing" => uso.segundos_debriefing += segundos,
-        _ => {}
-    });
-}
-
-/// O jogador apertou o push-to-talk. Contado na borda física do botão, então inclui
-/// o toque acidental e o aperto que o freio do rádio vai cortar.
-pub fn uso_ptt_aperto() {
-    if !is_enabled() {
-        return;
-    }
-    com_uso(|uso| uso.ptt_apertos += 1);
-}
-
-/// O aperto virou pergunta de verdade e foi ao servidor. É este que custa dinheiro:
-/// transcrição mais geração da resposta.
-pub fn uso_ptt_pergunta() {
-    if !is_enabled() {
-        return;
-    }
-    com_uso(|uso| uso.ptt_perguntas += 1);
-}
-
-/// Uma corrida terminou (dirigida ou simulada). Fecha o bloco anterior, manda, e abre
-/// um novo rotulado com esta rodada.
-///
-/// Chamada DEPOIS do `race_end`/`race_sim` de propósito: o evento de uso é sobre a
-/// leitura em volta da corrida, e não sobre a corrida.
-pub fn uso_virar_rodada(temporada: i32, rodada: i32, categoria: &str) {
-    if !is_enabled() {
-        return;
-    }
-    let anterior = {
-        let Ok(_trava) = USO_TRAVA.lock() else {
-            return;
-        };
-        let atual = ler_uso();
-        // Mesma rodada de novo (reimportação, corrida refeita): não fecha bloco, senão
-        // a mesma janela de leitura viraria dois eventos com metade do tempo cada.
-        if atual.temporada == Some(temporada) && atual.rodada == Some(rodada) {
-            return;
-        }
-        gravar_uso(&UsoRodada {
-            temporada: Some(temporada),
-            rodada: Some(rodada),
-            categoria: Some(categoria.to_string()),
-            ..Default::default()
-        });
-        atual
-    };
-    enviar_uso(anterior);
-}
-
-/// Manda o que sobrou da sessão anterior. Chamada no boot, junto da drenagem da fila.
-///
-/// É isto que fecha o buraco do fechamento do app: o bloco fica no disco e vira evento
-/// na próxima abertura, com o `atraso_s` dizendo quanto tempo ele esperou.
-pub fn uso_enviar_pendente() {
-    if !is_enabled() {
-        return;
-    }
-    let pendente = {
-        let Ok(_trava) = USO_TRAVA.lock() else {
-            return;
-        };
-        let atual = ler_uso();
-        // Preserva o rótulo da rodada: o jogador reabre o app na mesma etapa em que
-        // parou, e o tempo que ele ainda vai gastar lendo pertence a ela.
-        gravar_uso(&UsoRodada {
-            temporada: atual.temporada,
-            rodada: atual.rodada,
-            categoria: atual.categoria.clone(),
-            ..Default::default()
-        });
-        atual
-    };
-    enviar_uso(pendente);
-}
-
-fn enviar_uso(uso: UsoRodada) {
-    // Bloco sem nenhum segundo e sem nenhum aperto não descreve nada. Acontece toda
-    // vez que alguém abre o app e fecha sem ler, e mandar isso seria ruído puro.
-    if uso.vazio() {
-        return;
-    }
-    let mut payload = json!({
-        "segundos_noticias": uso.segundos_noticias,
-        "segundos_briefing": uso.segundos_briefing,
-        "segundos_debriefing": uso.segundos_debriefing,
-        "ptt_apertos": uso.ptt_apertos,
-        "ptt_perguntas": uso.ptt_perguntas,
-    });
-    if let Some(map) = payload.as_object_mut() {
-        if let Some(t) = uso.temporada {
-            map.insert("temporada".into(), json!(t));
-        }
-        if let Some(r) = uso.rodada {
-            map.insert("rodada".into(), json!(r));
-        }
-        if let Some(c) = uso.categoria {
-            map.insert("categoria_rodada".into(), json!(c));
-        }
-    }
-    send("weekend_usage", payload);
-}
-
-/// Lê, deixa o chamador mexer, grava. Toda escrita do acumulado passa por aqui.
-fn com_uso(f: impl FnOnce(&mut UsoRodada)) {
-    let Ok(_trava) = USO_TRAVA.lock() else {
-        return;
-    };
-    let mut uso = ler_uso();
-    f(&mut uso);
-    gravar_uso(&uso);
-}
-
-fn ler_uso() -> UsoRodada {
-    USO.get()
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
-}
-
-fn gravar_uso(uso: &UsoRodada) {
-    let Some(path) = USO.get() else {
-        return;
-    };
-    if let (Some(dir), Ok(texto)) = (path.parent(), serde_json::to_string(uso)) {
-        let _ = std::fs::create_dir_all(dir);
-        let _ = std::fs::write(path, texto);
-    }
-}
-
-fn apagar_uso() {
-    let Some(path) = USO.get() else {
-        return;
-    };
-    let Ok(_trava) = USO_TRAVA.lock() else {
-        return;
-    };
-    let _ = std::fs::remove_file(path);
-}
-
-// ── Fila de reenvio ─────────────────────────────────────────────────────────
-
-/// Um evento que não entrou, guardado inteiro. O corpo já vem montado com o
-/// contexto de carreira do instante em que nasceu — remontá-lo na drenagem
-/// descreveria a carreira de hoje, e não a daquela corrida.
-#[derive(Serialize, Deserialize, Clone)]
-struct Pendente {
-    criado_em: i64,
-    corpo: serde_json::Value,
 }
 
 /// Segundos desde a época. Só serve para medir DURAÇÃO (o `atraso_s` e a poda da
 /// fila), nunca para datar o evento no servidor.
-fn agora() -> i64 {
+pub(crate) fn agora() -> i64 {
     chrono::Utc::now().timestamp()
-}
-
-fn enfileirar(corpo: serde_json::Value, criado_em: i64) {
-    let Some(path) = FILA.get() else {
-        return;
-    };
-    let Ok(_trava) = FILA_TRAVA.lock() else {
-        return;
-    };
-    let mut pendentes = ler_fila(path);
-    pendentes.push(Pendente { criado_em, corpo });
-    let descartados = podar(&mut pendentes, agora());
-    let total = pendentes.len();
-    gravar_fila(path, &pendentes);
-    let sobre_descarte = if descartados > 0 {
-        format!(", {descartados} descartado(s) por idade ou teto")
-    } else {
-        String::new()
-    };
-    crate::diagnostico::linha(
-        "telemetria",
-        &format!("enfileirado para reenvio ({total} na fila{sobre_descarte})"),
-    );
-}
-
-/// Manda o que ficou para trás. Chamada UMA vez no boot, depois do `init()`.
-///
-/// Roda em thread própria porque a primeira tentativa pode pagar o cold start
-/// inteiro, e o boot não espera por telemetria.
-pub fn drenar_fila() {
-    if !is_enabled() {
-        return;
-    }
-    let Some(path) = FILA.get() else {
-        return;
-    };
-    std::thread::spawn(move || {
-        // Tira tudo do arquivo de uma vez: o que não for entregue volta no fim. Se
-        // o app morrer no meio, perde-se a fila, e isso é melhor que reenviar em
-        // duplicata a cada boot.
-        let pendentes = {
-            let Ok(_trava) = FILA_TRAVA.lock() else {
-                return;
-            };
-            let lidos = ler_fila(path);
-            let _ = std::fs::remove_file(path);
-            lidos
-        };
-        if pendentes.is_empty() {
-            return;
-        }
-        crate::diagnostico::linha(
-            "telemetria",
-            &format!("drenando a fila ({} pendente(s))", pendentes.len()),
-        );
-
-        let (mut entregues, mut fracassos_seguidos) = (0usize, 0u32);
-        let mut sobraram: Vec<Pendente> = Vec::new();
-        for (i, p) in pendentes.iter().enumerate() {
-            // Uma tentativa por evento aqui. Quem insiste é o boot seguinte: com
-            // 200 na fila, as esperas do envio normal virariam mais de uma hora de
-            // thread para nada.
-            if fracassos_seguidos >= FILA_FRACASSOS_ATE_DESISTIR || !is_enabled() {
-                sobraram.extend_from_slice(&pendentes[i..]);
-                break;
-            }
-            if entregar(&p.corpo, p.criado_em, &[]) {
-                entregues += 1;
-                fracassos_seguidos = 0;
-            } else {
-                fracassos_seguidos += 1;
-                sobraram.push(p.clone());
-            }
-        }
-
-        crate::diagnostico::linha(
-            "telemetria",
-            &format!(
-                "fila drenada: {entregues} entregue(s), {} de volta na fila",
-                sobraram.len()
-            ),
-        );
-        if sobraram.is_empty() || !is_enabled() {
-            return;
-        }
-        let Ok(_trava) = FILA_TRAVA.lock() else {
-            return;
-        };
-        // Junta com o que chegou enquanto a drenagem rodava, em vez de sobrescrever.
-        // Os que sobraram vêm primeiro: são os mais antigos.
-        let mut atual = sobraram;
-        atual.extend(ler_fila(path));
-        podar(&mut atual, agora());
-        gravar_fila(path, &atual);
-    });
-}
-
-fn apagar_fila() {
-    let Some(path) = FILA.get() else {
-        return;
-    };
-    let Ok(_trava) = FILA_TRAVA.lock() else {
-        return;
-    };
-    let _ = std::fs::remove_file(path);
-}
-
-/// JSON Lines, e não um array: uma linha corrompida (queda de energia no meio da
-/// escrita) custa aquele evento, em vez do arquivo inteiro.
-fn ler_fila(path: &Path) -> Vec<Pendente> {
-    let Ok(texto) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    texto
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .filter_map(|l| serde_json::from_str::<Pendente>(l).ok())
-        .collect()
-}
-
-fn gravar_fila(path: &Path, pendentes: &[Pendente]) {
-    if pendentes.is_empty() {
-        let _ = std::fs::remove_file(path);
-        return;
-    }
-    let mut texto = String::new();
-    for p in pendentes {
-        if let Ok(linha) = serde_json::to_string(p) {
-            texto.push_str(&linha);
-            texto.push('\n');
-        }
-    }
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = std::fs::write(path, texto);
-}
-
-/// Tira o que envelheceu e corta pelo teto, mantendo os MAIS ANTIGOS: o começo da
-/// corrida explica o fim, e a ordem do reenvio importa para o upsert do servidor.
-/// Devolve quantos saíram.
-fn podar(pendentes: &mut Vec<Pendente>, agora: i64) -> usize {
-    let antes = pendentes.len();
-    pendentes.retain(|p| agora - p.criado_em <= FILA_MAX_IDADE_SECS);
-    pendentes.truncate(FILA_MAX_EVENTOS);
-    antes - pendentes.len()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    /// Só a parte de disco e de poda tem teste. O envio em si depende do servidor,
-    /// e o que se pode afirmar sem rede é que o evento que não entrou sobrevive ao
-    /// fechamento do app — que é exatamente o buraco que a fila veio tapar.
-    fn dir_temp(rotulo: &str) -> PathBuf {
-        let unico = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("relógio antes da época")
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("loop_telemetria_{rotulo}_{unico}"));
-        std::fs::create_dir_all(&dir).expect("criar dir temporário");
-        dir
-    }
-
-    fn pendente(evento: &str, criado_em: i64) -> Pendente {
-        Pendente {
-            criado_em,
-            corpo: json!({ "event": evento, "install_id": "abc" }),
-        }
-    }
-
-    #[test]
-    fn fila_sobrevive_a_ida_e_volta_do_disco() {
-        let path = dir_temp("ida_volta").join("fila.jsonl");
-        let pendentes = vec![pendente("race_start", 100), pendente("race_end", 200)];
-        gravar_fila(&path, &pendentes);
-
-        let lidos = ler_fila(&path);
-        assert_eq!(lidos.len(), 2);
-        assert_eq!(lidos[0].criado_em, 100);
-        assert_eq!(lidos[1].corpo["event"], "race_end");
-    }
-
-    #[test]
-    fn linha_corrompida_custa_so_aquele_evento() {
-        let path = dir_temp("corrompida").join("fila.jsonl");
-        let bom = serde_json::to_string(&pendente("race_start", 100)).unwrap();
-        let outro = serde_json::to_string(&pendente("race_end", 200)).unwrap();
-        std::fs::write(&path, format!("{bom}\n{{isto não é json\n{outro}\n")).unwrap();
-
-        let lidos = ler_fila(&path);
-        assert_eq!(lidos.len(), 2, "a linha quebrada levou as vizinhas junto");
-    }
-
-    #[test]
-    fn fila_vazia_apaga_o_arquivo() {
-        let path = dir_temp("vazia").join("fila.jsonl");
-        gravar_fila(&path, &[pendente("race_start", 100)]);
-        assert!(path.exists());
-
-        gravar_fila(&path, &[]);
-        assert!(!path.exists(), "arquivo vazio ficou para trás");
-        assert!(ler_fila(&path).is_empty());
-    }
-
-    /// O acumulado de uso vive num estático de processo (`USO`), então os testes que o
-    /// tocariam de verdade seriam serializados entre si e frágeis. O que dá para testar
-    /// sem isso é a regra que decide o que vira evento, e é ela que erra na prática:
-    /// bloco vazio nunca deve virar `weekend_usage`.
-    #[test]
-    fn bloco_sem_leitura_nao_vira_evento() {
-        let so_rotulo = UsoRodada {
-            temporada: Some(1),
-            rodada: Some(3),
-            categoria: Some("mazda_rookie".into()),
-            ..Default::default()
-        };
-        assert!(so_rotulo.vazio(), "abriu o app e fechou sem ler: nada a dizer");
-
-        let leu = UsoRodada {
-            segundos_debriefing: 4,
-            ..so_rotulo.clone()
-        };
-        assert!(!leu.vazio());
-
-        let so_apertou = UsoRodada {
-            ptt_apertos: 1,
-            ..so_rotulo
-        };
-        assert!(
-            !so_apertou.vazio(),
-            "aperto de PTT sem leitura nenhuma ainda é uso"
-        );
-    }
-
-    /// Campo novo no meio da vida do arquivo não pode zerar o que já estava lá: o
-    /// acumulado sobrevive a um update do app com o jogador no meio de uma rodada.
-    #[test]
-    fn acumulado_antigo_sobrevive_a_campo_novo() {
-        let antigo = r#"{"temporada":2,"rodada":5,"segundos_noticias":90}"#;
-        let uso: UsoRodada = serde_json::from_str(antigo).expect("ler acumulado antigo");
-
-        assert_eq!(uso.segundos_noticias, 90);
-        assert_eq!(uso.rodada, Some(5));
-        assert_eq!(uso.ptt_perguntas, 0);
-        assert_eq!(uso.categoria, None);
-    }
-
-    #[test]
-    fn poda_tira_o_que_envelheceu() {
-        let agora = 1_000_000;
-        let mut pendentes = vec![
-            pendente("velho", agora - FILA_MAX_IDADE_SECS - 1),
-            pendente("no_limite", agora - FILA_MAX_IDADE_SECS),
-            pendente("novo", agora - 60),
-        ];
-
-        assert_eq!(podar(&mut pendentes, agora), 1);
-        assert_eq!(pendentes.len(), 2);
-        assert_eq!(pendentes[0].corpo["event"], "no_limite");
-    }
-
-    #[test]
-    fn poda_corta_pelo_teto_mantendo_os_mais_antigos() {
-        let agora = 1_000_000;
-        let mut pendentes: Vec<Pendente> = (0..FILA_MAX_EVENTOS + 10)
-            .map(|i| pendente(&format!("e{i}"), agora - 60))
-            .collect();
-
-        assert_eq!(podar(&mut pendentes, agora), 10);
-        assert_eq!(pendentes.len(), FILA_MAX_EVENTOS);
-        assert_eq!(
-            pendentes[0].corpo["event"], "e0",
-            "o corte comeu pelo começo da fila"
-        );
-    }
 }

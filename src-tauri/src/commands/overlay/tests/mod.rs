@@ -1,6 +1,7 @@
 use super::formato::{
     best_positive_lap, contagem_de_voltas, history_matches_subsession, name_key,
-    parse_session_times, parse_session_types, roster_with_telemetry, session_kind, ContagemVoltas,
+    parse_session_times, parse_session_types, ritmo_de_referencia, roster_with_telemetry,
+    session_kind, ContagemVoltas,
 };
 use super::ordem::{modo_da_sessao, ordem_pre_sessao, ordenar, OrderInput, OrderMode, PreSinal};
 use crate::iracing_sdk::{race_monitor::YamlCarMeta, CarSnapshot};
@@ -41,6 +42,66 @@ fn na_pre_temporada(expectativa: f64) -> PreSinal {
         expectativa,
         conhecido: true,
     }
+}
+
+// ─── Ritmo de referência da estimativa de voltas (bug #6, parte 2) ───────────
+
+#[test]
+fn o_ritmo_e_a_mediana_das_ultimas_voltas_do_lider() {
+    // Cinco voltas: a mediana ignora a mais rápida e a mais lenta.
+    let voltas = [92.0, 90.5, 91.0, 90.8, 91.2];
+    assert_eq!(ritmo_de_referencia(&voltas, Some(89.0)), Some(91.0));
+}
+
+#[test]
+fn uma_parada_de_box_nao_arrasta_o_ritmo() {
+    // O caso que a média estragaria: um in-lap de 2 minutos entre voltas normais.
+    let voltas = [91.0, 90.8, 120.0, 91.2, 91.1];
+    let ritmo = ritmo_de_referencia(&voltas, Some(89.0)).expect("há voltas suficientes");
+    assert!(
+        (90.0..=92.0).contains(&ritmo),
+        "a parada não pode virar o ritmo da prova: {ritmo}"
+    );
+}
+
+#[test]
+fn so_as_ultimas_voltas_contam() {
+    // A prova evolui (pista borrachando, combustível queimando): voltas do começo não
+    // dizem mais qual é o ritmo agora.
+    let voltas = [99.0, 99.0, 99.0, 99.0, 91.0, 91.1, 90.9, 91.2, 91.0];
+    let ritmo = ritmo_de_referencia(&voltas, None).expect("há voltas suficientes");
+    assert!((90.5..=91.5).contains(&ritmo), "{ritmo}");
+}
+
+#[test]
+fn sem_voltas_suficientes_cai_na_melhor_do_campo() {
+    // Começo de corrida: ninguém fechou cinco voltas ainda, e um número aproximado no
+    // cabeçalho é melhor que nenhum.
+    assert_eq!(ritmo_de_referencia(&[], Some(89.0)), Some(89.0));
+    assert_eq!(ritmo_de_referencia(&[91.0, 91.5], Some(89.0)), Some(89.0));
+}
+
+#[test]
+fn sem_volta_nenhuma_nao_ha_estimativa() {
+    assert_eq!(ritmo_de_referencia(&[], None), None);
+    assert_eq!(ritmo_de_referencia(&[], Some(0.0)), None);
+    assert_eq!(ritmo_de_referencia(&[0.0, 0.0, 0.0], None), None);
+}
+
+#[test]
+fn a_mediana_do_lider_estima_menos_voltas_que_a_melhor_do_campo() {
+    // O defeito, medido: dividir pela melhor volta absoluta subestima o tempo por volta
+    // e, portanto, SUPERESTIMA quantas voltas cabem. Com 20 min restantes e ritmo real
+    // de 91 s, a melhor volta de 88 s inventava voltas que não cabem.
+    let voltas = [91.0, 91.2, 90.9, 91.1, 91.0];
+    let restante: f64 = 20.0 * 60.0;
+    let pela_melhor = (restante / 88.0).round() as i32;
+    let ritmo = ritmo_de_referencia(&voltas, Some(88.0)).expect("há voltas");
+    let pela_mediana = (restante / ritmo).round() as i32;
+    assert!(
+        pela_mediana < pela_melhor,
+        "a mediana ({pela_mediana}) tem de ser mais conservadora que a melhor volta ({pela_melhor})"
+    );
 }
 
 #[test]
@@ -617,4 +678,452 @@ fn bench_overlay_custo() {
         "parse_session_types: {:.2} ms/chamada",
         media(rot_yaml, t0.elapsed())
     );
+}
+
+// ── Montagem da torre: pista + carreira → o payload que o front recebe ──────────
+//
+// `get_overlay_data` em si não é testável (lê o SDK e abre o save), mas as etapas em
+// que ela foi quebrada são: [`montar_grade`] transforma o retrato da pista em linhas,
+// [`finalizar_classes`] ordena e deriva posição/delta/pontos, e o cabeçalho sai de
+// [`voltas_do_cabecalho`]/[`relogio_da_sessao`]. As asserções são sobre o JSON
+// serializado de propósito — é ele o contrato com o front, camelCase incluído.
+mod montagem {
+    use std::collections::{HashMap, HashSet};
+
+    use super::super::ordem::{OrderMode, PreSinal};
+    use super::super::torre::{
+        finalizar_classes, montar_grade, relogio_da_sessao, voltas_do_cabecalho, CarreiraNaTorre,
+        DriverInfo, GradeMontada, IdentidadeNaTorre, QuadroDaPista,
+    };
+    use crate::iracing_sdk::race_monitor::YamlCarMeta;
+    use crate::iracing_sdk::tire_strategy::{CarTireStrategy, Compound, PitStopDetail, TireStint};
+    use crate::iracing_sdk::CarSnapshot;
+
+    const CLASSE: i64 = 10;
+
+    /// Os mapas que o [`QuadroDaPista`] aponta, num dono só: cada caso liga apenas o
+    /// canal que está exercitando e deixa o resto vazio.
+    struct Pista {
+        carreira: CarreiraNaTorre,
+        class_names: HashMap<i64, String>,
+        recorded_best_lap: HashMap<i32, f64>,
+        qualy_best_ms: HashMap<i32, i64>,
+        grid_by_idx: HashMap<i32, i32>,
+        tire_by_idx: HashMap<i32, CarTireStrategy>,
+        breakdown_by_idx: HashMap<i32, &'static str>,
+        repair_laps_by_idx: HashMap<i32, Vec<u32>>,
+        flash_idxs: HashSet<i32>,
+        lead_lap_now: i32,
+        player_idx: i32,
+        focus_idx: i32,
+        player_black: bool,
+    }
+
+    impl Default for Pista {
+        fn default() -> Self {
+            Self {
+                carreira: CarreiraNaTorre::default(),
+                class_names: HashMap::new(),
+                recorded_best_lap: HashMap::new(),
+                qualy_best_ms: HashMap::new(),
+                grid_by_idx: HashMap::new(),
+                tire_by_idx: HashMap::new(),
+                breakdown_by_idx: HashMap::new(),
+                repair_laps_by_idx: HashMap::new(),
+                flash_idxs: HashSet::new(),
+                lead_lap_now: 1,
+                // -1 = ninguém. Zero seria um `CarIdx` de verdade, e todo caso que não
+                // fala de jogador ganharia um jogador silencioso no primeiro carro.
+                player_idx: -1,
+                focus_idx: -1,
+                player_black: false,
+            }
+        }
+    }
+
+    impl Pista {
+        fn quadro(&self) -> QuadroDaPista<'_> {
+            QuadroDaPista {
+                carreira: &self.carreira,
+                class_names: &self.class_names,
+                recorded_best_lap: &self.recorded_best_lap,
+                qualy_best_ms: &self.qualy_best_ms,
+                grid_by_idx: &self.grid_by_idx,
+                tire_by_idx: &self.tire_by_idx,
+                breakdown_by_idx: &self.breakdown_by_idx,
+                repair_laps_by_idx: &self.repair_laps_by_idx,
+                flash_idxs: &self.flash_idxs,
+                lead_lap_now: self.lead_lap_now,
+                player_idx: self.player_idx,
+                focus_idx: self.focus_idx,
+                player_black: self.player_black,
+            }
+        }
+    }
+
+    fn meta(idx: i32, car_number: i32, class_id: i64) -> YamlCarMeta {
+        YamlCarMeta {
+            idx,
+            is_ai: true,
+            is_pace: false,
+            class_id,
+            car_number,
+        }
+    }
+
+    fn na_pista(idx: i32, class_position: i32, best_lap_time: f64) -> CarSnapshot {
+        CarSnapshot {
+            idx,
+            class_position,
+            best_lap_time,
+            ..CarSnapshot::default()
+        }
+    }
+
+    fn identidade(nome: &str, equipe: &str, pontos: i32) -> IdentidadeNaTorre {
+        IdentidadeNaTorre {
+            info: DriverInfo {
+                nome: nome.to_string(),
+                pontos,
+                equipe: equipe.to_string(),
+                cor: "#ff0000".to_string(),
+                pre: PreSinal::default(),
+            },
+            rival_role: None,
+        }
+    }
+
+    /// Roda as duas etapas e devolve o JSON das classes — o que atravessa a ponte.
+    fn torre(
+        carros: &[(YamlCarMeta, Option<CarSnapshot>)],
+        pista: &Pista,
+        modo: OrderMode,
+    ) -> serde_json::Value {
+        let roster: Vec<(&YamlCarMeta, Option<&CarSnapshot>)> =
+            carros.iter().map(|(m, c)| (m, c.as_ref())).collect();
+        let GradeMontada {
+            por_classe,
+            rotulos,
+            ..
+        } = montar_grade(&roster, &pista.quadro());
+        serde_json::to_value(finalizar_classes(por_classe, &rotulos, modo, false))
+            .expect("as classes serializam")
+    }
+
+    #[test]
+    fn a_torre_junta_a_identidade_da_carreira_com_o_que_esta_na_pista() {
+        let carros = vec![
+            (meta(1, 11, CLASSE), Some(na_pista(1, 2, 91.5))),
+            (meta(2, 22, CLASSE), Some(na_pista(2, 1, 90.0))),
+        ];
+        let mut pista = Pista::default();
+        pista.class_names.insert(CLASSE, "GT3".to_string());
+        pista
+            .carreira
+            .por_idx
+            .insert(1, identidade("Ana Ribeiro", "Equipe A", 40));
+        pista
+            .carreira
+            .por_idx
+            .insert(2, identidade("Bruno Sá", "Equipe B", 60));
+        // Ana largou em 1º e caiu para 2º; Bruno largou em 3º e subiu para 1º.
+        pista.grid_by_idx.insert(1, 1);
+        pista.grid_by_idx.insert(2, 3);
+
+        let json = torre(&carros, &pista, OrderMode::Oficial);
+        let classe = &json[0];
+        assert_eq!(classe["id"], "gt3");
+        assert_eq!(classe["label"], "GT3");
+
+        let lider = &classe["cars"][0];
+        assert_eq!(lider["name"], "Bruno Sá");
+        assert_eq!(lider["team"], "Equipe B");
+        assert_eq!(lider["color"], "#ff0000");
+        assert_eq!(lider["points"], 60);
+        assert_eq!(lider["pos"], 1);
+        assert_eq!(lider["delta"], 2);
+        assert_eq!(lider["gain"], 25);
+        assert_eq!(lider["fastest"], "01:30.000");
+        assert_eq!(lider["bestMs"], 90_000);
+        // Volta mais rápida da classe: só um carro leva o marcador.
+        assert_eq!(lider["fol"], true);
+
+        let segundo = &classe["cars"][1];
+        assert_eq!(segundo["name"], "Ana Ribeiro");
+        assert_eq!(segundo["pos"], 2);
+        assert_eq!(segundo["delta"], -1);
+        assert_eq!(segundo["gain"], 18);
+        assert_eq!(segundo["fol"], false);
+    }
+
+    #[test]
+    fn carro_sem_dono_na_carreira_entra_pelo_numero_e_conta_no_funil() {
+        // O carro EXISTE na pista: não pode sumir da torre só porque o join do save
+        // não achou dono. Entra pelo número, neutro, e sem posição oficial vai pro fim.
+        let carros = vec![
+            (meta(1, 11, CLASSE), Some(na_pista(1, 1, 90.0))),
+            (meta(2, 22, CLASSE), None),
+        ];
+        let mut pista = Pista::default();
+        pista
+            .carreira
+            .por_idx
+            .insert(1, identidade("Ana Ribeiro", "Equipe A", 40));
+
+        let roster: Vec<(&YamlCarMeta, Option<&CarSnapshot>)> =
+            carros.iter().map(|(m, c)| (m, c.as_ref())).collect();
+        let grade = montar_grade(&roster, &pista.quadro());
+        assert_eq!(grade.sem_posicao, 1);
+
+        let json = torre(&carros, &pista, OrderMode::Oficial);
+        let orfao = &json[0]["cars"][1];
+        assert_eq!(orfao["name"], "#22");
+        assert_eq!(orfao["team"], "");
+        assert_eq!(orfao["color"], "#7d8590");
+        assert_eq!(orfao["points"], 0);
+        assert_eq!(orfao["pos"], 2);
+        // Sem posição na pista não há delta: o grid não diz nada sobre quem não corre.
+        assert_eq!(orfao["delta"], 0);
+        assert_eq!(orfao["fastest"], "");
+        assert_eq!(orfao["bestMs"], 0);
+    }
+
+    #[test]
+    fn a_bandeira_preta_e_do_jogador_e_o_destaque_segue_a_camera() {
+        let carros = vec![
+            (meta(1, 11, CLASSE), Some(na_pista(1, 1, 90.0))),
+            (meta(2, 22, CLASSE), Some(na_pista(2, 2, 91.0))),
+        ];
+        let pista = Pista {
+            player_idx: 1,
+            // No replay a câmera migra: o destaque acompanha, a black flag não.
+            focus_idx: 2,
+            player_black: true,
+            ..Pista::default()
+        };
+
+        let json = torre(&carros, &pista, OrderMode::Oficial);
+        assert_eq!(json[0]["cars"][0]["flag"], "black");
+        assert_eq!(json[0]["cars"][0]["player"], false);
+        assert_eq!(json[0]["cars"][1]["flag"], serde_json::Value::Null);
+        assert_eq!(json[0]["cars"][1]["player"], true);
+    }
+
+    #[test]
+    fn a_quebra_com_dnf_vira_bandeira_preta_para_qualquer_carro() {
+        let carros = vec![(meta(1, 11, CLASSE), Some(na_pista(1, 1, 90.0)))];
+        let mut pista = Pista::default();
+        pista.breakdown_by_idx.insert(1, "dnf");
+        assert_eq!(torre(&carros, &pista, OrderMode::Oficial)[0]["cars"][0]["flag"], "black");
+
+        let mut pista = Pista::default();
+        pista.breakdown_by_idx.insert(1, "heavy");
+        pista.flash_idxs.insert(1);
+        let json = torre(&carros, &pista, OrderMode::Oficial);
+        assert_eq!(json[0]["cars"][0]["alert"], "heavy");
+        assert_eq!(json[0]["cars"][0]["flash"], true);
+        assert_eq!(json[0]["cars"][0]["flag"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn a_coluna_de_paradas_diz_por_que_o_piloto_parou() {
+        let carros = vec![(meta(1, 11, CLASSE), Some(na_pista(1, 1, 90.0)))];
+        // Líder na volta 21 → a última parada ainda está dentro da janela do badge.
+        let mut pista = Pista {
+            lead_lap_now: 21,
+            ..Pista::default()
+        };
+        pista.tire_by_idx.insert(
+            1,
+            CarTireStrategy {
+                car_idx: 1,
+                pilot_name: String::new(),
+                team_name: String::new(),
+                start_compound: Compound::Dry,
+                stints: vec![
+                    TireStint {
+                        from_lap: 1,
+                        compound: Compound::Dry,
+                        changed: false,
+                        confidence: 1.0,
+                    },
+                    TireStint {
+                        from_lap: 6,
+                        compound: Compound::Wet,
+                        changed: true,
+                        confidence: 1.0,
+                    },
+                ],
+                tire_changes: 2,
+                wrong_tire: false,
+                stops: vec![
+                    PitStopDetail {
+                        lap: 5,
+                        box_secs: 22.0,
+                        tire_change: true,
+                        track_wet: false,
+                    },
+                    PitStopDetail {
+                        lap: 12,
+                        box_secs: 9.0,
+                        tire_change: false,
+                        track_wet: false,
+                    },
+                    PitStopDetail {
+                        lap: 15,
+                        box_secs: 21.0,
+                        tire_change: true,
+                        track_wet: true,
+                    },
+                    PitStopDetail {
+                        lap: 20,
+                        box_secs: 44.0,
+                        tire_change: true,
+                        track_wet: true,
+                    },
+                ],
+                summary: String::new(),
+            },
+        );
+        // A parada da volta 20 foi um REPARO de peça: o triângulo manda no ícone, mesmo
+        // com troca de pneu junto.
+        pista.repair_laps_by_idx.insert(1, vec![20]);
+
+        let json = torre(&carros, &pista, OrderMode::Oficial);
+        let carro = &json[0]["cars"][0];
+        assert_eq!(
+            carro["pitIcons"],
+            serde_json::json!(["dry", "dry", "fuel", "wet", "part"])
+        );
+        assert_eq!(carro["tireHistory"], serde_json::json!(["dry", "wet"]));
+        assert_eq!(carro["stops"], 2);
+        assert_eq!(carro["pitSecs"], 44);
+    }
+
+    #[test]
+    fn o_badge_de_tempo_de_box_some_depois_de_duas_voltas() {
+        let carros = vec![(meta(1, 11, CLASSE), Some(na_pista(1, 1, 90.0)))];
+        let mut pista = Pista {
+            lead_lap_now: 13,
+            ..Pista::default()
+        };
+        pista.tire_by_idx.insert(
+            1,
+            CarTireStrategy {
+                car_idx: 1,
+                pilot_name: String::new(),
+                team_name: String::new(),
+                start_compound: Compound::Dry,
+                stints: Vec::new(),
+                tire_changes: 1,
+                wrong_tire: false,
+                stops: vec![PitStopDetail {
+                    lap: 10,
+                    box_secs: 22.0,
+                    tire_change: true,
+                    track_wet: false,
+                }],
+                summary: String::new(),
+            },
+        );
+        assert_eq!(
+            torre(&carros, &pista, OrderMode::Oficial)[0]["cars"][0]["pitSecs"],
+            serde_json::Value::Null
+        );
+    }
+
+    #[test]
+    fn os_blocos_de_classe_saem_em_ordem_de_id() {
+        // `por_classe` é um HashMap refeito a cada poll; sem a ordenação por id os
+        // BLOCOS trocavam de lugar ~1x/s numa prova multiclasse.
+        let carros = vec![
+            (meta(1, 11, 30), Some(na_pista(1, 1, 90.0))),
+            (meta(2, 22, 20), Some(na_pista(2, 1, 95.0))),
+        ];
+        let mut pista = Pista::default();
+        pista.class_names.insert(30, "GT3".to_string());
+        pista.class_names.insert(20, "LMP2".to_string());
+
+        let json = torre(&carros, &pista, OrderMode::Oficial);
+        assert_eq!(json[0]["label"], "LMP2");
+        assert_eq!(json[1]["label"], "GT3");
+        // Cada classe tem a SUA volta mais rápida.
+        assert_eq!(json[0]["cars"][0]["fol"], true);
+        assert_eq!(json[1]["cars"][0]["fol"], true);
+    }
+
+    #[test]
+    fn prova_por_tempo_estima_o_total_pela_mediana_do_lider() {
+        // Líder girando em 95 s, melhor volta do campo em 90 s, 950 s restantes. Pela
+        // mediana cabem 10 voltas; pela melhor volta absoluta a conta dava 11 — é a
+        // superestimativa de ritmo que subestimava o TOTAL na torre (bug #6, parte 2).
+        let voltas = [95.0, 95.0, 95.0, 95.0, 95.0];
+        let contagem = voltas_do_cabecalho(
+            10, 0, false, true, true, 950.0, 0, 32767, &voltas, Some(90.0),
+        );
+        assert_eq!(contagem.lap, 11);
+        assert_eq!(contagem.total, 20);
+    }
+
+    #[test]
+    fn sem_voltas_do_lider_a_estimativa_cai_na_melhor_do_campo() {
+        let contagem =
+            voltas_do_cabecalho(10, 0, false, true, true, 900.0, 0, 32767, &[], Some(90.0));
+        assert_eq!(contagem.total, 20);
+    }
+
+    #[test]
+    fn fora_de_corrida_por_tempo_nao_ha_estimativa() {
+        // Classificatória: o cabeçalho mostra o relógio, não um "/total" inventado.
+        let voltas = [95.0, 95.0, 95.0];
+        let contagem = voltas_do_cabecalho(
+            3, 0, false, true, false, 300.0, 0, 32767, &voltas, Some(90.0),
+        );
+        assert_eq!(contagem.total, 0);
+    }
+
+    #[test]
+    fn prova_por_voltas_ignora_o_ritmo_e_usa_o_total_declarado() {
+        let voltas = [95.0, 95.0, 95.0];
+        let contagem =
+            voltas_do_cabecalho(7, 0, false, false, true, 0.0, 8, 1, &voltas, Some(90.0));
+        assert_eq!(contagem.lap, 8);
+        assert_eq!(contagem.total, 8);
+    }
+
+    #[test]
+    fn depois_da_bandeirada_a_contagem_usa_a_volta_congelada() {
+        // Na volta de desaceleração o `lap_completed` da grade continua subindo.
+        let contagem = voltas_do_cabecalho(9, 8, true, false, true, 0.0, 8, 0, &[], None);
+        assert_eq!(contagem.lap, 8);
+        assert_eq!(contagem.total, 8);
+    }
+
+    #[test]
+    fn o_relogio_prefere_o_canal_ao_vivo_e_cai_no_yaml_quando_ele_e_sentinela() {
+        let ao_vivo = relogio_da_sessao(480.0, 300.0, Some(900.0));
+        assert_eq!(ao_vivo.duration_s, Some(480));
+        assert_eq!(ao_vivo.remaining_s, Some(300));
+        assert_eq!(ao_vivo.elapsed_s, Some(180));
+
+        // Classificatória: o `SessionTimeTotal` vem sentinelado e só o YAML sabe a
+        // duração. Sem a reserva o cabeçalho ficava sem relógio nenhum.
+        let do_yaml = relogio_da_sessao(604_800.0, 300.0, Some(480.0));
+        assert_eq!(do_yaml.duration_s, Some(480));
+        assert_eq!(do_yaml.elapsed_s, Some(180));
+
+        // Sem nenhuma das duas fontes não há relógio — e nada de decorrido inventado.
+        let sem_nada = relogio_da_sessao(604_800.0, 604_800.0, None);
+        assert_eq!(sem_nada.duration_s, None);
+        assert_eq!(sem_nada.remaining_s, None);
+        assert_eq!(sem_nada.elapsed_s, None);
+    }
+
+    #[test]
+    fn restante_zerado_ainda_e_restante() {
+        // A sessão acabou de fechar: 0 é valor válido, não ausência.
+        let relogio = relogio_da_sessao(480.0, 0.0, None);
+        assert_eq!(relogio.remaining_s, Some(0));
+        assert_eq!(relogio.elapsed_s, Some(480));
+    }
 }

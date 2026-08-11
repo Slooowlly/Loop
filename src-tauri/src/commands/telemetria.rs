@@ -6,8 +6,10 @@
 //!
 //! Só o TEMPO atravessa esta ponte. Nada do conteúdo lido, nada de qual matéria, nada
 //! de qual notícia. E só as três telas que custam servidor — ver
-//! [`crate::telemetry::uso_tela`], que ignora em silêncio qualquer outro nome, para
-//! uma tela nova não virar métrica sem passar por uma decisão.
+//! [`crate::telemetry::uso_tela`], que descarta qualquer outro nome para uma tela nova
+//! não virar métrica sem passar por uma decisão. O descarte vai para o log de
+//! diagnóstico desde 11/08/2026: antes ele era mudo, e um nome errado do front custava
+//! semanas de medição vazia até alguém olhar o painel e estranhar.
 
 /// Soma tempo de permanência numa das três telas pagas.
 ///
