@@ -36,7 +36,12 @@ const INITIAL_FORM = {
 };
 
 const DRAFT_PROGRESS_POLL_MS = 1000;
-const IDENTITY_FIELDS = new Set(["difficulty", "playerName", "nationality", "age"]);
+// Campos que moldam o mundo simulado e, por isso, invalidam um draft pronto.
+// Só a dificuldade entra aqui: ela alimenta `generate_historical_world` e define
+// os atributos dos 200+ pilotos de IA. Nome, nacionalidade e idade do jogador só
+// são usados na finalização, quando o piloto entra no grid — trocá-los depois da
+// simulação custa uma reescrita de meta.json, não 26 temporadas de novo.
+const WORLD_SHAPING_FIELDS = new Set(["difficulty"]);
 
 function NewCareer() {
   const navigate = useNavigate();
@@ -148,6 +153,10 @@ function NewCareer() {
     const firstTeam = state.teams?.find((team) => team.categoria === firstCategory);
     setFormData((current) => ({
       ...current,
+      // A identidade gravada no draft manda: sem reidratar, retomar um draft
+      // trazia o formulário em branco, e a primeira digitação do nome contava
+      // como troca de identidade e descartava o mundo já simulado.
+      ...draftIdentityPatch(state),
       category: current.category && state.categories?.includes(current.category)
         ? current.category
         : firstCategory,
@@ -209,6 +218,38 @@ function NewCareer() {
     return "";
   }
 
+  /// Grava no draft a identidade que está na tela. O mundo simulado não depende
+  /// dela, então isto substitui o descarte que existia antes: o jogador corrige o
+  /// próprio nome e as temporadas já simuladas continuam de pé.
+  async function persistDraftIdentity({ strict = false } = {}) {
+    if (!draftState?.career_id || draftState.lifecycle_status !== "draft") return;
+
+    const name = formData.playerName.trim();
+    if (!name) return;
+
+    const unchanged =
+      name === (draftState.player_name ?? "").trim() &&
+      formData.nationality === (draftState.player_nationality ?? "") &&
+      Number(formData.age) === Number(draftState.player_age);
+    if (unchanged) return;
+
+    try {
+      const state = await invoke("update_career_draft_identity", {
+        input: {
+          career_id: draftState.career_id,
+          player_name: name,
+          player_nationality: formData.nationality,
+          player_age: Number(formData.age),
+        },
+      });
+      if (state?.exists) setDraftState(state);
+    } catch (invokeError) {
+      // Na finalização o erro precisa aparecer: seguir adiante criaria a carreira
+      // com a identidade antiga. Na navegação entre passos é só perda de rascunho.
+      if (strict) throw invokeError;
+    }
+  }
+
   function handleNext() {
     const validationError = validateCurrentStep();
     if (validationError) {
@@ -217,6 +258,7 @@ function NewCareer() {
     }
 
     setError("");
+    if (step === 2) persistDraftIdentity();
     setStep((current) => Math.min(current + 1, 6));
   }
 
@@ -226,6 +268,7 @@ function NewCareer() {
       navigate("/menu");
       return;
     }
+    if (step === 2) persistDraftIdentity();
     setStep((current) => Math.max(current - 1, 1));
   }
 
@@ -264,6 +307,9 @@ function NewCareer() {
     setLoading(true);
 
     try {
+      // A finalização lê o nome do meta.json do draft. Garantir a gravação aqui
+      // impede que a carreira nasça com a identidade da geração original.
+      await persistDraftIdentity({ strict: true });
       const result = await invoke("finalize_career_draft", {
         input: {
           career_id: draftState.career_id,
@@ -703,10 +749,34 @@ function NewCareer() {
   );
 }
 
+/// Traduz a identidade que veio do draft para os campos do formulário. Campo
+/// ausente ou vazio fica de fora do patch, preservando o valor atual da tela.
+function draftIdentityPatch(state) {
+  const patch = {};
+  const name = typeof state?.player_name === "string" ? state.player_name.trim() : "";
+  if (name) patch.playerName = name;
+
+  const nationality =
+    typeof state?.player_nationality === "string" ? state.player_nationality.trim() : "";
+  if (nationality && NATIONALITIES.some((item) => item.id === nationality)) {
+    patch.nationality = nationality;
+  }
+
+  const age = Number(state?.player_age);
+  if (Number.isFinite(age) && age > 0) patch.age = age;
+
+  const difficulty = typeof state?.difficulty === "string" ? state.difficulty.trim() : "";
+  if (difficulty && DIFFICULTIES.some((item) => item.id === difficulty)) {
+    patch.difficulty = difficulty;
+  }
+
+  return patch;
+}
+
 function shouldDiscardDraftForPatch(currentForm, patch, draftState) {
   if (!draftState?.exists) return false;
   return Object.entries(patch).some(([key, value]) => {
-    if (!IDENTITY_FIELDS.has(key)) return false;
+    if (!WORLD_SHAPING_FIELDS.has(key)) return false;
     return String(currentForm[key] ?? "") !== String(value ?? "");
   });
 }

@@ -82,6 +82,10 @@ function mockDraftCommands() {
       return { success: true, career_id: "career_001" };
     }
 
+    if (command === "update_career_draft_identity") {
+      return generatedDraft;
+    }
+
     if (command === "discard_career_draft") {
       return null;
     }
@@ -203,7 +207,63 @@ describe("NewCareer", () => {
     });
   });
 
-  it("discards generated draft when pending player identity changes", async () => {
+  it("restores the pending player identity when resuming a saved draft", async () => {
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "get_career_draft") {
+        return {
+          ...generatedDraft,
+          player_name: "Carlos Magno",
+          player_nationality: "us",
+          player_age: 24,
+          difficulty: "dificil",
+        };
+      }
+      return null;
+    });
+
+    renderPage();
+
+    // O resumo lateral é o que mostrava "Piloto novo" ao retomar o draft.
+    expect(await screen.findByText("Carlos Magno")).toBeInTheDocument();
+    expect(screen.queryByText("Piloto novo")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /voltar/i }));
+    fireEvent.click(screen.getByRole("button", { name: /voltar/i }));
+    expect(screen.getByPlaceholderText(/Jo.o Silva/)).toHaveValue("Carlos Magno");
+
+    // Reabrir o passo de identidade não pode descartar o mundo já simulado.
+    expect(mockInvoke).not.toHaveBeenCalledWith("discard_career_draft");
+  });
+
+  it("discards generated draft when the difficulty changes", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("get_career_draft");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /pr.ximo/i }));
+    fireEvent.change(screen.getByPlaceholderText(/Jo.o Silva/), {
+      target: { value: "Rodrigo Teste" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /pr.ximo/i }));
+    fireEvent.click(screen.getByRole("button", { name: /gerar hist.rico/i }));
+
+    expect((await screen.findAllByText("Mazda Rookie")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /voltar/i }));
+    fireEvent.click(screen.getByRole("button", { name: /voltar/i }));
+    fireEvent.click(screen.getByRole("button", { name: /voltar/i }));
+    // A dificuldade molda os atributos da IA no mundo histórico, então trocá-la
+    // é a única edição de identidade que ainda invalida o que foi simulado.
+    fireEvent.click(screen.getByText("Lendario"));
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("discard_career_draft");
+    });
+  });
+
+  it("keeps the generated draft and rewrites the identity when the name changes", async () => {
     renderPage();
 
     await waitFor(() => {
@@ -222,11 +282,20 @@ describe("NewCareer", () => {
     fireEvent.click(screen.getByRole("button", { name: /voltar/i }));
     fireEvent.click(screen.getByRole("button", { name: /voltar/i }));
     fireEvent.change(screen.getByPlaceholderText(/Jo.o Silva/), {
-      target: { value: "Rodrigo Novo" },
+      target: { value: "Carlos Magno" },
     });
+    fireEvent.click(screen.getByRole("button", { name: /pr.ximo/i }));
 
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("discard_career_draft");
+      expect(mockInvoke).toHaveBeenCalledWith("update_career_draft_identity", {
+        input: {
+          career_id: "career_001",
+          player_name: "Carlos Magno",
+          player_nationality: "br",
+          player_age: 20,
+        },
+      });
     });
+    expect(mockInvoke).not.toHaveBeenCalledWith("discard_career_draft");
   });
 });

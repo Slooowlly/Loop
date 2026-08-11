@@ -34,6 +34,7 @@ use crate::commands::career_types::{
     DriverWorldRank, FinalizeHistoricalDraftInput, FreeAgentPreview, GlobalDriverRankingPayload,
     GlobalTeamHistoryPayload, RaceReading, RaceSummary, SaveInfo, SeasonChampionPayload,
     TeamCarParts, TeamFinanceReport, TeamHistoryDossier, TeamRecordsRanking, TeamStanding,
+    UpdateDraftIdentityInput,
 };
 use crate::commands::global_driver_rankings::{
     get_driver_world_rank_in_base_dir, get_global_driver_rankings_in_base_dir,
@@ -44,6 +45,7 @@ use crate::commands::global_team_history::{
 use crate::commands::historical_draft::{
     create_historical_career_draft_in_base_dir, discard_career_draft_in_base_dir,
     finalize_career_draft_in_base_dir, get_career_draft_in_base_dir,
+    update_career_draft_identity_in_base_dir,
 };
 use crate::commands::race_history::{DriverRaceHistory, PreviousChampions};
 use crate::evolution::pipeline::EndOfSeasonResult;
@@ -79,6 +81,15 @@ pub async fn create_historical_career_draft(
 pub fn get_career_draft(app: AppHandle) -> Result<CareerDraftState, String> {
     let base_dir = app_data_dir(&app)?;
     get_career_draft_in_base_dir(&base_dir)
+}
+
+#[tauri::command]
+pub async fn update_career_draft_identity(
+    app: AppHandle,
+    input: UpdateDraftIdentityInput,
+) -> Result<CareerDraftState, String> {
+    let base_dir = app_data_dir(&app)?;
+    update_career_draft_identity_in_base_dir(&base_dir, input)
 }
 
 #[tauri::command]

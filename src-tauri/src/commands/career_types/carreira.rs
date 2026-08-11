@@ -52,6 +52,18 @@ pub struct CreateHistoricalDraftInput {
     pub difficulty: String,
 }
 
+/// Troca a identidade pendente de um draft já simulado. Nome, nacionalidade e
+/// idade do jogador não entram na geração do mundo histórico (só a dificuldade
+/// entra, moldando os atributos da IA), então mudá-los não exige regerar nada:
+/// basta reescrever o meta.json que a finalização vai ler.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateDraftIdentityInput {
+    pub career_id: String,
+    pub player_name: String,
+    pub player_nationality: String,
+    pub player_age: Option<i32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FinalizeHistoricalDraftInput {
     pub career_id: String,
@@ -96,6 +108,18 @@ pub struct CareerDraftState {
     pub categories: Vec<String>,
     pub teams: Vec<DraftTeamOption>,
     pub world_summary: Option<WorldSummary>,
+    /// Identidade pendente do piloto, gravada no meta.json na criação do draft.
+    /// Volta para a tela de nova carreira reidratar o formulário ao retomar um
+    /// draft: sem isto o wizard reabria com o nome em branco, o jogador digitava
+    /// o nome de novo e a mudança de identidade descartava o mundo já simulado.
+    #[serde(default)]
+    pub player_name: Option<String>,
+    #[serde(default)]
+    pub player_nationality: Option<String>,
+    #[serde(default)]
+    pub player_age: Option<i32>,
+    #[serde(default)]
+    pub difficulty: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

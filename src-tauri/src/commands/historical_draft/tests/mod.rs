@@ -4,11 +4,13 @@ use super::{
     create_historical_career_draft_base_for_test,
     create_historical_career_draft_for_range_for_test, discard_career_draft_in_base_dir,
     get_career_draft_in_base_dir, simulate_historical_range,
+    update_career_draft_identity_in_base_dir,
 };
 use crate::commands::career::get_driver_detail_in_base_dir;
 use crate::commands::career_team_dossier::get_team_history_dossier_in_base_dir;
 use crate::commands::career_types::{
     CreateHistoricalDraftInput, FinalizeHistoricalDraftInput, SaveLifecycleStatus,
+    UpdateDraftIdentityInput,
 };
 use crate::commands::global_driver_rankings::get_global_driver_rankings_in_base_dir;
 use crate::config::app_config::AppConfig;
@@ -1322,6 +1324,135 @@ fn get_draft_returns_generated_starting_categories_and_teams() {
         .filter(|team| team.n1_nome.is_some() && team.n2_nome.is_some())
         .count();
     assert!(full > 0, "o draft deve gerar times com lineup completo");
+
+    let _ = std::fs::remove_dir_all(base_dir);
+}
+
+#[test]
+fn get_draft_returns_pending_player_identity() {
+    let base_dir = unique_test_dir("get_draft_identity");
+    let input = sample_draft_input();
+    create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2000, 2001)
+        .expect("draft should be created");
+
+    let state = get_career_draft_in_base_dir(&base_dir).expect("draft state");
+
+    // Retomar o draft precisa devolver a identidade digitada, senão a tela reabre
+    // com o nome em branco e o jogador redigita, descartando o mundo simulado.
+    assert_eq!(state.player_name.as_deref(), Some("Joao Silva"));
+    assert_eq!(state.player_nationality.as_deref(), Some("br"));
+    assert_eq!(state.player_age, Some(22));
+    assert_eq!(state.difficulty.as_deref(), Some("medio"));
+
+    let _ = std::fs::remove_dir_all(base_dir);
+}
+
+#[test]
+fn update_draft_identity_rewrites_player_without_touching_the_simulated_world() {
+    let base_dir = unique_test_dir("update_draft_identity");
+    let input = sample_draft_input();
+    let created =
+        create_historical_career_draft_for_range_for_test(&base_dir, input, 2000, 2000, 2001)
+            .expect("draft should be created");
+    let career_id = created.career_id.clone().expect("draft career id");
+    let teams_before = created.teams.len();
+
+    let updated = update_career_draft_identity_in_base_dir(
+        &base_dir,
+        UpdateDraftIdentityInput {
+            career_id: career_id.clone(),
+            player_name: "  Carlos Magno  ".to_string(),
+            player_nationality: "US".to_string(),
+            player_age: Some(24),
+        },
+    )
+    .expect("identity update should succeed");
+
+    assert_eq!(updated.player_name.as_deref(), Some("Carlos Magno"));
+    assert_eq!(updated.player_nationality.as_deref(), Some("us"));
+    assert_eq!(updated.player_age, Some(24));
+    // A dificuldade é o único campo que molda o mundo, e ela não muda aqui.
+    assert_eq!(updated.difficulty.as_deref(), Some("medio"));
+
+    // O mundo simulado sobrevive à troca: mesmo save, mesmas equipes.
+    assert_eq!(updated.career_id.as_deref(), Some(career_id.as_str()));
+    assert_eq!(updated.teams.len(), teams_before);
+
+    let reloaded = get_career_draft_in_base_dir(&base_dir).expect("draft state");
+    assert_eq!(reloaded.player_name.as_deref(), Some("Carlos Magno"));
+    assert_eq!(reloaded.career_id.as_deref(), Some(career_id.as_str()));
+
+    let _ = std::fs::remove_dir_all(base_dir);
+}
+
+#[test]
+fn creating_a_draft_purges_the_previous_one() {
+    let base_dir = unique_test_dir("purge_previous_draft");
+    let config = AppConfig::load_or_default(&base_dir);
+
+    let first = create_historical_career_draft_base_for_test(&base_dir, sample_draft_input())
+        .expect("first draft should be created");
+    let first_id = first.career_id.clone().expect("first career id");
+    let first_dir = config.saves_dir().join(&first_id);
+    assert!(first_dir.exists());
+
+    // Sentinela: o ID pode ser reaproveitado depois da limpeza, então o que prova
+    // a remoção é o conteúdo do save anterior ter sumido, não o caminho.
+    let sentinel = first_dir.join("sentinela_do_draft_anterior.txt");
+    std::fs::write(&sentinel, "draft anterior").expect("sentinel write");
+
+    // Um draft interrompido fica em `failed` e continua no disco com o career.db
+    // inteiro. Gerar o próximo precisa levar o anterior junto.
+    let second = create_historical_career_draft_base_for_test(&base_dir, sample_draft_input())
+        .expect("second draft should be created");
+    let second_id = second.career_id.clone().expect("second career id");
+
+    assert!(!sentinel.exists(), "o draft anterior deve sair do disco");
+    assert!(config.saves_dir().join(&second_id).exists());
+
+    let drafts_left = std::fs::read_dir(config.saves_dir())
+        .expect("saves dir")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("career_"))
+        .count();
+    assert_eq!(drafts_left, 1, "so pode sobrar um rascunho por vez");
+
+    let _ = std::fs::remove_dir_all(base_dir);
+}
+
+#[test]
+fn creating_a_draft_never_touches_an_active_save() {
+    let base_dir = unique_test_dir("purge_spares_active");
+    let config = AppConfig::load_or_default(&base_dir);
+    let saves_dir = config.saves_dir();
+
+    // Carreira do jogador, já finalizada. A limpeza de rascunhos filtra por
+    // lifecycle_status; apagar um save ativo aqui seria perda de progresso real.
+    let active_dir = saves_dir.join("career_007");
+    std::fs::create_dir_all(&active_dir).expect("active save dir");
+    std::fs::write(
+        active_dir.join("meta.json"),
+        serde_json::json!({
+            "career_number": 7,
+            "player_name": "Carlos Magno",
+            "current_season": 3,
+            "current_year": 2028,
+            "created_at": "2026-01-01T00:00:00",
+            "last_played": "2026-08-10T00:00:00",
+            "category": "gt3",
+            "difficulty": "medio",
+            "lifecycle_status": "active",
+        })
+        .to_string(),
+    )
+    .expect("active meta");
+    let active_marker = active_dir.join("career.db");
+    std::fs::write(&active_marker, "save do jogador").expect("active db");
+
+    create_historical_career_draft_base_for_test(&base_dir, sample_draft_input())
+        .expect("draft should be created");
+
+    assert!(active_marker.exists(), "save ativo nao pode ser apagado");
 
     let _ = std::fs::remove_dir_all(base_dir);
 }

@@ -5,7 +5,7 @@ use chrono::Local;
 use crate::calendar::full_season::generate_full_season_calendar;
 use crate::commands::career_types::{
     CareerDraftState, CreateCareerResult, CreateHistoricalDraftInput, DraftTeamOption,
-    FinalizeHistoricalDraftInput, SaveLifecycleStatus, WorldSummary,
+    FinalizeHistoricalDraftInput, SaveLifecycleStatus, UpdateDraftIdentityInput, WorldSummary,
 };
 use crate::config::app_config::AppConfig;
 use crate::config::app_config::SaveMeta;
@@ -83,6 +83,47 @@ pub(crate) fn get_career_draft_in_base_dir(base_dir: &Path) -> Result<CareerDraf
     build_draft_state(&career_id, &career_dir, &meta)
 }
 
+/// Reescreve a identidade pendente do draft sem tocar no mundo simulado.
+///
+/// O mundo histórico só depende da dificuldade (ela molda os atributos da IA em
+/// `generate_historical_world`). Nome, nacionalidade e idade do jogador entram
+/// apenas na finalização, quando o piloto é inserido no grid. Trocá-los depois
+/// da simulação é barato: uma reescrita de meta.json. Sem este comando a tela
+/// precisaria descartar as 26 temporadas já simuladas só porque o jogador
+/// corrigiu o próprio nome.
+pub(crate) fn update_career_draft_identity_in_base_dir(
+    base_dir: &Path,
+    input: UpdateDraftIdentityInput,
+) -> Result<CareerDraftState, String> {
+    let normalized_name = input.player_name.trim().to_string();
+    if normalized_name.is_empty() {
+        return Err("Informe um nome para o piloto.".to_string());
+    }
+
+    let config = AppConfig::load_or_default(base_dir);
+    let career_dir = config.saves_dir().join(&input.career_id);
+    let meta_path = career_dir.join("meta.json");
+    if !meta_path.exists() {
+        return Err("Draft nao encontrado.".to_string());
+    }
+
+    let mut meta = read_save_meta(&meta_path)?;
+    if meta.lifecycle_status != SaveLifecycleStatus::Draft {
+        return Err("Somente drafts aceitam troca de identidade.".to_string());
+    }
+
+    meta.player_name = normalized_name;
+    meta.pending_player_nationality = Some(input.player_nationality.trim().to_lowercase());
+    meta.pending_player_age = Some(input.player_age.unwrap_or(20).clamp(16, 60));
+
+    let payload = serde_json::to_string_pretty(&meta)
+        .map_err(|e| format!("Falha ao serializar identidade do draft: {e}"))?;
+    std::fs::write(&meta_path, payload)
+        .map_err(|e| format!("Falha ao gravar identidade do draft: {e}"))?;
+
+    build_draft_state(&input.career_id, &career_dir, &meta)
+}
+
 pub(crate) fn discard_career_draft_in_base_dir(base_dir: &Path) -> Result<(), String> {
     let config = AppConfig::load_or_default(base_dir);
     let Some((_career_id, career_dir, _meta)) = find_latest_draft(&config)? else {
@@ -133,6 +174,7 @@ fn create_historical_career_draft_base(
     let normalized_age = input.player_age.unwrap_or(20).clamp(16, 60);
 
     let config = AppConfig::load_or_default(base_dir);
+    purge_existing_drafts(&config);
     let saves_dir = config.saves_dir();
     let career_id = next_draft_career_id(&saves_dir);
     let career_number = career_number_from_id(&career_id)
@@ -211,6 +253,10 @@ fn create_historical_career_draft_base(
             categories: Vec::new(),
             teams: Vec::new(),
             world_summary: None,
+            player_name: Some(normalized_name.clone()),
+            player_nationality: Some(normalized_nationality.clone()),
+            player_age: Some(normalized_age),
+            difficulty: Some(normalized_difficulty.clone()),
         })
     })();
 
@@ -480,13 +526,19 @@ fn empty_draft_state() -> CareerDraftState {
         categories: Vec::new(),
         teams: Vec::new(),
         world_summary: None,
+        player_name: None,
+        player_nationality: None,
+        player_age: None,
+        difficulty: None,
     }
 }
 
-fn find_latest_draft(config: &AppConfig) -> Result<Option<(String, PathBuf, SaveMeta)>, String> {
+/// Todos os saves em estado de rascunho (draft ou failed), do mais recente para o
+/// mais antigo. Saves ativos nunca entram aqui.
+fn list_drafts(config: &AppConfig) -> Result<Vec<(String, PathBuf, SaveMeta)>, String> {
     let saves_dir = config.saves_dir();
     if !saves_dir.exists() {
-        return Ok(None);
+        return Ok(Vec::new());
     }
 
     let entries = std::fs::read_dir(&saves_dir)
@@ -514,7 +566,28 @@ fn find_latest_draft(config: &AppConfig) -> Result<Option<(String, PathBuf, Save
     }
 
     candidates.sort_by(|a, b| b.2.last_played.cmp(&a.2.last_played));
-    Ok(candidates.into_iter().next())
+    Ok(candidates)
+}
+
+fn find_latest_draft(config: &AppConfig) -> Result<Option<(String, PathBuf, SaveMeta)>, String> {
+    Ok(list_drafts(config)?.into_iter().next())
+}
+
+/// Remove todo rascunho anterior antes de gerar um novo. Existe um wizard só, e
+/// `find_latest_draft` só enxerga o mais recente: sem esta limpeza um draft que
+/// morreu em `failed` (app fechado no meio da simulação) ficava no disco para
+/// sempre, com o `career.db` de 26 temporadas junto. Este é o contrato de "um
+/// draft por vez" que substitui a expiração por tempo. Best-effort de propósito:
+/// falhar em apagar um save velho não pode impedir o jogador de criar carreira.
+fn purge_existing_drafts(config: &AppConfig) {
+    let Ok(drafts) = list_drafts(config) else {
+        return;
+    };
+    for (career_id, career_dir, _meta) in drafts {
+        if let Err(e) = remove_dir_all_resilient(&career_dir) {
+            eprintln!("Aviso: falha ao limpar draft anterior '{career_id}': {e}");
+        }
+    }
 }
 
 fn build_draft_state(
@@ -531,6 +604,12 @@ fn build_draft_state(
         categories: Vec::new(),
         teams: Vec::new(),
         world_summary: None,
+        // A identidade viaja junto mesmo no draft `failed`: quem retoma um draft
+        // quebrado também não deve precisar redigitar nome, nacionalidade e idade.
+        player_name: Some(meta.player_name.clone()).filter(|name| !name.trim().is_empty()),
+        player_nationality: meta.pending_player_nationality.clone(),
+        player_age: meta.pending_player_age,
+        difficulty: Some(meta.difficulty.clone()).filter(|value| !value.trim().is_empty()),
     };
 
     if meta.lifecycle_status == SaveLifecycleStatus::Failed {
