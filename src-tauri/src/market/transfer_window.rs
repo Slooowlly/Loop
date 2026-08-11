@@ -28,7 +28,7 @@ mod tipos;
 
 pub use estado::{run_window, WindowState};
 pub use tipos::{
-    Candidate, PlayerOffer, Seat, Signing, WindowConfig, WindowResult, SEAT_W_CAR, SEAT_W_PRESTIGE,
+    Candidate, PlayerOffer, Seat, Signing, WindowConfig, SEAT_W_CAR, SEAT_W_PRESTIGE,
 };
 
 #[cfg(test)]

@@ -11,7 +11,7 @@ pub(super) fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> 
         team_queries::get_all_teams(conn).map_err(|e| format!("Falha ao buscar equipes: {e}"))?;
     let mut vacancies = Vec::new();
 
-    // ANO da temporada corrente, para não abrir vaga em equipe que ainda não existe.
+    // ANO da temporada corrente, para não abrir vaga numa DIVISÃO que ainda não existe.
     //
     // Sem isto, o levantamento varria TODAS as equipes do banco e ignorava a linha do tempo:
     // em 2005, as equipes de `mazda_rookie` — categoria que só nasce em 2020 — já geravam vaga.
@@ -19,6 +19,17 @@ pub(super) fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> 
     // simulada naquele ano) e que a escada depois promovia para cima, chegando ao gt3 com zero
     // corridas na conta. É a cadeia que `historical_draft` já descrevia em prosa e compensava
     // depois, com uma purga que só alcançava quem tinha ficado sem contrato.
+    //
+    // O corte é pela DIVISÃO (categoria + classe), NÃO pelo ano de fundação da equipe. A
+    // geração histórica escala N1/N2 em todas as equipes, inclusive nas que só entram no
+    // campeonato anos depois (Obsidian no gt3 nasce em 2004; a categoria roda desde 1999).
+    // Cortando por fundação, essas equipes viravam um ralo de mão única: perdiam piloto por
+    // fim de contrato — o mercado leva o piloto para uma equipe que corre — e nunca repunham,
+    // porque nenhuma vaga era aberta para elas. Ficavam anos com MEIO elenco, que é o estado
+    // que a auditoria do mundo histórico reprova (`active_team_without_two_drivers`) e que
+    // travava a finalização do draft. Quem vai ao grid continua sendo só a equipe já fundada
+    // (`is_team_active_in_year`, em `commands::race::simulacao`); manter o elenco é outra
+    // pergunta.
     //
     // No jogo moderno o filtro é inerte (todas as categorias estão ativas), e se não houver
     // temporada ativa o comportamento é o de antes — não filtrar — em vez de esvaziar a grade.
@@ -32,7 +43,7 @@ pub(super) fn find_vacancies(conn: &Connection) -> Result<Vec<Vacancy>, String> 
             continue;
         }
         if ano_corrente.is_some_and(|ano| {
-            !crate::constants::historical_timeline::is_team_active_in_year(&team, ano)
+            !crate::constants::historical_timeline::is_team_division_active_in_year(&team, ano)
         }) {
             continue;
         }

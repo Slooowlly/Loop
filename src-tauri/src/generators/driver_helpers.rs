@@ -1,6 +1,5 @@
 use rand::Rng;
 
-use crate::common::time::current_year;
 use crate::models::enums::{PrimaryPersonality, SecondaryPersonality};
 
 pub fn random_primary_personality(rng: &mut impl Rng) -> PrimaryPersonality {
@@ -57,8 +56,31 @@ pub fn roll_carisma(
     base.clamp(0.0, 100.0)
 }
 
-/// Retorna o ano de início de carreira estimado a partir da idade atual.
+/// Ano de início de carreira estimado a partir da idade, ancorado no ano do MUNDO.
 /// Convenção: carreira começa aos 16 anos.
-pub fn career_start_year_from_age(age: u32) -> u32 {
-    current_year().saturating_sub(age.saturating_sub(16))
+///
+/// `world_year` é o ano da temporada que está sendo gerada, e não o do relógio da
+/// máquina. A diferença não é cosmética: num mundo histórico que começa em 2000, o
+/// `Local::now()` dava a um piloto de 30 anos uma carreira iniciada em 2012 — doze anos
+/// no futuro do próprio mundo. E, pior, o MESMO save gerado em anos civis diferentes
+/// saía com históricos diferentes, o que tira a reprodutibilidade de qualquer teste ou
+/// comparação entre execuções.
+pub fn career_start_year_from_age(world_year: u32, age: u32) -> u32 {
+    world_year.saturating_sub(age.saturating_sub(16))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::career_start_year_from_age;
+
+    /// O ano de início sai do mundo, não do relógio — e um mundo histórico prova isso
+    /// melhor que qualquer outro: em 2000, ninguém pode ter começado em 2012.
+    #[test]
+    fn o_inicio_de_carreira_sai_do_ano_do_mundo() {
+        assert_eq!(career_start_year_from_age(2000, 30), 1986);
+        assert_eq!(career_start_year_from_age(2026, 30), 2012);
+        // Aos 16 a carreira começa no próprio ano; abaixo disso não retrocede.
+        assert_eq!(career_start_year_from_age(2000, 16), 2000);
+        assert_eq!(career_start_year_from_age(2000, 14), 2000);
+    }
 }

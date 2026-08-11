@@ -26,10 +26,10 @@ use crate::promotion::{MovementType, PromotionResult, TeamMovement};
 /// A antiga `IRACER_PROMO_LANDING_MARGIN` morreu com a versão em `car_performance`:
 /// margem em "pontos de carro" não tem tradução em nível de peça, e o pouso agora é
 /// exatamente o nível do lanterna do campo.
+/// Declarada em [`crate::constants::flags_experimentais`] — o inventário único das
+/// flags de experimento que mudam regra de jogo.
 fn promotion_soft_landing_enabled() -> bool {
-    std::env::var("IRACER_PROMO_SOFT_LANDING")
-        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off")))
-        .unwrap_or(true)
+    crate::constants::flags_experimentais::booleana("IRACER_PROMO_SOFT_LANDING")
 }
 
 /// car_performance dos incumbentes que PERMANECEM na categoria de destino do
@@ -89,30 +89,9 @@ fn apply_landing_level(conn: &Connection, team: &Team, alvo: u8) -> Result<usize
     Ok(subiram)
 }
 
-fn with_savepoint<T, F>(conn: &Connection, name: &str, action: F) -> Result<T, String>
-where
-    F: FnOnce() -> Result<T, String>,
-{
-    conn.execute_batch(&format!("SAVEPOINT {name}"))
-        .map_err(|e| format!("Falha ao abrir savepoint '{name}': {e}"))?;
-
-    match action() {
-        Ok(value) => {
-            conn.execute_batch(&format!("RELEASE SAVEPOINT {name}"))
-                .map_err(|e| format!("Falha ao confirmar savepoint '{name}': {e}"))?;
-            Ok(value)
-        }
-        Err(err) => {
-            conn.execute_batch(&format!(
-                "ROLLBACK TO SAVEPOINT {name}; RELEASE SAVEPOINT {name};"
-            ))
-            .map_err(|rollback_err| {
-                format!("{err}; alem disso falhou o rollback do savepoint '{name}': {rollback_err}")
-            })?;
-            Err(err)
-        }
-    }
-}
+// Mesma transação aninhada do mercado — os dois rodam na MESMA virada, então a
+// implementação é uma só (`db::savepoint`).
+use crate::db::savepoint::with_savepoint;
 
 #[cfg(test)]
 pub fn run_promotion_relegation(

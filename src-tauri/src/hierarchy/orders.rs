@@ -3,8 +3,6 @@
 //! Camada A: estado persistido (Team struct + DB) — vive em models/team.rs
 //! Camada B: cálculo pós-corrida — vive aqui
 
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 
 use rusqlite::Connection;
@@ -18,26 +16,13 @@ use crate::models::enums::TeamRole;
 use crate::models::team::{Team, TeamHierarchyClimate};
 use crate::simulation::race::RaceDriverResult;
 
-// ── Tipos do confronto (Passo 4) ──────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum DuelWinner {
-    N1,
-    N2,
-}
-
-/// Resumo do confronto interno de uma equipe em uma rodada.
-/// É o insumo para `apply_duel_counters`.
-#[derive(Debug, Clone)]
-pub struct DuelResult {
-    pub team_id: String,
-    pub n1_id: String,
-    pub n2_id: String,
-    /// Passo 3: houve duelo interno válido nesta rodada?
-    pub valid: bool,
-    /// Some(DuelWinner) se duelo válido; None caso contrário.
-    pub vencedor: Option<DuelWinner>,
-}
+// O núcleo puro do Passo 7 (os deltas e o desfecho do duelo) mora em `tensao.rs`,
+// sem dependência nenhuma, para poder ser medido isolado — ver a nota de lá.
+pub use super::tensao::{
+    delta_da_rodada, DuelResult, DuelWinner, TENSAO_BONUS_SEQ_N2_3, TENSAO_BONUS_SEQ_N2_5,
+    TENSAO_DECAIMENTO_SEM_DUELO, TENSAO_DELTAS, TENSAO_DELTA_N1_VENCE, TENSAO_DELTA_N2_VENCE,
+    TENSAO_PENALIDADE_SEQ_N1_3,
+};
 
 // ── Passo 3 — Regra de duelo válido ───────────────────────────────────────────
 
@@ -73,13 +58,7 @@ pub fn read_team_duel(team: &Team, race_results: &HashMap<String, i32>) -> Optio
         None
     };
 
-    Some(DuelResult {
-        team_id: team.id.clone(),
-        n1_id: n1_id.to_string(),
-        n2_id: n2_id.to_string(),
-        valid,
-        vencedor,
-    })
+    Some(DuelResult { valid, vencedor })
 }
 
 // ── Passo 5 — Atualização dos contadores básicos ──────────────────────────────
@@ -125,16 +104,7 @@ pub fn n2_win_rate(duelos_total: i32, duelos_n2_vencidos: i32) -> f64 {
 ///
 /// Deve ser chamada APÓS `apply_duel_counters`, pois usa as sequências já atualizadas.
 ///
-/// Regras base (aplicadas antes do clamp):
-/// - N2 venceu o duelo: +3
-/// - N1 venceu o duelo: -2
-/// - Sem duelo válido: -1 (só aí incide o decaimento)
-///
-/// Bônus de sequência (aplicados só quando o threshold é atingido exatamente):
-/// - N2 com 3 seguidas: +10
-/// - N2 com 5 seguidas: +15
-/// - N1 com 3 seguidas: -8
-///
+/// Os valores são os de [`TENSAO_DELTAS`]; o cálculo é [`delta_da_rodada`].
 /// Resultado final é clampado em [0, 100].
 ///
 /// O DECAIMENTO SAIU DAS CORRIDAS DISPUTADAS, e essa é a diferença entre este
@@ -149,34 +119,26 @@ pub fn n2_win_rate(duelos_total: i32, duelos_n2_vencidos: i32) -> f64 {
 /// maior sequência do N2 do mundo inteiro em 3, e nenhuma rivalidade de
 /// companheiros jamais criada — o gatilho existia e nunca disparava.
 ///
-/// Agora o equilíbrio fica em p = 0,4: um par 50/50 sobe devagar, e é isso que
-/// "os dois estão brigando" deveria significar. O decaimento continua existindo
-/// para a corrida em que não houve duelo (lesão, ausência), que é onde ele de
-/// fato representa uma disputa que esfriou por falta de disputa.
+/// O decaimento continua existindo para a corrida em que não houve duelo (lesão,
+/// ausência), que é onde ele de fato representa uma disputa que esfriou por falta
+/// de disputa.
+///
+/// A SEGUNDA correção veio em 11/08/2026, medindo em vez de estimando. A conta
+/// `n1_vence / (n2_vence + n1_vence)`, que dava o equilíbrio em 0,40, ignora os bônus
+/// de sequência — e eles não são simétricos: com o N2 levando ~28% dos duelos, a
+/// sequência de 3 do N1 fecha em ~10% das corridas e a do N2 em ~1,5%. O equilíbrio
+/// REAL era 0,42, acima de toda a faixa que o mundo simulado produz (0,227 a 0,325):
+/// nenhuma dupla montável tinha deriva positiva. Com o delta do N1 em 0,5 o
+/// equilíbrio medido cai para 0,308 — a dupla mediana continua no chão (é o que
+/// "hierarquia respeitada" deve valer) e a minoria de duplas parelhas sobe. Os
+/// valores e a medição estão em [`crate::hierarchy::tensao`].
 pub fn update_tensao(team: &mut Team, duel: &DuelResult) {
-    let mut delta: f64 = 0.0;
-
-    if duel.valid {
-        match &duel.vencedor {
-            Some(DuelWinner::N2) => delta += 3.0,
-            Some(DuelWinner::N1) => delta -= 2.0,
-            None => {}
-        }
-    } else {
-        delta -= 1.0;
-    }
-
-    // Bônus de sequência — apenas quando o limiar é atingido exatamente
-    if team.hierarquia_sequencia_n2 == 3 {
-        delta += 10.0;
-    } else if team.hierarquia_sequencia_n2 == 5 {
-        delta += 15.0;
-    }
-
-    if team.hierarquia_sequencia_n1 == 3 {
-        delta -= 8.0;
-    }
-
+    let delta = delta_da_rodada(
+        &TENSAO_DELTAS,
+        duel,
+        team.hierarquia_sequencia_n2,
+        team.hierarquia_sequencia_n1,
+    );
     team.hierarquia_tensao = (team.hierarquia_tensao + delta).clamp(0.0, 100.0);
 }
 
@@ -315,7 +277,8 @@ pub fn process_hierarchy_for_category(
     for mut team in teams {
         // Passo 15 — equipe sem hierarquia definida: só decaimento natural
         let Some(duel) = read_team_duel(&team, &result_map) else {
-            team.hierarquia_tensao = (team.hierarquia_tensao - 1.0).clamp(0.0, 100.0);
+            team.hierarquia_tensao =
+                (team.hierarquia_tensao - TENSAO_DECAIMENTO_SEM_DUELO).clamp(0.0, 100.0);
             update_status(&mut team);
             team_queries::update_team_hierarchy_full(conn, &team)?;
             continue;
@@ -644,9 +607,6 @@ mod tests {
     fn test_apply_duel_counters_n2_wins() {
         let mut team = sample_team("P001", "P002");
         let duel = DuelResult {
-            team_id: "T001".to_string(),
-            n1_id: "P001".to_string(),
-            n2_id: "P002".to_string(),
             valid: true,
             vencedor: Some(DuelWinner::N2),
         };
@@ -665,9 +625,6 @@ mod tests {
         team.hierarquia_sequencia_n2 = 3;
 
         let duel = DuelResult {
-            team_id: "T001".to_string(),
-            n1_id: "P001".to_string(),
-            n2_id: "P002".to_string(),
             valid: true,
             vencedor: Some(DuelWinner::N1),
         };
@@ -684,9 +641,6 @@ mod tests {
     fn test_apply_duel_counters_invalid_duel_changes_nothing() {
         let mut team = sample_team("P001", "P002");
         let duel = DuelResult {
-            team_id: "T001".to_string(),
-            n1_id: "P001".to_string(),
-            n2_id: "P002".to_string(),
             valid: false,
             vencedor: None,
         };
@@ -705,9 +659,6 @@ mod tests {
 
         for _ in 0..3 {
             let duel = DuelResult {
-                team_id: "T001".to_string(),
-                n1_id: "P001".to_string(),
-                n2_id: "P002".to_string(),
                 valid: true,
                 vencedor: Some(DuelWinner::N2),
             };
@@ -848,9 +799,6 @@ mod tests {
 
     fn duel(winner: DuelWinner) -> DuelResult {
         DuelResult {
-            team_id: "T001".to_string(),
-            n1_id: "P001".to_string(),
-            n2_id: "P002".to_string(),
             valid: true,
             vencedor: Some(winner),
         }
@@ -858,9 +806,6 @@ mod tests {
 
     fn duel_invalid() -> DuelResult {
         DuelResult {
-            team_id: "T001".to_string(),
-            n1_id: "P001".to_string(),
-            n2_id: "P002".to_string(),
             valid: false,
             vencedor: None,
         }
@@ -897,8 +842,15 @@ mod tests {
             update_tensao(&mut team, &duel(vencedor));
         }
 
-        // 5*(+3) + 5*(-2) = +5. Antes seria -5, e a equipe teria descido.
-        assert_eq!(team.hierarquia_tensao, 25.0);
+        // O número exato sai dos deltas — o que o teste guarda é o SINAL: uma dupla
+        // 50/50 tem que subir. Antes da correção do decaimento ela descia.
+        let esperado = 20.0 + 5.0 * TENSAO_DELTA_N2_VENCE - 5.0 * TENSAO_DELTA_N1_VENCE;
+        assert_eq!(team.hierarquia_tensao, esperado);
+        assert!(
+            team.hierarquia_tensao > 20.0,
+            "uma dupla 50/50 precisa acumular tensão, e ficou em {}",
+            team.hierarquia_tensao
+        );
     }
 
     #[test]
@@ -906,8 +858,7 @@ mod tests {
         let mut team = sample_team("P001", "P002");
         team.hierarquia_tensao = 20.0;
         update_tensao(&mut team, &duel(DuelWinner::N1));
-        // -2, sem decaimento.
-        assert_eq!(team.hierarquia_tensao, 18.0);
+        assert_eq!(team.hierarquia_tensao, 20.0 - TENSAO_DELTA_N1_VENCE);
     }
 
     #[test]
@@ -962,8 +913,10 @@ mod tests {
         team.hierarquia_tensao = 40.0;
         team.hierarquia_sequencia_n1 = 3;
         update_tensao(&mut team, &duel(DuelWinner::N1));
-        // -2 - 8 = -10
-        assert_eq!(team.hierarquia_tensao, 30.0);
+        assert_eq!(
+            team.hierarquia_tensao,
+            40.0 - TENSAO_DELTA_N1_VENCE - TENSAO_PENALIDADE_SEQ_N1_3
+        );
     }
 
     #[test]
@@ -1046,6 +999,48 @@ mod tests {
         let mut team = team_gatilho_inversao();
         team.hierarquia_duelos_n2_vencidos = 6; // 60%
         assert!(!has_inversao_trigger(&team, 9, 14));
+    }
+
+    /// O TETO DE UMA TEMPORADA, e o motivo de `has_inversao_trigger` nunca disparar
+    /// no jogo — que não é calibração, é aritmética, e já era verdade antes da
+    /// recalibração de 11/08/2026 (ela mexeu só no lado do N1).
+    ///
+    /// A temporada mais longa da escada tem 14 corridas e toda equipe começa em
+    /// tensão 0 (a virada dá `FullReset`). O máximo que um N2 pode acumular é vencer
+    /// as 14: 14 × 3 mais os bônus de sequência 3 e 5, que valem uma vez cada. Dá 67,
+    /// e o gatilho de inversão exige status Crise, que começa em 90. Medido em 40 mil
+    /// temporadas sintéticas: 0,0% chegam à Crise mesmo com o N2 levando 95% dos
+    /// duelos.
+    ///
+    /// Sair disso é decisão de produto e mora em outros arquivos: baixar o limiar de
+    /// Crise (`models/team.rs`) ou deixar a tensão atravessar a virada
+    /// (`hierarchy/transition.rs`, hoje sempre reset). Enquanto for assim, este teste
+    /// guarda o fato; quando deixar de valer, ele quebra e cobra a atualização.
+    #[test]
+    fn a_temporada_perfeita_do_n2_ainda_fica_longe_da_crise() {
+        let mut team = sample_team("P001", "P002");
+
+        for _ in 0..14 {
+            apply_duel_counters(&mut team, &duel(DuelWinner::N2));
+            update_tensao(&mut team, &duel(DuelWinner::N2));
+        }
+        update_status(&mut team);
+
+        let teto = 14.0 * TENSAO_DELTA_N2_VENCE + TENSAO_BONUS_SEQ_N2_3 + TENSAO_BONUS_SEQ_N2_5;
+        assert_eq!(
+            team.hierarquia_tensao, teto,
+            "o teto de uma temporada perfeita do N2 deixou de ser {teto}"
+        );
+        assert_ne!(
+            TeamHierarchyClimate::from_str(&team.hierarquia_status),
+            TeamHierarchyClimate::Crise,
+            "a Crise virou alcançável numa temporada — o gatilho de inversão passou a \
+             existir, atualize este teste e o item A2.2"
+        );
+        assert!(
+            !has_inversao_trigger(&team, 14, 14),
+            "o gatilho de inversão passou a disparar; reveja o teto e o limiar de Crise"
+        );
     }
 
     #[test]

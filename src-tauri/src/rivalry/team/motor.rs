@@ -8,17 +8,14 @@ use crate::db::queries::team_rivalries::{
     get_team_rivalry_by_pair, insert_team_rivalry, update_team_rivalry_axes,
 };
 use crate::generators::ids::{next_id, IdType};
-use crate::models::rivalry::{normalize_pair, perceived_intensity};
+use crate::models::rivalry::{normalize_team_pair, perceived_intensity};
 use crate::models::team_rivalry::{TeamRivalry, TeamRivalryType};
 
 // ── Constantes de domínio ─────────────────────────────────────────────────────
 
-const AXIS_MAX: f64 = 100.0;
-const AXIS_MIN: f64 = 0.0;
-
-fn clamp(v: f64) -> f64 {
-    v.clamp(AXIS_MIN, AXIS_MAX)
-}
+// A escala dos eixos é a MESMA do motor de piloto — eram duas cópias do par
+// AXIS_MIN/AXIS_MAX e do clamp, livres para divergir sem ninguém notar.
+use crate::rivalry::intensidade::clamp;
 
 // ── Evento ────────────────────────────────────────────────────────────────────
 
@@ -51,7 +48,7 @@ pub fn apply_team_rivalry_event(
     conn: &Connection,
     event: &TeamRivalryEvent,
 ) -> Result<TeamRivalryApplied, DbError> {
-    let pair = match normalize_pair(&event.team_a, &event.team_b) {
+    let pair = match normalize_team_pair(&event.team_a, &event.team_b) {
         Some(p) => p,
         None => {
             return Ok(TeamRivalryApplied {
@@ -61,10 +58,8 @@ pub fn apply_team_rivalry_event(
             });
         }
     };
-    // `normalize_pair` devolve o par ordenado nos campos `piloto1_id/piloto2_id` — aqui
-    // eles carregam os ids de TIME (a função é puramente ordenação de strings).
-    let team1_id = pair.piloto1_id;
-    let team2_id = pair.piloto2_id;
+    let team1_id = pair.team1_id;
+    let team2_id = pair.team2_id;
     let now = current_timestamp();
 
     match get_team_rivalry_by_pair(conn, &team1_id, &team2_id)? {

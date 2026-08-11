@@ -150,11 +150,59 @@ pub(crate) fn debug_build_player_poach_offer(
     compute_player_poach_offer_inner(conn, new_season_number, true)
 }
 
+/// O que o assédio precisa saber antes de sair procurando pretendente: quem é o
+/// jogador, o contrato que o segura hoje, o time dono desse contrato e quanto custa
+/// arrancá-lo de lá.
+struct ContextoDoAssedio {
+    player: Driver,
+    current: Contract,
+    current_team: crate::models::team::Team,
+    current_quality: f64,
+    buyout: f64,
+    /// Todos os pilotos por id — para avaliar os ocupantes do assento do pretendente.
+    drivers_by_id: HashMap<String, Driver>,
+}
+
+/// O pretendente escolhido e quem sairia do assento dele para dar lugar ao jogador.
+struct Pretendente {
+    time: crate::models::team::Team,
+    /// `None` quando a vaga é aberta (não acontece hoje: o filtro exige as duas cheias).
+    deslocado_id: Option<String>,
+}
+
+/// O desfecho ECONÔMICO do leilão, já com os lances prontos para a tela.
+struct LeilaoDoAssedio {
+    poacher_best: f64,
+    holder_best: f64,
+    bids: Vec<PoachBid>,
+    poacher_wins: bool,
+}
+
 pub(super) fn compute_player_poach_offer_inner(
     conn: &Connection,
     new_season_number: i32,
     force: bool,
 ) -> Result<Option<PlayerPoachOffer>, String> {
+    let Some(contexto) = contexto_do_assedio(conn, new_season_number, force)? else {
+        return Ok(None);
+    };
+    let Some(pretendente) = melhor_pretendente(conn, &contexto, force)? else {
+        return Ok(None);
+    };
+    let Some(leilao) = leilao_do_assedio(conn, &contexto, &pretendente.time, force)? else {
+        return Ok(None);
+    };
+    Ok(Some(montar_oferta(&contexto, &pretendente, leilao)))
+}
+
+/// Etapa 1 — os portões de entrada e a conta da multa. `None` na esmagadora maioria das
+/// viradas: o jogador precisa estar ativo, ser Estrela+ e TER contrato (agente livre não
+/// é arrancado — ele já escolhe pela escada).
+fn contexto_do_assedio(
+    conn: &Connection,
+    new_season_number: i32,
+    force: bool,
+) -> Result<Option<ContextoDoAssedio>, String> {
     let Ok(player) = driver_queries::get_player_driver(conn) else {
         return Ok(None);
     };
@@ -166,7 +214,7 @@ pub(super) fn compute_player_poach_offer_inner(
     let Some(current) = contract_queries::get_active_regular_contract_for_pilot(conn, &player.id)
         .map_err(|e| format!("Falha ao checar contrato do jogador: {e}"))?
     else {
-        return Ok(None); // agente livre não é "arrancado" — ele já escolhe pela escada
+        return Ok(None);
     };
     let Some(current_team) = team_queries::get_team_by_id(conn, &current.equipe_id)
         .map_err(|e| format!("Falha ao carregar time atual do jogador: {e}"))?
@@ -188,28 +236,50 @@ pub(super) fn compute_player_poach_offer_inner(
         .into_iter()
         .map(|d| (d.id.clone(), d))
         .collect();
+
+    Ok(Some(ContextoDoAssedio {
+        player,
+        current,
+        current_team,
+        current_quality,
+        buyout,
+        drivers_by_id,
+    }))
+}
+
+/// Etapa 2 — o pretendente: time regular, não-jogador, mesma categoria+classe, as DUAS
+/// vagas cheias, qualidade claramente acima da atual, que vê o jogador como upgrade sobre
+/// o mais fraco do próprio elenco e consegue pagar a multa. Fica com o de MAIOR qualidade.
+///
+/// No modo debug (`force`) todos os portões caem e o critério vira o CAIXA: o leilão
+/// precisa de um time rico para ter fôlego de dar lances de verdade na tela.
+fn melhor_pretendente(
+    conn: &Connection,
+    contexto: &ContextoDoAssedio,
+    force: bool,
+) -> Result<Option<Pretendente>, String> {
     let teams = team_queries::get_all_teams(conn)
         .map_err(|e| format!("Falha ao carregar times p/ poach do jogador: {e}"))?;
 
-    // Melhor pretendente: time regular, não-jogador, mesma categoria+classe, as DUAS
-    // vagas cheias, qualidade claramente > a atual, que vê o jogador como upgrade e
-    // consegue pagar a multa. Fica com o de MAIOR qualidade.
     let mut best: Option<(crate::models::team::Team, f64, Option<String>)> = None;
     for t in &teams {
-        if t.is_player_team || t.id == current_team.id || !uses_regular_contracts(&t.categoria) {
+        if t.is_player_team
+            || t.id == contexto.current_team.id
+            || !uses_regular_contracts(&t.categoria)
+        {
             continue;
         }
-        if t.categoria != current.categoria || t.classe != current.classe {
+        if t.categoria != contexto.current.categoria || t.classe != contexto.current.classe {
             continue;
         }
         let (Some(p1), Some(p2)) = (t.piloto_1_id.clone(), t.piloto_2_id.clone()) else {
             continue;
         };
         let q = team_quality(t);
-        if !force && q <= current_quality + PLAYER_POACH_QUALITY_MARGIN {
+        if !force && q <= contexto.current_quality + PLAYER_POACH_QUALITY_MARGIN {
             continue;
         }
-        if !force && !crate::market::poaching::can_afford_buyout(t.cash_balance, buyout) {
+        if !force && !crate::market::poaching::can_afford_buyout(t.cash_balance, contexto.buyout) {
             continue;
         }
         let need = crate::fame::team_need_factor(
@@ -217,14 +287,15 @@ pub(super) fn compute_player_poach_offer_inner(
             t.reputacao,
         );
         let player_value = crate::market::poaching::poach_target_value(
-            player.atributos.skill,
-            player.atributos.midia,
+            contexto.player.atributos.skill,
+            contexto.player.atributos.midia,
             need,
         );
         let mut occ: Vec<(String, f64)> = [p1, p2]
             .into_iter()
             .filter_map(|id| {
-                drivers_by_id
+                contexto
+                    .drivers_by_id
                     .get(&id)
                     .map(|d| (id, driver_poach_value(d, need)))
             })
@@ -236,29 +307,47 @@ pub(super) fn compute_player_poach_offer_inner(
         if !force && !crate::market::poaching::is_clear_upgrade(player_value, weak_value) {
             continue;
         }
-        // Normal: fica com o de maior QUALIDADE. Debug (force): o mais RICO, pra o
-        // leilão ter fôlego de dar lances de verdade.
         let rank = if force { t.cash_balance } else { q };
         if best.as_ref().is_none_or(|(_, br, _)| rank > *br) {
             best = Some((t.clone(), rank, Some(weak_id)));
         }
     }
-    let Some((suitor, _, weak_id)) = best else {
-        return Ok(None);
-    };
 
-    // Leilão: assediante vs time atual (o status quo é o lance de abertura).
+    Ok(best.map(|(time, _, deslocado_id)| Pretendente {
+        time,
+        deslocado_id,
+    }))
+}
+
+/// Etapa 3 — o leilão de salário: assediante contra o time atual, com o status quo como
+/// lance de abertura. `None` quando o assediante não dá nem um lance (não cobriu nem o
+/// salário de hoje) — sem lance dele não existe negócio a mostrar.
+fn leilao_do_assedio(
+    conn: &Connection,
+    contexto: &ContextoDoAssedio,
+    suitor: &crate::models::team::Team,
+    force: bool,
+) -> Result<Option<LeilaoDoAssedio>, String> {
+    let ContextoDoAssedio {
+        player,
+        current,
+        current_team,
+        current_quality,
+        buyout,
+        ..
+    } = contexto;
+
     let suitor_need = crate::fame::team_need_factor(
-        crate::finance::planning::derive_budget_index_from_money(&suitor),
+        crate::finance::planning::derive_budget_index_from_money(suitor),
         suitor.reputacao,
     );
     let current_need = crate::fame::team_need_factor(
-        crate::finance::planning::derive_budget_index_from_money(&current_team),
+        crate::finance::planning::derive_budget_index_from_money(current_team),
         current_team.reputacao,
     );
     let poacher_side = crate::market::poaching::AuctionSide {
         team_id: suitor.id.clone(),
-        team_quality: team_quality(&suitor),
+        team_quality: team_quality(suitor),
         bond: crate::market::bond::get_bond(conn, &player.id, &suitor.id)?,
         ceiling: crate::market::poaching::salary_ceiling(
             current.salario_anual,
@@ -272,7 +361,7 @@ pub(super) fn compute_player_poach_offer_inner(
     };
     let holder_side = crate::market::poaching::AuctionSide {
         team_id: current_team.id.clone(),
-        team_quality: current_quality,
+        team_quality: *current_quality,
         bond: crate::market::bond::get_bond(conn, &player.id, &current_team.id)?,
         ceiling: crate::market::poaching::salary_ceiling(
             current.salario_anual,
@@ -290,7 +379,6 @@ pub(super) fn compute_player_poach_offer_inner(
         &holder_side,
     );
 
-    // Sem ao menos um lance do assediante (nem cobriu o status quo) → não há oferta.
     if !auction.bids.iter().any(|b| b.team_id == suitor.id) {
         return Ok(None);
     }
@@ -329,9 +417,9 @@ pub(super) fn compute_player_poach_offer_inner(
             label: bid_label(i),
         })
         .collect();
-    // Garante uma disputa com fôlego pra tela do jogador: quando os DOIS lados
-    // sobem de verdade, mostra ao menos 4 turnos (a economia real — poacher_best/
-    // holder_best/vencedor — não muda; isto é só a dramatização dos lances).
+    // Garante uma disputa com fôlego pra tela do jogador: quando os DOIS lados sobem de
+    // verdade, mostra ao menos 4 turnos (a economia real — poacher_best/holder_best/
+    // vencedor — não muda; isto é só a dramatização dos lances).
     let bids = build_player_display_bids(
         &real_bids,
         &suitor.nome,
@@ -341,30 +429,48 @@ pub(super) fn compute_player_poach_offer_inner(
         holder_best,
     );
 
-    Ok(Some(PlayerPoachOffer {
-        current_contract_id: current.id.clone(),
-        current_team_id: current_team.id.clone(),
-        suitor_team_id: suitor.id.clone(),
-        buyout,
-        current_salary: current.salario_anual,
+    Ok(Some(LeilaoDoAssedio {
         poacher_best,
         holder_best,
-        suitor_name: suitor.nome.clone(),
-        suitor_color: suitor.cor_primaria.clone(),
-        suitor_car_rating: suitor.car_strength().round().clamp(0.0, 100.0) as u8,
-        current_team_name: current_team.nome.clone(),
-        current_team_color: current_team.cor_primaria.clone(),
-        category_label: crate::constants::categories::get_category_config(&suitor.categoria)
-            .map(|c| c.nome_curto.to_string())
-            .unwrap_or_else(|| suitor.categoria.clone()),
-        incumbent_name: weak_id
-            .as_deref()
-            .and_then(|id| drivers_by_id.get(id))
-            .map(|d| d.nome.clone()),
-        player_fama: player.atributos.midia.round().clamp(0.0, 100.0) as u8,
         bids,
         poacher_wins: auction.poacher_wins,
     }))
+}
+
+/// Etapa 4 — o DTO que atravessa a ponte. Os nomes dos campos estão congelados pelo
+/// guard em `pipeline/tests/contrato.rs`: a tela lê cada um deles pelo nome, e um campo
+/// renomeado compila, serializa e chega ao React como `undefined`.
+fn montar_oferta(
+    contexto: &ContextoDoAssedio,
+    pretendente: &Pretendente,
+    leilao: LeilaoDoAssedio,
+) -> PlayerPoachOffer {
+    let suitor = &pretendente.time;
+    PlayerPoachOffer {
+        current_contract_id: contexto.current.id.clone(),
+        current_team_id: contexto.current_team.id.clone(),
+        suitor_team_id: suitor.id.clone(),
+        buyout: contexto.buyout,
+        current_salary: contexto.current.salario_anual,
+        poacher_best: leilao.poacher_best,
+        holder_best: leilao.holder_best,
+        suitor_name: suitor.nome.clone(),
+        suitor_color: suitor.cor_primaria.clone(),
+        suitor_car_rating: suitor.car_strength().round().clamp(0.0, 100.0) as u8,
+        current_team_name: contexto.current_team.nome.clone(),
+        current_team_color: contexto.current_team.cor_primaria.clone(),
+        category_label: crate::constants::categories::get_category_config(&suitor.categoria)
+            .map(|c| c.nome_curto.to_string())
+            .unwrap_or_else(|| suitor.categoria.clone()),
+        incumbent_name: pretendente
+            .deslocado_id
+            .as_deref()
+            .and_then(|id| contexto.drivers_by_id.get(id))
+            .map(|d| d.nome.clone()),
+        player_fama: contexto.player.atributos.midia.round().clamp(0.0, 100.0) as u8,
+        bids: leilao.bids,
+        poacher_wins: leilao.poacher_wins,
+    }
 }
 
 /// Aplica a decisão do jogador sobre a quebra de contrato. `accept = true` → SAIR

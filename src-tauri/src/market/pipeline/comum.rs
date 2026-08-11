@@ -4,30 +4,10 @@
 
 use super::*;
 
-pub(super) fn with_savepoint<T, F>(conn: &Connection, name: &str, action: F) -> Result<T, String>
-where
-    F: FnOnce() -> Result<T, String>,
-{
-    conn.execute_batch(&format!("SAVEPOINT {name}"))
-        .map_err(|e| format!("Falha ao abrir savepoint '{name}': {e}"))?;
-
-    match action() {
-        Ok(value) => {
-            conn.execute_batch(&format!("RELEASE SAVEPOINT {name}"))
-                .map_err(|e| format!("Falha ao confirmar savepoint '{name}': {e}"))?;
-            Ok(value)
-        }
-        Err(err) => {
-            conn.execute_batch(&format!(
-                "ROLLBACK TO SAVEPOINT {name}; RELEASE SAVEPOINT {name};"
-            ))
-            .map_err(|rollback_err| {
-                format!("{err}; alem disso falhou o rollback do savepoint '{name}': {rollback_err}")
-            })?;
-            Err(err)
-        }
-    }
-}
+// A transação aninhada é a MESMA da escada de promoção: uma implementação só, em
+// `db::savepoint`. Ver o comentário lá — rollback divergente entre os módulos que rodam
+// na mesma virada é falha de dados, não de estilo.
+pub(super) use crate::db::savepoint::with_savepoint;
 
 pub(super) fn timestamp_now() -> String {
     Local::now().format("%Y-%m-%dT%H:%M:%S").to_string()

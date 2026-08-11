@@ -19,7 +19,11 @@ pub fn advance_week(
     let season = plan.state.season_number;
     let season_id = get_season_id_by_number(conn, season)?
         .ok_or_else(|| format!("Temporada {season} nao encontrada"))?;
-    let mut rng = StdRng::seed_from_u64(season as u64);
+    // A semente mistura temporada E semana. Semeando só com a temporada, toda semana da
+    // pré-temporada consome a MESMA sequência aleatória e as decisões de semanas
+    // diferentes ficam correlacionadas (o mesmo sorteio de renovação, de assédio e de
+    // proposta se repete). O determinismo por (temporada, semana) fica preservado.
+    let mut rng = StdRng::seed_from_u64((season as u64).wrapping_mul(1_000).wrapping_add(week as u64));
 
     // As semanas de abertura não contratam ninguém — nem a IA, nem o jogador. A escolha
     // do jogador aqui é um erro de tela, e tem que DOER: engoli-la em silêncio faz a

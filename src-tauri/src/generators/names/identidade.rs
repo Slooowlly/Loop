@@ -81,6 +81,15 @@ pub fn random_gender(rng: &mut impl Rng) -> &'static str {
     }
 }
 
+/// Identidade completa de um piloto novo.
+///
+/// `nacionalidade_label` nasce SEMPRE em pt-BR, e isso é decisão, não esquecimento: ele é
+/// o TOKEN que vai para `drivers.nacionalidade` no banco, no mesmo desenho do `pais` cru
+/// de `constants/tracks`. Quem escolhe o idioma é a tela, por
+/// [`crate::generators::nationality::nationality_display_label`], que resolve o token no
+/// locale ativo. Gravar no locale da geração congelaria o rótulo: um piloto criado com o
+/// jogo em inglês ficaria em inglês para sempre, mesmo depois de o jogador voltar ao
+/// português.
 pub fn generate_pilot_identity(
     existing_names: &HashSet<String>,
     rng: &mut impl Rng,

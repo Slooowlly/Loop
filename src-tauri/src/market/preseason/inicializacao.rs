@@ -124,6 +124,56 @@ pub(super) fn apply_last_chance_package(team: &mut crate::models::team::Team) {
     team.cash_balance += package * 0.30;
 }
 
+/// **O offseason da equipe: ela investe o excedente de caixa e recebe estrutura.**
+///
+/// Substitui `finance::cashflow::apply_offseason_competitiveness_impact`, que ocupava esta
+/// linha e **creditava engenharia, instalações e confiabilidade sem debitar nada** — medido
+/// pelo harness de economia em ~2,76 pontos de estrutura por equipe por temporada, de graça.
+/// Era uma das fontes de dinheiro do nada do redesign e a razão declarada de o superávit das
+/// equipes não ter para onde ir: nenhum débito escalava com a riqueza, então o caixa
+/// integrava para sempre.
+///
+/// Quem decide agora é [`crate::economia::desenvolvimento`], cujos parâmetros o harness
+/// varreu (`varrer_ralo`, `varrer_a_reserva_do_ralo`): a equipe guarda uma reserva de
+/// operação, investe uma fração do que sobra acima dela, e o que isso compra satura. Quem
+/// não tem excedente não investe — e ainda deprecia, porque ficar parado tem preço.
+///
+/// O que se perdeu na troca, de propósito: a penalidade de marca fictícia e o "breakthrough
+/// técnico" só alimentavam `car_performance_delta`, e esse delta **já não escrevia em lugar
+/// nenhum** — quem constrói carro é o Sistema de Nível do Carro, pela tabela `team_car`. O
+/// retorno da função antiga era descartado aqui e não tinha outro consumidor no crate.
+fn aplicar_desenvolvimento_de_offseason(
+    team: &mut crate::models::team::Team,
+    foco: crate::finance::focus::TeamFocus,
+) -> crate::economia::desenvolvimento::PlanoDeDesenvolvimento {
+    use crate::economia::desenvolvimento::{
+        planejar_desenvolvimento, EntradaDeDesenvolvimento, ParametrosDeDesenvolvimento,
+    };
+
+    let entrada = EntradaDeDesenvolvimento {
+        caixa: team.cash_balance,
+        divida: team.debt_balance,
+        custo_operacional_anual: crate::economia::temporada::custo_operacional_anual_de_referencia(
+            &team.categoria,
+            team.classe.as_deref(),
+        ),
+        engenharia: team.engineering,
+        instalacoes: team.facilities,
+        confiabilidade: team.confiabilidade,
+        apetite: foco.apetite_de_investimento(),
+    };
+    let plano = planejar_desenvolvimento(&entrada, &ParametrosDeDesenvolvimento::default());
+
+    // Os deltas já saem limitados à faixa 0–100 pelo módulo; o clamp aqui é rede contra
+    // uma coluna que chegou fora da faixa por outro caminho.
+    team.engineering = (team.engineering + plano.delta_engenharia).clamp(0.0, 100.0);
+    team.facilities = (team.facilities + plano.delta_instalacoes).clamp(0.0, 100.0);
+    team.confiabilidade = (team.confiabilidade + plano.delta_confiabilidade).clamp(0.0, 100.0);
+    team.cash_balance -= plano.investimento;
+
+    plano
+}
+
 pub(super) fn assign_seasonal_team_attributes(
     conn: &Connection,
     season_number: i32,
@@ -137,26 +187,13 @@ pub(super) fn assign_seasonal_team_attributes(
     // recursos abaixo, sustentando carro no topo temporada após temporada.
     let elite_ids = designate_elite_teams(&teams);
 
-    // Ano de carreira (0 = primeiro ano), usado para esmaecer a penalidade fictícia
-    // GT3 ao longo dos primeiros anos. Saves antigos NÃO têm a meta "career_start_year"
-    // (semeada só em carreiras novas); para eles usamos PENALTY_FADE_YEARS, que zera a
-    // penalidade (fator 1.0) e deixa esses saves intocados.
-    let career_year: i32 = match meta_queries::get_meta_value(conn, "career_start_year")
-        .map_err(|e| format!("Falha ao ler career_start_year: {e}"))?
-        .and_then(|v| v.parse::<i32>().ok())
-    {
-        Some(career_start_year) => {
-            let season_year: i32 = conn
-                .query_row(
-                    "SELECT ano FROM seasons WHERE numero = ?1",
-                    rusqlite::params![season_number],
-                    |row| row.get(0),
-                )
-                .map_err(|e| format!("Falha ao buscar ano da temporada {season_number}: {e}"))?;
-            season_year - career_start_year
-        }
-        None => PENALTY_FADE_YEARS as i32,
-    };
+    // O "ano de carreira" era lido aqui só para esmaecer a penalidade de marca fictícia da
+    // GT3 dentro de `apply_offseason_competitiveness_impact`. Essa penalidade modulava
+    // exclusivamente o `car_performance_delta`, que já não escrevia em coluna nenhuma
+    // (quem constrói carro é o Sistema de Nível do Carro), e a chamada saiu daqui junto com
+    // a regalia de estrutura — ver `aplicar_desenvolvimento_de_offseason`. A meta
+    // `career_start_year` continua sendo escrita pelas carreiras novas e lida por quem
+    // precisa dela; o que sumiu foi esta leitura, que não alimentava mais nada.
 
     let mut categories = teams
         .iter()
@@ -224,12 +261,12 @@ pub(super) fn assign_seasonal_team_attributes(
                     .to_string()
             };
             // Foco vigente (da temporada que passou) decide quanto o time canaliza
-            // para o carro neste offseason — a consequência real do foco (ideia 4).
+            // para a estrutura neste offseason — a consequência real do foco (ideia 4).
             // Lido ANTES do update_team_focus abaixo (que só recalcula a fase nova).
             let current_focus = crate::finance::focus::get_focus(conn, &updated_team.id)
                 .map(|(foco, _)| foco)
                 .unwrap_or(crate::finance::focus::TeamFocus::MeioDeGrid);
-            apply_offseason_competitiveness_impact(&mut updated_team, career_year, current_focus);
+            aplicar_desenvolvimento_de_offseason(&mut updated_team, current_focus);
             updated_team.pit_crew_quality = recalculate_pit_crew_quality(
                 &updated_team,
                 previous_standings.get(&team.id).copied(),

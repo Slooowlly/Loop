@@ -11,30 +11,7 @@ use crate::models::license::{
 };
 use crate::promotion::{MovementType, PilotEffect, PilotEffectType, TeamMovement};
 
-fn with_savepoint<T, F>(conn: &Connection, name: &str, action: F) -> Result<T, String>
-where
-    F: FnOnce() -> Result<T, String>,
-{
-    conn.execute_batch(&format!("SAVEPOINT {name}"))
-        .map_err(|e| format!("Falha ao abrir savepoint '{name}': {e}"))?;
-
-    match action() {
-        Ok(value) => {
-            conn.execute_batch(&format!("RELEASE SAVEPOINT {name}"))
-                .map_err(|e| format!("Falha ao confirmar savepoint '{name}': {e}"))?;
-            Ok(value)
-        }
-        Err(err) => {
-            conn.execute_batch(&format!(
-                "ROLLBACK TO SAVEPOINT {name}; RELEASE SAVEPOINT {name};"
-            ))
-            .map_err(|rollback_err| {
-                format!("{err}; alem disso falhou o rollback do savepoint '{name}': {rollback_err}")
-            })?;
-            Err(err)
-        }
-    }
-}
+use crate::db::savepoint::with_savepoint;
 
 pub fn resolve_pilot_situations(
     conn: &Connection,

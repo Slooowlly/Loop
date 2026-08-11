@@ -4,18 +4,16 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
-use rand::seq::SliceRandom;
 use rand::Rng;
 
-use super::tipos::{contract_with_team_class, HistoricalWorldData, LocalIdAllocator};
+use super::pareamento::fill_category_grid;
+use super::tipos::{HistoricalWorldData, LocalIdAllocator};
 use crate::constants::categories::get_all_categories;
 use crate::constants::historical_timeline::{
     apply_historical_performance_band, category_start_year, historical_team_foundation_year,
 };
 use crate::constants::teams::{get_team_templates, TeamTemplate};
-use crate::models::contract::generate_initial_contract;
 use crate::models::driver::Driver;
-use crate::models::enums::TeamRole;
 use crate::models::team::{generate_teams_for_category, Team};
 
 const HISTORICAL_AMATEUR_STARTING_TEAMS: usize = 6;
@@ -54,96 +52,31 @@ pub(crate) fn generate_historical_world_with_rng<R: Rng>(
 
         let total_slots = category_teams.len() * category.pilotos_por_equipe as usize;
         let mut driver_id_generator = || ids.next_driver_id();
-        let mut ai_drivers = Driver::generate_for_category_with_id_factory(
+        let ai_drivers = Driver::generate_for_category_with_id_factory(
             category.id,
             category.tier,
             difficulty,
             total_slots,
+            // O ano do MUNDO, não o do relógio: num mundo que começa em 2000, o
+            // `Local::now()` dava a todo piloto uma carreira iniciada no futuro dele.
+            start_year.max(0) as u32,
             &mut existing_names,
             &mut driver_id_generator,
             rng,
         );
 
-        ai_drivers.sort_by(|left, right| {
-            right
-                .atributos
-                .skill
-                .total_cmp(&left.atributos.skill)
-                .then_with(|| left.nome.cmp(&right.nome))
-        });
-
-        let team_count = category_teams.len();
-        let mut n1_pool = ai_drivers.into_iter();
-        let n1_drivers: Vec<Driver> = n1_pool.by_ref().take(team_count).collect();
-        let mut n2_drivers = n1_pool;
-
-        let mut team_order: Vec<usize> = (0..category_teams.len()).collect();
-        team_order.sort_by(|left, right| {
-            category_teams[*right]
-                .car_performance
-                .total_cmp(&category_teams[*left].car_performance)
-                .then(Ordering::Equal)
-        });
-
-        // Anti-"sempre a mesma equipe": nas categorias SPEC (rookie), o carro não
-        // afeta o resultado (todos idênticos na sim), então casar o melhor piloto com
-        // o time de maior `car_performance` só serve pra entregar o ás pro mesmo time
-        // (o de maior template) em TODO save novo — que então vence a 1ª rookie e sobe
-        // a escada, roteirizando o começo de cada carreira. Embaralhando a ordem, o
-        // melhor talento rookie vai pra um time aleatório e qual equipe desponta varia
-        // por save. Fora da rookie o pareamento melhor-piloto↔melhor-carro é mantido.
-        if category.tier == 0 {
-            team_order.shuffle(rng);
-        }
-
-        for (rank, team_index) in team_order.into_iter().enumerate() {
-            let team = &mut category_teams[team_index];
-            let n1_driver = n1_drivers
-                .get(rank)
-                .cloned()
-                .ok_or_else(|| format!("Missing N1 driver for team {}", team.id))?;
-            let n2_driver = n2_drivers
-                .next()
-                .ok_or_else(|| format!("Missing N2 driver for team {}", team.id))?;
-
-            team.piloto_1_id = Some(n1_driver.id.clone());
-            team.piloto_2_id = Some(n2_driver.id.clone());
-            team.hierarquia_n1_id = Some(n1_driver.id.clone());
-            team.hierarquia_n2_id = Some(n2_driver.id.clone());
-            team.hierarquia_status = "estavel".to_string();
-            team.hierarquia_tensao = 0.0;
-            team.is_player_team = false;
-
-            drivers.push(n1_driver.clone());
-            contracts.push(contract_with_team_class(
-                generate_initial_contract(
-                    ids.next_contract_id(),
-                    &n1_driver.id,
-                    &n1_driver.nome,
-                    &team.id,
-                    &team.nome,
-                    TeamRole::Numero1,
-                    category.id,
-                    1,
-                ),
-                team,
-            ));
-
-            drivers.push(n2_driver.clone());
-            contracts.push(contract_with_team_class(
-                generate_initial_contract(
-                    ids.next_contract_id(),
-                    &n2_driver.id,
-                    &n2_driver.nome,
-                    &team.id,
-                    &team.nome,
-                    TeamRole::Numero2,
-                    category.id,
-                    1,
-                ),
-                team,
-            ));
-        }
+        // O mesmo laço do genesis, sem assento de jogador — ver `world/pareamento.rs`.
+        let fill = fill_category_grid(
+            category.id,
+            category.tier,
+            &mut category_teams,
+            ai_drivers,
+            None,
+            &mut ids,
+            rng,
+        )?;
+        drivers.extend(fill.drivers);
+        contracts.extend(fill.contracts);
 
         teams.extend(category_teams);
     }

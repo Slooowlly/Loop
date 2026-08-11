@@ -2,11 +2,12 @@
 //!
 //! Decide, para cada time e a cada corrida, o que fazer com as peças do carro
 //! (trocar / esticar / degradar) e quando subir de nível — dentro do caixa e olhando o
-//! calendário à frente. O jogador NÃO participa; seu time roda no mesmo cérebro. Este
-//! módulo é o novo motor: convive com o `car_build_strategy` legado (perfil discreto)
-//! até o chunk 5 aposentá-lo. Ver design §7 em
+//! calendário à frente. O jogador NÃO participa; seu time roda no mesmo cérebro.
+//!
+//! O tick pós-corrida JÁ está ligado (`commands/race/despesa.rs`,
+//! `commands/career/lifecycle.rs`, `commands/iracing/roster.rs`) e o legado
+//! `car_build_strategy` (perfil discreto) não existe mais no crate. Ver design §7 em
 //! `docs/superpowers/specs/2026-07-17-car-level-system-design.md`.
-#![allow(dead_code)] // Chunk 3: cérebro puro; wiring no tick pós-corrida vem no chunk 4.
 
 use std::collections::HashMap;
 

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::{Datelike, Local};
 use rand::rngs::StdRng;
@@ -21,10 +21,16 @@ use crate::evolution::rookies::generate_rookies;
 pub static EMERGENCY_PROMOTIONS: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 pub static EMERGENCY_ROOKIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-/// Caminho de cada promoção de emergência: (tier de origem do piloto, tier da
-/// vaga). Mostra de onde vem (feeder) e pra onde vai (a escassez).
-pub static EMERGENCY_PROMO_PATHS: std::sync::Mutex<Vec<(u8, u8)>> =
-    std::sync::Mutex::new(Vec::new());
+/// Caminho das promoções de emergência: quantas vezes cada par (tier de origem do
+/// piloto, tier da vaga) aconteceu. Mostra de onde vem (feeder) e pra onde vai (a
+/// escassez). Lido pelo harness sim_stats, que o zera no início de cada experimento.
+///
+/// É um CONTADOR por par, não a lista de eventos. A lista crescia sem teto dentro do
+/// processo — numa carreira jogável longa ninguém a zerava — e o harness só lê o
+/// agregado. O mapa é limitado pelo número de pares de tier, então não precisa mais
+/// ficar restrito ao build de teste.
+pub static EMERGENCY_PROMO_PATHS: std::sync::Mutex<BTreeMap<(u8, u8), u64>> =
+    std::sync::Mutex::new(BTreeMap::new());
 
 use crate::generators::ids::{next_id, IdType};
 use crate::market::driver_ai::evaluate_proposal;
@@ -74,14 +80,15 @@ pub(crate) use jogador::*;
 pub(crate) use slam::*;
 use vagas::*;
 
-/// Instrumentação do harness de estatística: contadores de preenchimento de
-/// emergência da escada fechada — promoções concedidas sem mérito por escassez,
-/// e rookies gerados sem feeder. Incrementados onde essa lógica ocorre; lidos
-/// pelo Monte Carlo em sim_stats. (Declaração mínima; ligar os incrementos.)
-
-/// Mercado completo (pré-passes + Janela IA + propostas + rookies). Resolve tudo de
-/// uma vez. A pré-temporada interativa NÃO usa isto (usa `run_market_prepasses` + a
-/// Janela ao vivo); fica como cobertura de teste do wiring completo do mercado.
+/// Mercado completo (pré-passes + Janela IA + propostas + rookies) num passo só.
+///
+/// **Nenhum caminho de produção chama isto** — conferido em 11/08/2026: a pré-temporada
+/// interativa é a única dona do mercado e faz `run_market_prepasses` (semana 1) →
+/// `run_market_movements` (semana da abertura) → `fill_vacancies_paced` (a cada semana) →
+/// `fill_all_remaining_vacancies_reported` (fechamento). `initialize_preseason` não passa
+/// por aqui. O que sobra é um HARNESS: ele exercita o wiring das etapas juntas, mas a
+/// ORDEM e o parcelamento por semana que a produção usa não são testados por ele — quem
+/// cobre isso é `sequencia_de_producao_tambem_fecha_a_grade`, em `tests/grade.rs`.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn run_market(
     conn: &Connection,

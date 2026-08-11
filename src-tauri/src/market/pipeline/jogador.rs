@@ -566,13 +566,27 @@ pub(super) fn build_player_market_scan(
 ///
 /// `None` quando não há o que contar (jogador inativo ou já contratado), que é diferente
 /// de `Some(0)` — "ninguém te quer" é notícia, "você não está no mercado" não é.
-pub(crate) fn count_interested_teams(conn: &Connection, season: i32) -> Result<Option<i32>, String> {
+pub(crate) fn count_interested_teams(
+    conn: &Connection,
+    season: i32,
+    week: i32,
+) -> Result<Option<i32>, String> {
     let Some(scan) = build_player_market_scan(conn, season)? else {
         return Ok(None);
     };
     // Semente própria: a contagem não pode deslocar o fluxo de aleatoriedade que a
     // escada da semana usa depois — senão só de olhar a expectativa o mercado mudaria.
-    let mut rng = StdRng::seed_from_u64(season as u64 ^ 0x5EED_C0FF_EE15_6A11);
+    //
+    // Mistura temporada E semana, o mesmo discriminante da `preseason::semana`: semeando
+    // só com a temporada, toda semana de abertura consome a MESMA sequência e a
+    // expectativa de semanas diferentes fica correlacionada com as decisões do mercado.
+    // O XOR com a constante mantém a contagem num fluxo distinto do da janela.
+    let mut rng = StdRng::seed_from_u64(
+        (season as u64)
+            .wrapping_mul(1_000)
+            .wrapping_add(week.max(0) as u64)
+            ^ 0x5EED_C0FF_EE15_6A11,
+    );
     let count = scan
         .vacancies
         .iter()

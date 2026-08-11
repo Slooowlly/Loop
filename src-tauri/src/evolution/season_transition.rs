@@ -316,3 +316,123 @@ pub(crate) fn update_meta_for_new_season(
         .map_err(|e| format!("Falha ao atualizar meta current_year: {e}"))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    //! A criação da temporada nova e a geração dos calendários não tinham teste
+    //! próprio: a cobertura vinha só dos testes de integração da virada inteira. Um
+    //! erro de calendário aqui contamina a temporada antes de qualquer corrida.
+
+    use super::*;
+    use crate::db::migrations;
+
+    /// Todas as etapas da temporada, varrendo divisão por divisão (não existe uma
+    /// consulta "calendário inteiro" — a produção sempre lê por categoria).
+    fn calendario_inteiro(conn: &Connection, season_id: &str) -> Vec<crate::calendar::CalendarEntry> {
+        get_all_categories()
+            .iter()
+            .flat_map(|categoria| {
+                calendar_queries::get_calendar(conn, season_id, categoria.id)
+                    .unwrap_or_else(|e| panic!("calendário de {}: {e}", categoria.id))
+            })
+            .collect()
+    }
+
+    /// Banco com a temporada corrente JÁ ENCERRADA, que é o estado em que a virada
+    /// chama estas funções (`finalize_season` roda antes, em `orquestracao.rs`). Sem o
+    /// encerramento o banco recusa a temporada nova: só existe uma ativa por save.
+    fn conn_com_temporada(numero: i32, ano: i32) -> (Connection, Season) {
+        let conn = Connection::open_in_memory().expect("banco em memória");
+        migrations::run_all(&conn).expect("migrações");
+        let season = Season::new("S001".to_string(), numero, ano);
+        season_queries::insert_season(&conn, &season).expect("insere temporada");
+        season_queries::finalize_season(&conn, &season.id).expect("encerra a temporada corrente");
+        (conn, season)
+    }
+
+    #[test]
+    fn temporada_nova_avanca_numero_e_ano() {
+        let (conn, season) = conn_com_temporada(3, 2029);
+        let nova = create_and_persist_new_season(&conn, &season).expect("cria temporada");
+
+        assert_eq!(nova.numero, 4, "o número da temporada precisa avançar 1");
+        assert_eq!(nova.ano, 2030, "o ano precisa avançar 1");
+        assert_ne!(nova.id, season.id, "a temporada nova precisa de id próprio");
+        assert!(
+            season_queries::get_season_by_id(&conn, &nova.id)
+                .expect("consulta")
+                .is_some(),
+            "a temporada nova precisa estar persistida"
+        );
+    }
+
+    #[test]
+    fn calendario_9d_nasce_completo_e_na_fase_pedida() {
+        let (conn, season) = conn_com_temporada(1, 2027);
+        let nova = create_next_season_9d(&conn, &season, SeasonPhase::PreTemporada, 42)
+            .expect("cria temporada 9D");
+
+        assert_eq!(nova.fase, SeasonPhase::PreTemporada);
+
+        let entradas = calendario_inteiro(&conn, &nova.id);
+        assert_eq!(
+            entradas.len(),
+            74,
+            "o calendário 9D tem 74 entradas (5+5+8+8+8+10+10+14+6)"
+        );
+        for entrada in &entradas {
+            let sw = entrada
+                .season_week
+                .unwrap_or_else(|| panic!("entrada {} sem season_week", entrada.id));
+            assert!(
+                (10..=51).contains(&sw),
+                "entrada {} com season_week {sw} fora de 10–51",
+                entrada.id
+            );
+            assert_eq!(
+                entrada.season_phase,
+                SeasonPhase::Temporada,
+                "toda etapa do 9D nasce na fase Temporada"
+            );
+        }
+        assert!(
+            entradas.iter().all(|e| e.categoria != "lmp2"),
+            "lmp2 é classe da Endurance, não divisão com calendário próprio"
+        );
+    }
+
+    #[test]
+    fn calendario_9d_e_deterministico_pela_seed() {
+        let (conn_a, season_a) = conn_com_temporada(1, 2027);
+        let nova_a = create_next_season_9d(&conn_a, &season_a, SeasonPhase::PreTemporada, 7)
+            .expect("cria A");
+        let (conn_b, season_b) = conn_com_temporada(1, 2027);
+        let nova_b = create_next_season_9d(&conn_b, &season_b, SeasonPhase::PreTemporada, 7)
+            .expect("cria B");
+
+        let pistas_a: Vec<u32> = calendario_inteiro(&conn_a, &nova_a.id)
+            .iter()
+            .map(|e| e.track_id)
+            .collect();
+        let pistas_b: Vec<u32> = calendario_inteiro(&conn_b, &nova_b.id)
+            .iter()
+            .map(|e| e.track_id)
+            .collect();
+        assert_eq!(pistas_a, pistas_b, "mesma seed, mesmo calendário");
+    }
+
+    #[test]
+    fn meta_acompanha_a_temporada_nova() {
+        let (conn, _) = conn_com_temporada(1, 2027);
+        update_meta_for_new_season(&conn, 2, 2028).expect("atualiza meta");
+
+        assert_eq!(
+            meta_queries::get_meta_value(&conn, "current_season").expect("lê season"),
+            Some("2".to_string())
+        );
+        assert_eq!(
+            meta_queries::get_meta_value(&conn, "current_year").expect("lê ano"),
+            Some("2028".to_string())
+        );
+    }
+}

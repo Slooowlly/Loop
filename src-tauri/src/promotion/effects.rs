@@ -153,27 +153,15 @@ pub struct PromotionDiminishConfig {
 /// anos depois. Calibrável por `IRACER_PROMO_DIMINISH_{DECAY,WINDOW,FLOOR}`. `None` =
 /// desligado (aplica pacote cheio, nada a persistir).
 pub fn promotion_diminish_config() -> Option<PromotionDiminishConfig> {
-    let enabled = std::env::var("IRACER_PROMO_DIMINISH")
-        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off")))
-        .unwrap_or(true);
-    if !enabled {
+    // As quatro estão declaradas em `constants::flags_experimentais` (padrão, dono e
+    // efeito); aqui fica só o clamp de cada uma, que é regra deste cálculo.
+    use crate::constants::flags_experimentais as flags;
+    if !flags::booleana("IRACER_PROMO_DIMINISH") {
         return None;
     }
-    let decay = std::env::var("IRACER_PROMO_DIMINISH_DECAY")
-        .ok()
-        .and_then(|v| v.parse::<f64>().ok())
-        .unwrap_or(0.55)
-        .clamp(0.0, 1.0);
-    let window = std::env::var("IRACER_PROMO_DIMINISH_WINDOW")
-        .ok()
-        .and_then(|v| v.parse::<i32>().ok())
-        .unwrap_or(3)
-        .max(1);
-    let floor = std::env::var("IRACER_PROMO_DIMINISH_FLOOR")
-        .ok()
-        .and_then(|v| v.parse::<f64>().ok())
-        .unwrap_or(0.15)
-        .clamp(0.0, 1.0);
+    let decay = flags::numerica("IRACER_PROMO_DIMINISH_DECAY").clamp(0.0, 1.0);
+    let window = (flags::numerica("IRACER_PROMO_DIMINISH_WINDOW") as i32).max(1);
+    let floor = flags::numerica("IRACER_PROMO_DIMINISH_FLOOR").clamp(0.0, 1.0);
     Some(PromotionDiminishConfig {
         decay,
         window,

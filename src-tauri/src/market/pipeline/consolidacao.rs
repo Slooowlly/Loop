@@ -12,9 +12,7 @@ use super::*;
 /// ligue com `IRACER_ROOKIE_MERIT=1` (ou `=true`) para o A/B no harness sim_stats.
 /// Ver `guarantee_rookie_champion_promotions`.
 pub(super) fn rookie_merit_enabled() -> bool {
-    std::env::var("IRACER_ROOKIE_MERIT")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
+    crate::constants::flags_experimentais::booleana("IRACER_ROOKIE_MERIT")
 }
 
 /// (Anti-deflação da grade) Liga o "mercado realista" na escada viva de contratações,
@@ -33,9 +31,101 @@ pub(super) fn rookie_merit_enabled() -> bool {
 /// LIGADO por padrão; desligue com `IRACER_MARKET_AFFORDABILITY=0` (ou `false`/`off`) para
 /// o A/B no harness sim_stats (comparar a distribuição de skill do topo da grade com/sem).
 pub(super) fn market_affordability_enabled() -> bool {
-    std::env::var("IRACER_MARKET_AFFORDABILITY")
-        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off")))
-        .unwrap_or(true)
+    crate::constants::flags_experimentais::booleana("IRACER_MARKET_AFFORDABILITY")
+}
+
+// ─── A cascata da consolidação ───────────────────────────────────────────────
+//
+// `fill_remaining_vacancies_with_rookies` é a garantia de grid cheio do modelo
+// fechado: enquanto sobrar assento aberto ela tenta preencher, e cada tentativa custa
+// mais que a anterior. A ordem é sempre a mesma, e é ela que faz o mundo parecer justo:
+//
+//   1. pool de resgate      — agente livre que serve o assento; não abre buraco nenhum
+//   2. estreante            — só em categoria de estreia (com cota, só no fechamento)
+//   3. escada               — promove o melhor de baixo, ou recruta o craque preso lá
+//   4. resgate de escassez  — free agent que já correu, quando a escada abaixo secou
+//   5. emergência           — promove sem exigir experiência: a válvula, não a regra
+//   6. rookie de emergência — nascer no meio da pirâmide, o desfecho que se evita
+//
+// As etapas 3, 5 e 6 mexem no tabuleiro (tiram alguém de outro assento, ou criam gente
+// nova): quem passa por elas devolve `PreencheuAbrindoBuraco`, e a passada reescaneia o
+// mundo antes de continuar — a lista de vagas que ela tinha em mãos ficou velha.
+
+/// O mundo recarregado no início de uma passada: quem existe, o que cada piloto rendeu
+/// na temporada passada e quanto cada equipe tem para gastar. Fica imutável enquanto a
+/// passada corre; a primeira contratação que mexe no tabuleiro encerra a passada.
+struct MundoDaCascata<'a> {
+    current_by_id: &'a HashMap<String, Driver>,
+    market_contexts: &'a HashMap<String, DriverMarketContext>,
+    license_levels: &'a HashMap<String, u8>,
+    /// Quanto cada equipe pesa a FAMA de um candidato: carente pesa alto (precisa do
+    /// patrocínio), dinastia rica pesa baixo.
+    team_need_by_id: &'a HashMap<String, f64>,
+    /// Teto salarial de UM piloto por equipe, derivado do poder de gasto. Vazio quando
+    /// a affordability está desligada → seleção sem penalidade, como antes.
+    team_ceiling_by_id: &'a HashMap<String, f64>,
+    new_season_number: i32,
+    debut_year: i32,
+}
+
+/// O que a passada vai alterando enquanto anda pelas vagas.
+struct EstadoDaCascata<'a> {
+    /// Pool de agentes livres desta passada; cada assinatura tira um.
+    available: &'a mut Vec<AvailableDriver>,
+    /// Cota semanal POR CATEGORIA, reabastecida pela cascata. `None` = sem pacing (o
+    /// fechamento e a pré-temporada não-interativa).
+    cotas: &'a mut Option<HashMap<String, usize>>,
+    report: &'a mut MarketReport,
+    /// Quantas assinaturas o report já trazia ANTES desta passada — a semana pode ter
+    /// corrido os movimentos da IA no mesmo report. Só o que vier daqui pra frente conta
+    /// contra a cota, senão o mercado da semana já nasceria com a cota gasta.
+    assinaturas_antes: usize,
+}
+
+impl EstadoDaCascata<'_> {
+    /// A categoria da vaga já gastou a cota da semana? Categoria sem cota (nasceu no meio
+    /// da semana, pela cascata) espera a próxima passada, quando a recontagem lhe dá uma.
+    fn cota_esgotada(&self, vacancy: &Vacancy) -> bool {
+        let Some(cotas) = self.cotas.as_ref() else {
+            return false;
+        };
+        let feitas = self.report.new_signings[self.assinaturas_antes..]
+            .iter()
+            .filter(|signing| signing.categoria == vacancy.categoria)
+            .count();
+        feitas >= cotas.get(&vacancy.categoria).copied().unwrap_or(0)
+    }
+
+    fn registrar_assinatura(
+        &mut self,
+        vacancy: &Vacancy,
+        driver_id: &str,
+        driver_name: &str,
+        tipo: &str,
+    ) {
+        self.report.new_signings.push(SigningInfo {
+            driver_id: driver_id.to_string(),
+            driver_name: driver_name.to_string(),
+            team_id: vacancy.team_id.clone(),
+            team_name: vacancy.team_name.clone(),
+            categoria: vacancy.categoria.clone(),
+            papel: vacancy.papel_necessario.as_str().to_string(),
+            tipo: tipo.to_string(),
+        });
+    }
+}
+
+/// No que deu a tentativa de preencher UMA vaga.
+enum DesfechoDaVaga {
+    /// Nada feito agora: cota estourada, assento de estreia esperando o fechamento, ou
+    /// vaga de categoria especial sem candidato. A passada segue para a próxima vaga.
+    Pulou,
+    /// Assento preenchido sem tirar ninguém de outro lugar — a lista de vagas continua
+    /// válida, a passada segue.
+    Preencheu,
+    /// Assento preenchido movendo alguém (ou criando gente): o buraco desceu, a lista de
+    /// vagas envelheceu e a passada precisa reescanear o mundo.
+    PreencheuAbrindoBuraco,
 }
 
 pub(super) fn fill_remaining_vacancies_with_rookies(
@@ -47,47 +137,15 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
     limit: Option<&HashMap<String, usize>>,
     reserved: &HashSet<String>,
 ) -> Result<(), String> {
-    // Assinaturas que já estavam no relatório antes desta passada (a semana pode ter
-    // corrido os movimentos da IA no mesmo report). Só o que vier daqui pra frente conta
-    // contra a cota — senão o mercado da semana já nasceria com a cota gasta.
     let assinaturas_antes = report.new_signings.len();
-    // Cópia mutável das cotas: a cascata as REABASTECE ao longo da passada (ver a
-    // promoção, mais abaixo).
+    // Cópia mutável das cotas: a cascata as REABASTECE ao longo da passada (ver
+    // `liberar_assento_do_promovido`).
     let mut cotas = limit.cloned();
     let debut_year = get_season_by_number(conn, new_season_number)?
         .map(|season| season.ano)
         .unwrap_or_else(|| Local::now().year());
-
-    // Necessidade financeira por time (Fase 2a): quanto o time pesa a fama de um
-    // candidato. Carente pesa alto (precisa do patrocínio); dinastia rica pesa baixo.
-    let team_need_by_id: HashMap<String, f64> = teams
-        .iter()
-        .map(|team| {
-            let budget_index = crate::finance::planning::derive_budget_index_from_money(team);
-            (
-                team.id.clone(),
-                crate::fame::team_need_factor(budget_index, team.reputacao),
-            )
-        })
-        .collect();
-
-    // Teto salarial por time (Item 1): quanto a folha de UM piloto do time comporta,
-    // derivado do poder de gasto (`calculate_salary_ceiling` já pondera caixa, dívida,
-    // estado financeiro e reputação). Alimenta a penalidade de affordability na seleção.
-    // Vazio quando a flag está off → seleção volta ao comportamento antigo (sem penalidade).
-    let team_ceiling_by_id: HashMap<String, f64> = if market_affordability_enabled() {
-        teams
-            .iter()
-            .map(|team| {
-                (
-                    team.id.clone(),
-                    crate::finance::salary::calculate_salary_ceiling(team),
-                )
-            })
-            .collect()
-    } else {
-        HashMap::new()
-    };
+    let team_need_by_id = necessidade_por_equipe(teams);
+    let team_ceiling_by_id = teto_salarial_por_equipe(teams);
 
     loop {
         let current_drivers = driver_queries::get_all_drivers(conn)
@@ -98,50 +156,11 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
             .map(|driver| (driver.id.clone(), driver))
             .collect();
         sync_team_slots(conn, teams, &current_by_id)?;
-        let mut vacancies: Vec<_> = find_vacancies(conn)?
-            .into_iter()
-            .filter(is_regular_vacancy)
-            .filter(|vacancy| is_category_active_in_year(&vacancy.categoria, debut_year))
-            .filter(|v| {
-                !reserved.contains(&format!("{}#{}", v.team_id, v.papel_necessario.as_str()))
-            })
-            .collect();
+
+        let vacancies = vagas_abertas_ordenadas(conn, debut_year, reserved)?;
         if vacancies.is_empty() {
             break;
         }
-        // Preenche as vagas de TOPO primeiro (tier decrescente). `find_vacancies`
-        // devolve na ordem dos times; sem ordenar, um craque livre no pool de resgate
-        // passa o piso de quase toda vaga e é assinado pela 1ª que aparece na
-        // iteração (amador/gt4) ANTES de a vaga de GT3/endurance ser processada —
-        // enterrando o talento num tier baixo. Ordenando por tier desc, o topo
-        // escolhe do pool antes das categorias inferiores o capturarem.
-        //
-        // Desempate DENTRO do tier por DESEJABILIDADE do assento decrescente: cada vaga
-        // pega o MELHOR candidato do pool (max por `compare_pool_fallback_candidates`),
-        // logo processar o assento mais desejável primeiro faz o melhor assento ficar com
-        // o melhor piloto disponível. Sem esse desempate, a ordem de times era arbitrária
-        // e um assento pior do mesmo tier abocanhava o craque antes do melhor — a raiz do
-        // "melhor carro ≠ melhor piloto" que deflaciona a grade.
-        //
-        // Com o mercado realista (flag), desejabilidade = carro + PRESTÍGIO (reputação da
-        // equipe), port do score de assento do motor de janela — o melhor carro numa
-        // equipe prestigiada escolhe antes de um carro igual sem tradição. Sem a flag,
-        // desempata só por `car_performance` (comportamento antigo). `sort_by` é estável,
-        // então assentos empatados (ex.: N1/N2 do mesmo time) preservam a ordem original.
-        let use_market_realism = market_affordability_enabled();
-        vacancies.sort_by(|a, b| {
-            b.category_tier.cmp(&a.category_tier).then_with(|| {
-                if use_market_realism {
-                    seat_desirability(b)
-                        .partial_cmp(&seat_desirability(a))
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                } else {
-                    b.car_strength
-                        .partial_cmp(&a.car_strength)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                }
-            })
-        });
 
         let previous_season = get_season_by_number(conn, new_season_number - 1)?;
         let market_contexts = load_market_contexts(
@@ -152,395 +171,36 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
         )?;
         let mut available = find_available_drivers(conn, &market_contexts)?;
         let license_levels = load_max_license_levels(conn)?;
-        let mut filled_any = false;
+
+        let mundo = MundoDaCascata {
+            current_by_id: &current_by_id,
+            market_contexts: &market_contexts,
+            license_levels: &license_levels,
+            team_need_by_id: &team_need_by_id,
+            team_ceiling_by_id: &team_ceiling_by_id,
+            new_season_number,
+            debut_year,
+        };
+        let mut estado = EstadoDaCascata {
+            available: &mut available,
+            cotas: &mut cotas,
+            report: &mut *report,
+            assinaturas_antes,
+        };
+
+        let mut preencheu_alguma = false;
         for vacancy in vacancies {
-            // Pacing POR CATEGORIA: a cota estourada pula esta vaga em vez de encerrar a
-            // passada. Encerrar seria fatal — as vagas vêm ordenadas de cima para baixo,
-            // então parar no topo deixaria as categorias de baixo sem assinar nada.
-            // Categoria sem cota (nasceu no meio da semana, pela cascata) espera a
-            // próxima, quando a recontagem lhe dá uma.
-            if let Some(cotas) = cotas.as_ref() {
-                let feitas = report.new_signings[assinaturas_antes..]
-                    .iter()
-                    .filter(|signing| signing.categoria == vacancy.categoria)
-                    .count();
-                if feitas >= cotas.get(&vacancy.categoria).copied().unwrap_or(0) {
-                    continue;
+            match preencher_uma_vaga(conn, &vacancy, &mundo, &mut estado, rng)? {
+                DesfechoDaVaga::Pulou => continue,
+                DesfechoDaVaga::Preencheu => preencheu_alguma = true,
+                DesfechoDaVaga::PreencheuAbrindoBuraco => {
+                    preencheu_alguma = true;
+                    break;
                 }
             }
-            let need_factor = team_need_by_id
-                .get(&vacancy.team_id)
-                .copied()
-                .unwrap_or(crate::fame::TEAM_NEED_MIN);
-            // `None` (flag off / time sem teto) → sem penalidade de affordability.
-            let team_ceiling = team_ceiling_by_id.get(&vacancy.team_id).copied();
-            let is_debut_vacancy = is_real_career_debut_category(&vacancy.categoria)
-                || is_entry_category_for_year(&vacancy.categoria, debut_year);
-            let fallback_index = available
-                .iter()
-                .enumerate()
-                .filter(|(_, candidate)| is_pool_fallback_candidate(candidate, &vacancy))
-                .max_by(|(_, a), (_, b)| {
-                    compare_pool_fallback_candidates(a, b, &vacancy, need_factor, team_ceiling)
-                })
-                .map(|(index, _)| index);
-
-            // O pool de resgate roda primeiro (mais barato que a cascata de promoção).
-            // O item B (piso de skill em is_pool_fallback_candidate) já barra órfão fraco
-            // aqui, então não é preciso reordenar antes da promoção meritória — reordenar
-            // disparava re-scans em cascata a cada promoção e travava o sim multi-temporada.
-            if let Some(index) = fallback_index {
-                let candidate = available.remove(index);
-                grant_driver_license_for_division_if_needed(
-                    conn,
-                    &candidate.driver.id,
-                    &vacancy.categoria,
-                    vacancy.classe.as_deref(),
-                )?;
-                sign_driver_to_team(
-                    conn,
-                    &candidate.driver,
-                    &vacancy,
-                    new_season_number,
-                    calculate_offer_salary(&vacancy, &candidate.driver, rng),
-                    1,
-                    vacancy.papel_necessario.clone(),
-                )?;
-                let signing_type = if is_real_career_debut_category(&vacancy.categoria) {
-                    report.rookies_placed += 1;
-                    "rookie"
-                } else {
-                    "transferencia"
-                };
-                report.new_signings.push(SigningInfo {
-                    driver_id: candidate.driver.id.clone(),
-                    driver_name: candidate.driver.nome.clone(),
-                    team_id: vacancy.team_id.clone(),
-                    team_name: vacancy.team_name.clone(),
-                    categoria: vacancy.categoria.clone(),
-                    papel: vacancy.papel_necessario.as_str().to_string(),
-                    tipo: signing_type.to_string(),
-                });
-                filled_any = true;
-                continue;
-            }
-
-            // NASCER é a última coisa que se faz. Um estreante gerado é gente nova num
-            // mundo de assentos fixos: ele empurra alguém para fora do grid. Durante as
-            // semanas com cota o assento de estreia se preenche com quem já existe (o
-            // pool acima) e, se não houver ninguém, ele espera — a cascata ainda vai
-            // esvaziar assentos até o fechamento, e é lá, com a fila resolvida, que se
-            // sabe quantos estreantes o mundo de fato precisa. Sem cota (o fechamento e a
-            // pré-temporada não-interativa) o comportamento é o de sempre.
-            if is_debut_vacancy && cotas.is_some() {
-                continue;
-            }
-            if is_debut_vacancy {
-                let rookie = generate_and_sign_rookie_for_vacancy(
-                    conn,
-                    &vacancy,
-                    new_season_number,
-                    debut_year,
-                    rng,
-                )?;
-                report.rookies_placed += 1;
-                report.new_signings.push(SigningInfo {
-                    driver_id: rookie.id.clone(),
-                    driver_name: rookie.nome.clone(),
-                    team_id: vacancy.team_id.clone(),
-                    team_name: vacancy.team_name.clone(),
-                    categoria: vacancy.categoria.clone(),
-                    papel: vacancy.papel_necessario.as_str().to_string(),
-                    tipo: "rookie".to_string(),
-                });
-                filled_any = true;
-                continue;
-            }
-
-            // Sistema de escada (modelo fechado): se o pool não cobre uma vaga
-            // não-estreia, promovemos o melhor piloto da categoria de baixo em vez
-            // de gerar um piloto novo do nada ou abortar. Promover abre o assento
-            // dele lá embaixo, que será preenchido na próxima volta do loop — a
-            // cascata desce até a categoria de estreia, onde aí sim nasce um rookie.
-            // Portão de MÉRITO na escada regular. Categorias de fase especial
-            // (endurance/production) hoje mantêm o comportamento antigo (concede a
-            // licença ao assinar) — endurecer isso (gate de licença real) desestabilizou
-            // o sim multi-temporada; fica para uma investigação à parte de #3.
-            let is_special_vacancy = runs_in_special_phase(&vacancy.categoria);
-            let required_license = if is_special_vacancy {
-                None
-            } else {
-                required_license_for_division(&vacancy.categoria, vacancy.classe.as_deref())
-            };
-            let feeder_candidate = best_feeder_promotion_candidate(
-                &vacancy,
-                &current_by_id,
-                &market_contexts,
-                &license_levels,
-                required_license,
-                // Escada regular: mérito de verdade, e mérito exige ter largado.
-                true,
-            );
-            // Recrutamento profundo (demanda de time + aceite): para uma vaga de topo
-            // mal servida pelo feeder, o time busca o craque preso nas categorias
-            // inferiores e lhe faz proposta; o piloto decide. Prefere o recrutado que
-            // aceitou; senão, segue a escada normal com o candidato do feeder.
-            let deep_candidate = deep_recruitment_candidate(
-                conn,
-                &vacancy,
-                &current_by_id,
-                &market_contexts,
-                &license_levels,
-                required_license,
-                feeder_candidate
-                    .as_ref()
-                    .map(|driver| driver.atributos.skill),
-                rng,
-            )?;
-            let was_deep = deep_candidate.is_some();
-            if let Some(candidate) = deep_candidate.or(feeder_candidate) {
-                // Rescinde o contrato atual do piloto na categoria de baixo antes de
-                // promovê-lo (o índice único (piloto_id, tipo) impede dois contratos
-                // regulares ativos). Isso abre o assento dele lá embaixo.
-                for contract in contract_queries::get_all_active_regular_contracts(conn)
-                    .map_err(|e| format!("Falha ao carregar contrato do promovido: {e}"))?
-                    .into_iter()
-                    .filter(|contract| contract.piloto_id == candidate.id)
-                {
-                    contract_queries::update_contract_status(
-                        conn,
-                        &contract.id,
-                        &ContractStatus::Rescindido,
-                    )
-                    .map_err(|e| format!("Falha ao rescindir contrato do promovido: {e}"))?;
-                    // A cascata não gasta cota: o assento que acabou de abrir lá embaixo
-                    // é a MESMA movimentação, não um segundo negócio da categoria. Sem
-                    // este reabastecimento a reposição espera a semana seguinte, e a
-                    // fila de esperas se acumula até desabar toda no fechamento.
-                    if let Some(cotas) = cotas.as_mut() {
-                        *cotas.entry(contract.categoria.clone()).or_default() += 1;
-                    }
-                }
-                if is_special_vacancy {
-                    // Especiais: concede a licença da divisão ao assinar.
-                    grant_driver_license_for_division_if_needed(
-                        conn,
-                        &candidate.id,
-                        &vacancy.categoria,
-                        vacancy.classe.as_deref(),
-                    )?;
-                }
-                // Escada regular: sem concessão — o candidato JÁ possui a licença
-                // exigida (filtro de mérito em best_feeder_promotion_candidate).
-                sign_driver_to_team(
-                    conn,
-                    &candidate,
-                    &vacancy,
-                    new_season_number,
-                    calculate_offer_salary(&vacancy, &candidate, rng),
-                    1,
-                    vacancy.papel_necessario.clone(),
-                )?;
-                if was_deep {
-                    // Ligou os dois cérebros: proposta feita e ACEITA pelo craque da
-                    // várzea (o feeder míope nunca o alcançaria).
-                    report.proposals_made += 1;
-                    report.proposals_accepted += 1;
-                }
-                report.new_signings.push(SigningInfo {
-                    driver_id: candidate.id.clone(),
-                    driver_name: candidate.nome.clone(),
-                    team_id: vacancy.team_id.clone(),
-                    team_name: vacancy.team_name.clone(),
-                    categoria: vacancy.categoria.clone(),
-                    papel: vacancy.papel_necessario.as_str().to_string(),
-                    tipo: if was_deep { "recrutamento" } else { "promocao" }.to_string(),
-                });
-                filled_any = true;
-                // Reescaneia do zero: o assento aberto na categoria de baixo vira a
-                // próxima vaga a preencher (continua a cascata) e evita reusar o
-                // mesmo candidato com dados defasados nesta passada.
-                break;
-            }
-
-            // Escassez numa vaga REGULAR de categoria superior, sem candidato
-            // meritorio. Deixar o assento vazio violaria a invariante de grid
-            // (validate_and_normalize_team_hierarchies aborta a temporada). As
-            // categorias especiais (endurance/production) NAO entram aqui.
-            if is_special_vacancy {
-                continue;
-            }
-
-            // ORDEM DA ESCASSEZ: nascer é na base, subir é por resultado.
-            //
-            // Antes de aceitar um estreante neste assento, procura o piloto PROVADO mais
-            // próximo abaixo na escada INTEIRA (não só no feeder imediato). É o que impede
-            // que a ordem de preenchimento — vagas por tier decrescente — decida o desfecho:
-            // o gt3 resolvia a escassez dele ANTES de o gt4 ser reabastecido e, chegada a
-            // vez, o alimentador só tinha recém-nascidos, então ele levava o que havia.
-            // Alcançando a escada toda, o assento de cima é sempre pago com quem já largou,
-            // e o buraco desce (via o `break`/re-scan abaixo) até a categoria de estreia.
-            //
-            // A ordenação das vagas fica INTOCADA de propósito: reordenar disparava re-scans
-            // em cascata e travava o sim multi-temporada (ver o comentário na `sort_by`).
-            let proven_candidate =
-                best_proven_promotion_candidate(&vacancy, &current_by_id, &market_contexts);
-
-            // Escada de baixo seca (só recém-nascidos abaixo desta vaga): antes de aceitar
-            // um estreante, resgata um FREE AGENT que já correu. O pool de resgate lá em
-            // cima recusou-o pelo PISO DE SKILL (`pool_fallback_skill_floor`), que existe
-            // para não enfiar um lanterna no topo — mas aqui o concorrente dele não é um
-            // craque, é alguém que nunca largou, então o piso cai.
-            //
-            // É também o preenchimento mais barato da escassez: o free agent não ocupa
-            // assento nenhum, logo não abre buraco embaixo e não dispara cascata (por isso
-            // `continue`, e não o `break`/re-scan da promoção).
-            if proven_candidate.is_none() {
-                let rescue_index = available
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, candidate)| {
-                        candidate.driver.categoria_atual.is_none()
-                            && candidate.driver.stats_carreira.corridas > 0
-                    })
-                    .max_by(|(_, a), (_, b)| {
-                        a.driver
-                            .atributos
-                            .skill
-                            .total_cmp(&b.driver.atributos.skill)
-                    })
-                    .map(|(index, _)| index);
-                if let Some(index) = rescue_index {
-                    let candidate = available.remove(index);
-                    grant_driver_license_for_division_if_needed(
-                        conn,
-                        &candidate.driver.id,
-                        &vacancy.categoria,
-                        vacancy.classe.as_deref(),
-                    )?;
-                    sign_driver_to_team(
-                        conn,
-                        &candidate.driver,
-                        &vacancy,
-                        new_season_number,
-                        calculate_offer_salary(&vacancy, &candidate.driver, rng),
-                        1,
-                        vacancy.papel_necessario.clone(),
-                    )?;
-                    report.new_signings.push(SigningInfo {
-                        driver_id: candidate.driver.id.clone(),
-                        driver_name: candidate.driver.nome.clone(),
-                        team_id: vacancy.team_id.clone(),
-                        team_name: vacancy.team_name.clone(),
-                        categoria: vacancy.categoria.clone(),
-                        papel: vacancy.papel_necessario.as_str().to_string(),
-                        tipo: "resgate_escassez".to_string(),
-                    });
-                    filled_any = true;
-                    continue;
-                }
-            }
-
-            let promoveu_provado = proven_candidate.is_some();
-            let scarcity_candidate = proven_candidate.or_else(|| {
-                best_feeder_promotion_candidate(
-                    &vacancy,
-                    &current_by_id,
-                    &market_contexts,
-                    &license_levels,
-                    None,
-                    // Válvula FINAL: sem exigência de experiência. Só chega aqui quando não
-                    // existe UM piloto provado em toda a escada abaixo — e assento vazio
-                    // aborta a temporada, então ali vale quem houver. É a válvula, não a regra.
-                    false,
-                )
-            });
-            if let Some(candidate) = scarcity_candidate {
-                for contract in contract_queries::get_all_active_regular_contracts(conn)
-                    .map_err(|e| {
-                        format!("Falha ao carregar contrato do promovido (emergencia): {e}")
-                    })?
-                    .into_iter()
-                    .filter(|contract| contract.piloto_id == candidate.id)
-                {
-                    contract_queries::update_contract_status(
-                        conn,
-                        &contract.id,
-                        &ContractStatus::Rescindido,
-                    )
-                    .map_err(|e| {
-                        format!("Falha ao rescindir contrato do promovido (emergencia): {e}")
-                    })?;
-                }
-                grant_driver_license_for_division_if_needed(
-                    conn,
-                    &candidate.id,
-                    &vacancy.categoria,
-                    vacancy.classe.as_deref(),
-                )?;
-                sign_driver_to_team(
-                    conn,
-                    &candidate,
-                    &vacancy,
-                    new_season_number,
-                    calculate_offer_salary(&vacancy, &candidate, rng),
-                    1,
-                    vacancy.papel_necessario.clone(),
-                )?;
-                report.new_signings.push(SigningInfo {
-                    driver_id: candidate.id.clone(),
-                    driver_name: candidate.nome.clone(),
-                    team_id: vacancy.team_id.clone(),
-                    team_name: vacancy.team_name.clone(),
-                    categoria: vacancy.categoria.clone(),
-                    papel: vacancy.papel_necessario.as_str().to_string(),
-                    tipo: if promoveu_provado {
-                        "promocao_escassez"
-                    } else {
-                        "promocao_emergencia"
-                    }
-                    .to_string(),
-                });
-                EMERGENCY_PROMOTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let from_tier = candidate
-                    .categoria_atual
-                    .as_deref()
-                    .and_then(get_category_config)
-                    .map(|c| c.tier)
-                    .unwrap_or(99);
-                let to_tier = get_category_config(&vacancy.categoria)
-                    .map(|c| c.tier)
-                    .unwrap_or(99);
-                if let Ok(mut paths) = EMERGENCY_PROMO_PATHS.lock() {
-                    paths.push((from_tier, to_tier));
-                }
-                filled_any = true;
-                break;
-            }
-
-            let rookie = generate_and_sign_rookie_for_vacancy(
-                conn,
-                &vacancy,
-                new_season_number,
-                debut_year,
-                rng,
-            )?;
-            report.rookies_placed += 1;
-            report.new_signings.push(SigningInfo {
-                driver_id: rookie.id.clone(),
-                driver_name: rookie.nome.clone(),
-                team_id: vacancy.team_id.clone(),
-                team_name: vacancy.team_name.clone(),
-                categoria: vacancy.categoria.clone(),
-                papel: vacancy.papel_necessario.as_str().to_string(),
-                tipo: "rookie_emergencia".to_string(),
-            });
-            EMERGENCY_ROOKIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            filled_any = true;
-            break;
         }
 
-        if !filled_any {
+        if !preencheu_alguma {
             // Nenhuma vaga preenchível nesta passada: para de tentar (evita loop
             // infinito); as vagas restantes ficam abertas até a próxima preseason.
             break;
@@ -548,6 +208,500 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
     }
 
     Ok(())
+}
+
+/// Necessidade financeira por equipe (Fase 2a): quanto o time pesa a fama de um
+/// candidato.
+fn necessidade_por_equipe(teams: &[crate::models::team::Team]) -> HashMap<String, f64> {
+    teams
+        .iter()
+        .map(|team| {
+            let budget_index = crate::finance::planning::derive_budget_index_from_money(team);
+            (
+                team.id.clone(),
+                crate::fame::team_need_factor(budget_index, team.reputacao),
+            )
+        })
+        .collect()
+}
+
+/// Teto salarial por equipe (Item 1): quanto a folha de UM piloto comporta, derivado do
+/// poder de gasto (`calculate_salary_ceiling` já pondera caixa, dívida, estado financeiro
+/// e reputação). Alimenta a penalidade de affordability na seleção. Mapa VAZIO quando a
+/// flag está off → a seleção volta ao comportamento antigo, sem penalidade.
+fn teto_salarial_por_equipe(teams: &[crate::models::team::Team]) -> HashMap<String, f64> {
+    if !market_affordability_enabled() {
+        return HashMap::new();
+    }
+    teams
+        .iter()
+        .map(|team| {
+            (
+                team.id.clone(),
+                crate::finance::salary::calculate_salary_ceiling(team),
+            )
+        })
+        .collect()
+}
+
+/// As vagas regulares abertas AGORA, já na ordem em que devem ser preenchidas.
+///
+/// Preenche as de TOPO primeiro (tier decrescente). `find_vacancies` devolve na ordem
+/// dos times; sem ordenar, um craque livre no pool de resgate passa o piso de quase toda
+/// vaga e é assinado pela 1ª que aparece na iteração (amador/gt4) ANTES de a vaga de
+/// GT3/endurance ser processada — enterrando o talento num tier baixo.
+///
+/// Desempate DENTRO do tier por DESEJABILIDADE do assento decrescente: cada vaga pega o
+/// MELHOR candidato do pool (max por `compare_pool_fallback_candidates`), logo processar
+/// o assento mais desejável primeiro faz o melhor assento ficar com o melhor piloto
+/// disponível. Sem esse desempate, a ordem de times era arbitrária e um assento pior do
+/// mesmo tier abocanhava o craque antes do melhor — a raiz do "melhor carro ≠ melhor
+/// piloto" que deflaciona a grade.
+///
+/// Com o mercado realista (flag), desejabilidade = carro + PRESTÍGIO (reputação da
+/// equipe), port do score de assento do motor de janela — o melhor carro numa equipe
+/// prestigiada escolhe antes de um carro igual sem tradição. Sem a flag, desempata só por
+/// `car_performance` (comportamento antigo). `sort_by` é estável, então assentos empatados
+/// (ex.: N1/N2 do mesmo time) preservam a ordem original.
+fn vagas_abertas_ordenadas(
+    conn: &Connection,
+    debut_year: i32,
+    reserved: &HashSet<String>,
+) -> Result<Vec<Vacancy>, String> {
+    let mut vacancies: Vec<Vacancy> = find_vacancies(conn)?
+        .into_iter()
+        .filter(is_regular_vacancy)
+        .filter(|vacancy| is_category_active_in_year(&vacancy.categoria, debut_year))
+        .filter(|v| !reserved.contains(&format!("{}#{}", v.team_id, v.papel_necessario.as_str())))
+        .collect();
+
+    let use_market_realism = market_affordability_enabled();
+    vacancies.sort_by(|a, b| {
+        b.category_tier.cmp(&a.category_tier).then_with(|| {
+            if use_market_realism {
+                seat_desirability(b)
+                    .partial_cmp(&seat_desirability(a))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            } else {
+                b.car_strength
+                    .partial_cmp(&a.car_strength)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }
+        })
+    });
+    Ok(vacancies)
+}
+
+/// A cascata inteira aplicada a UMA vaga, na ordem das etapas descrita no topo do
+/// módulo. Cada etapa só é tentada quando a anterior não resolveu.
+fn preencher_uma_vaga(
+    conn: &Connection,
+    vacancy: &Vacancy,
+    mundo: &MundoDaCascata<'_>,
+    estado: &mut EstadoDaCascata<'_>,
+    rng: &mut impl Rng,
+) -> Result<DesfechoDaVaga, String> {
+    // Pacing POR CATEGORIA: a cota estourada PULA esta vaga em vez de encerrar a passada.
+    // Encerrar seria fatal — as vagas vêm ordenadas de cima para baixo, então parar no
+    // topo deixaria as categorias de baixo sem assinar nada.
+    if estado.cota_esgotada(vacancy) {
+        return Ok(DesfechoDaVaga::Pulou);
+    }
+
+    if tentar_pool_de_resgate(conn, vacancy, mundo, estado, rng)? {
+        return Ok(DesfechoDaVaga::Preencheu);
+    }
+
+    let vaga_de_estreia = is_real_career_debut_category(&vacancy.categoria)
+        || is_entry_category_for_year(&vacancy.categoria, mundo.debut_year);
+    if vaga_de_estreia {
+        // NASCER é a última coisa que se faz. Um estreante gerado é gente nova num mundo
+        // de assentos fixos: ele empurra alguém para fora do grid. Durante as semanas com
+        // cota o assento de estreia se preenche com quem já existe (o pool acima) e, se
+        // não houver ninguém, ele espera — a cascata ainda vai esvaziar assentos até o
+        // fechamento, e é lá, com a fila resolvida, que se sabe quantos estreantes o mundo
+        // de fato precisa. Sem cota (o fechamento e a pré-temporada não-interativa) o
+        // comportamento é o de sempre.
+        if estado.cotas.is_some() {
+            return Ok(DesfechoDaVaga::Pulou);
+        }
+        nascer_rookie(conn, vacancy, mundo, estado, rng, "rookie")?;
+        return Ok(DesfechoDaVaga::Preencheu);
+    }
+
+    let vaga_especial = runs_in_special_phase(&vacancy.categoria);
+    if tentar_escada_de_promocao(conn, vacancy, vaga_especial, mundo, estado, rng)? {
+        return Ok(DesfechoDaVaga::PreencheuAbrindoBuraco);
+    }
+
+    // Escassez numa vaga REGULAR de categoria superior, sem candidato meritório. Deixar o
+    // assento vazio violaria a invariante de grid (validate_and_normalize_team_hierarchies
+    // aborta a temporada). As categorias especiais (endurance/production) NÃO entram aqui.
+    if vaga_especial {
+        return Ok(DesfechoDaVaga::Pulou);
+    }
+
+    // ORDEM DA ESCASSEZ: nascer é na base, subir é por resultado.
+    //
+    // Antes de aceitar um estreante neste assento, procura o piloto PROVADO mais próximo
+    // abaixo na escada INTEIRA (não só no feeder imediato). É o que impede que a ordem de
+    // preenchimento — vagas por tier decrescente — decida o desfecho: o gt3 resolvia a
+    // escassez dele ANTES de o gt4 ser reabastecido e, chegada a vez, o alimentador só
+    // tinha recém-nascidos, então ele levava o que havia. Alcançando a escada toda, o
+    // assento de cima é sempre pago com quem já largou, e o buraco desce até a categoria
+    // de estreia.
+    //
+    // A ordenação das vagas fica INTOCADA de propósito: reordenar disparava re-scans em
+    // cascata e travava o sim multi-temporada (ver `vagas_abertas_ordenadas`).
+    let candidato_provado =
+        best_proven_promotion_candidate(vacancy, mundo.current_by_id, mundo.market_contexts);
+
+    if candidato_provado.is_none() && tentar_resgate_por_escassez(conn, vacancy, mundo, estado, rng)?
+    {
+        return Ok(DesfechoDaVaga::Preencheu);
+    }
+
+    if tentar_promocao_de_emergencia(conn, vacancy, candidato_provado, mundo, estado, rng)? {
+        return Ok(DesfechoDaVaga::PreencheuAbrindoBuraco);
+    }
+
+    nascer_rookie(conn, vacancy, mundo, estado, rng, "rookie_emergencia")?;
+    EMERGENCY_ROOKIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    Ok(DesfechoDaVaga::PreencheuAbrindoBuraco)
+}
+
+/// Etapa 1 — o POOL DE RESGATE: o melhor agente livre que atende o piso do assento.
+///
+/// Roda primeiro por ser o preenchimento mais barato de todos: ninguém sai de lugar
+/// nenhum, então não abre buraco e não dispara cascata. O piso de skill em
+/// `is_pool_fallback_candidate` já barra o órfão fraco aqui, então não é preciso
+/// reordenar antes da promoção meritória — reordenar disparava re-scans em cascata a cada
+/// promoção e travava o sim multi-temporada.
+fn tentar_pool_de_resgate(
+    conn: &Connection,
+    vacancy: &Vacancy,
+    mundo: &MundoDaCascata<'_>,
+    estado: &mut EstadoDaCascata<'_>,
+    rng: &mut impl Rng,
+) -> Result<bool, String> {
+    let need_factor = mundo
+        .team_need_by_id
+        .get(&vacancy.team_id)
+        .copied()
+        .unwrap_or(crate::fame::TEAM_NEED_MIN);
+    // `None` (flag off / time sem teto) → sem penalidade de affordability.
+    let team_ceiling = mundo.team_ceiling_by_id.get(&vacancy.team_id).copied();
+
+    let escolhido = estado
+        .available
+        .iter()
+        .enumerate()
+        .filter(|(_, candidate)| is_pool_fallback_candidate(candidate, vacancy))
+        .max_by(|(_, a), (_, b)| {
+            compare_pool_fallback_candidates(a, b, vacancy, need_factor, team_ceiling)
+        })
+        .map(|(index, _)| index);
+    let Some(index) = escolhido else {
+        return Ok(false);
+    };
+
+    let candidate = estado.available.remove(index);
+    grant_driver_license_for_division_if_needed(
+        conn,
+        &candidate.driver.id,
+        &vacancy.categoria,
+        vacancy.classe.as_deref(),
+    )?;
+    sign_driver_to_team(
+        conn,
+        &candidate.driver,
+        vacancy,
+        mundo.new_season_number,
+        calculate_offer_salary(vacancy, &candidate.driver, rng),
+        1,
+        vacancy.papel_necessario.clone(),
+    )?;
+    let tipo = if is_real_career_debut_category(&vacancy.categoria) {
+        estado.report.rookies_placed += 1;
+        "rookie"
+    } else {
+        "transferencia"
+    };
+    estado.registrar_assinatura(vacancy, &candidate.driver.id, &candidate.driver.nome, tipo);
+    Ok(true)
+}
+
+/// Etapa 3 — a ESCADA (modelo fechado): se o pool não cobre uma vaga não-estreia,
+/// promove o melhor piloto da categoria de baixo em vez de gerar um piloto novo do nada
+/// ou abortar. Promover abre o assento dele lá embaixo, que a próxima passada preenche —
+/// a cascata desce até a categoria de estreia, onde aí sim nasce um rookie.
+///
+/// Portão de MÉRITO na escada regular. Categorias de fase especial (endurance/production)
+/// hoje mantêm o comportamento antigo (concede a licença ao assinar) — endurecer isso
+/// (gate de licença real) desestabilizou o sim multi-temporada; fica para uma investigação
+/// à parte de #3.
+///
+/// Antes de aceitar o candidato do feeder, tenta o RECRUTAMENTO PROFUNDO (demanda de time
+/// + aceite): para uma vaga de topo mal servida pelo feeder, o time busca o craque preso
+/// nas categorias inferiores e lhe faz proposta; o piloto decide. Prefere o recrutado que
+/// aceitou; senão, segue a escada normal.
+fn tentar_escada_de_promocao(
+    conn: &Connection,
+    vacancy: &Vacancy,
+    vaga_especial: bool,
+    mundo: &MundoDaCascata<'_>,
+    estado: &mut EstadoDaCascata<'_>,
+    rng: &mut impl Rng,
+) -> Result<bool, String> {
+    let required_license = if vaga_especial {
+        None
+    } else {
+        required_license_for_division(&vacancy.categoria, vacancy.classe.as_deref())
+    };
+    let feeder_candidate = best_feeder_promotion_candidate(
+        vacancy,
+        mundo.current_by_id,
+        mundo.market_contexts,
+        mundo.license_levels,
+        required_license,
+        // Escada regular: mérito de verdade, e mérito exige ter largado.
+        true,
+    );
+    let deep_candidate = deep_recruitment_candidate(
+        conn,
+        vacancy,
+        mundo.current_by_id,
+        mundo.market_contexts,
+        mundo.license_levels,
+        required_license,
+        feeder_candidate
+            .as_ref()
+            .map(|driver| driver.atributos.skill),
+        rng,
+    )?;
+    let was_deep = deep_candidate.is_some();
+    let Some(candidate) = deep_candidate.or(feeder_candidate) else {
+        return Ok(false);
+    };
+
+    liberar_assento_do_promovido(conn, &candidate.id, estado.cotas, "")?;
+    if vaga_especial {
+        // Especiais: concede a licença da divisão ao assinar.
+        grant_driver_license_for_division_if_needed(
+            conn,
+            &candidate.id,
+            &vacancy.categoria,
+            vacancy.classe.as_deref(),
+        )?;
+    }
+    // Escada regular: sem concessão — o candidato JÁ possui a licença exigida (filtro de
+    // mérito em best_feeder_promotion_candidate).
+    sign_driver_to_team(
+        conn,
+        &candidate,
+        vacancy,
+        mundo.new_season_number,
+        calculate_offer_salary(vacancy, &candidate, rng),
+        1,
+        vacancy.papel_necessario.clone(),
+    )?;
+    if was_deep {
+        // Ligou os dois cérebros: proposta feita e ACEITA pelo craque da várzea (o feeder
+        // míope nunca o alcançaria).
+        estado.report.proposals_made += 1;
+        estado.report.proposals_accepted += 1;
+    }
+    estado.registrar_assinatura(
+        vacancy,
+        &candidate.id,
+        &candidate.nome,
+        if was_deep { "recrutamento" } else { "promocao" },
+    );
+    Ok(true)
+}
+
+/// Etapa 4 — o RESGATE DA ESCASSEZ: escada de baixo seca (só recém-nascidos abaixo desta
+/// vaga), então antes de aceitar um estreante resgata um FREE AGENT que já correu.
+///
+/// O pool de resgate da etapa 1 recusou-o pelo PISO DE SKILL
+/// (`pool_fallback_skill_floor`), que existe para não enfiar um lanterna no topo — mas
+/// aqui o concorrente dele não é um craque, é alguém que nunca largou, então o piso cai.
+///
+/// É também o preenchimento mais barato da escassez: o free agent não ocupa assento
+/// nenhum, logo não abre buraco embaixo e não dispara cascata.
+fn tentar_resgate_por_escassez(
+    conn: &Connection,
+    vacancy: &Vacancy,
+    mundo: &MundoDaCascata<'_>,
+    estado: &mut EstadoDaCascata<'_>,
+    rng: &mut impl Rng,
+) -> Result<bool, String> {
+    let escolhido = estado
+        .available
+        .iter()
+        .enumerate()
+        .filter(|(_, candidate)| {
+            candidate.driver.categoria_atual.is_none()
+                && candidate.driver.stats_carreira.corridas > 0
+        })
+        .max_by(|(_, a), (_, b)| {
+            a.driver
+                .atributos
+                .skill
+                .total_cmp(&b.driver.atributos.skill)
+        })
+        .map(|(index, _)| index);
+    let Some(index) = escolhido else {
+        return Ok(false);
+    };
+
+    let candidate = estado.available.remove(index);
+    grant_driver_license_for_division_if_needed(
+        conn,
+        &candidate.driver.id,
+        &vacancy.categoria,
+        vacancy.classe.as_deref(),
+    )?;
+    sign_driver_to_team(
+        conn,
+        &candidate.driver,
+        vacancy,
+        mundo.new_season_number,
+        calculate_offer_salary(vacancy, &candidate.driver, rng),
+        1,
+        vacancy.papel_necessario.clone(),
+    )?;
+    estado.registrar_assinatura(
+        vacancy,
+        &candidate.driver.id,
+        &candidate.driver.nome,
+        "resgate_escassez",
+    );
+    Ok(true)
+}
+
+/// Etapa 5 — a PROMOÇÃO DE EMERGÊNCIA: promove o provado mais próximo abaixo na escada
+/// e, se não houver UM piloto provado em toda a escada, promove quem houver (válvula
+/// FINAL, sem exigência de experiência). Só se chega aqui com o assento prestes a ficar
+/// vazio, e assento vazio aborta a temporada.
+fn tentar_promocao_de_emergencia(
+    conn: &Connection,
+    vacancy: &Vacancy,
+    candidato_provado: Option<Driver>,
+    mundo: &MundoDaCascata<'_>,
+    estado: &mut EstadoDaCascata<'_>,
+    rng: &mut impl Rng,
+) -> Result<bool, String> {
+    let promoveu_provado = candidato_provado.is_some();
+    let candidato = candidato_provado.or_else(|| {
+        best_feeder_promotion_candidate(
+            vacancy,
+            mundo.current_by_id,
+            mundo.market_contexts,
+            mundo.license_levels,
+            None,
+            false,
+        )
+    });
+    let Some(candidate) = candidato else {
+        return Ok(false);
+    };
+
+    liberar_assento_do_promovido(conn, &candidate.id, estado.cotas, " (emergencia)")?;
+    grant_driver_license_for_division_if_needed(
+        conn,
+        &candidate.id,
+        &vacancy.categoria,
+        vacancy.classe.as_deref(),
+    )?;
+    sign_driver_to_team(
+        conn,
+        &candidate,
+        vacancy,
+        mundo.new_season_number,
+        calculate_offer_salary(vacancy, &candidate, rng),
+        1,
+        vacancy.papel_necessario.clone(),
+    )?;
+    estado.registrar_assinatura(
+        vacancy,
+        &candidate.id,
+        &candidate.nome,
+        if promoveu_provado {
+            "promocao_escassez"
+        } else {
+            "promocao_emergencia"
+        },
+    );
+    EMERGENCY_PROMOTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    registrar_caminho_da_emergencia(candidate.categoria_atual.as_deref(), &vacancy.categoria);
+    Ok(true)
+}
+
+/// Etapa 6 (e etapa 2) — o estreante gerado para o assento.
+fn nascer_rookie(
+    conn: &Connection,
+    vacancy: &Vacancy,
+    mundo: &MundoDaCascata<'_>,
+    estado: &mut EstadoDaCascata<'_>,
+    rng: &mut impl Rng,
+    tipo: &str,
+) -> Result<(), String> {
+    let rookie = generate_and_sign_rookie_for_vacancy(
+        conn,
+        vacancy,
+        mundo.new_season_number,
+        mundo.debut_year,
+        rng,
+    )?;
+    estado.report.rookies_placed += 1;
+    estado.registrar_assinatura(vacancy, &rookie.id, &rookie.nome, tipo);
+    Ok(())
+}
+
+/// Rescinde o contrato atual do promovido antes de assiná-lo em cima (o índice único
+/// `(piloto_id, tipo)` impede dois contratos regulares ativos) e REABASTECE a cota da
+/// categoria que ficou com o assento aberto.
+///
+/// A cascata não gasta cota: o assento que acabou de abrir lá embaixo é a MESMA
+/// movimentação, não um segundo negócio da categoria. Sem este reabastecimento a
+/// reposição espera a semana seguinte, e a fila de esperas se acumula até desabar toda no
+/// fechamento.
+///
+/// `contexto` entra nas mensagens de erro (`" (emergencia)"` na válvula final).
+fn liberar_assento_do_promovido(
+    conn: &Connection,
+    driver_id: &str,
+    cotas: &mut Option<HashMap<String, usize>>,
+    contexto: &str,
+) -> Result<(), String> {
+    for contract in contract_queries::get_all_active_regular_contracts(conn)
+        .map_err(|e| format!("Falha ao carregar contrato do promovido{contexto}: {e}"))?
+        .into_iter()
+        .filter(|contract| contract.piloto_id == driver_id)
+    {
+        contract_queries::update_contract_status(conn, &contract.id, &ContractStatus::Rescindido)
+            .map_err(|e| format!("Falha ao rescindir contrato do promovido{contexto}: {e}"))?;
+        if let Some(cotas) = cotas.as_mut() {
+            *cotas.entry(contract.categoria.clone()).or_default() += 1;
+        }
+    }
+    Ok(())
+}
+
+/// Instrumentação do funil (lida pelo harness sim_stats): de que tier o piloto veio e em
+/// que tier estava a vaga que a emergência preencheu.
+fn registrar_caminho_da_emergencia(categoria_de_origem: Option<&str>, categoria_da_vaga: &str) {
+    let from_tier = categoria_de_origem
+        .and_then(get_category_config)
+        .map(|c| c.tier)
+        .unwrap_or(99);
+    let to_tier = get_category_config(categoria_da_vaga)
+        .map(|c| c.tier)
+        .unwrap_or(99);
+    if let Ok(mut paths) = EMERGENCY_PROMO_PATHS.lock() {
+        *paths.entry((from_tier, to_tier)).or_insert(0) += 1;
+    }
 }
 
 /// Wrapper paginado da escada (ladder fill): carrega as equipes e chama

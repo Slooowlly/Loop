@@ -1,6 +1,40 @@
 use super::eligibility::FonteConvocacao;
 use crate::models::driver::Driver;
 
+// ── Pesos por fonte ───────────────────────────────────────────────────────────
+//
+// Os pesos viviam soltos no corpo de cada função, então reequilibrar o grid especial
+// exigia caçar literais. Não há medição por trás deles: são a divisão de critério
+// escolhida no desenho de cada fonte, e cada bloco soma 1,0 (a fonte A soma 0,8 e
+// completa com a base fixa).
+//
+// Fonte A (mérito regular): quem foi bem na temporada regular.
+const A_PESO_DESEMPENHO: f64 = 0.45;
+const A_PESO_PERFIL: f64 = 0.25;
+const A_PESO_DISPONIBILIDADE: f64 = 0.10;
+/// Piso da fonte A: convocado por mérito entra com crédito, não do zero.
+const A_BASE: f64 = 20.0;
+
+// Fonte B (continuidade histórica): quem já correu o bloco especial antes.
+const B_PESO_HISTORICO: f64 = 0.40;
+const B_PESO_DESEMPENHO: f64 = 0.25;
+const B_PESO_PERFIL: f64 = 0.20;
+const B_PESO_DISPONIBILIDADE: f64 = 0.10;
+const B_PESO_NARRATIVO: f64 = 0.05;
+
+// Fonte C (pool global): a régua é o piloto, não a temporada dele.
+const C_PESO_PERFIL: f64 = 0.50;
+const C_PESO_DESEMPENHO: f64 = 0.25;
+const C_PESO_DISPONIBILIDADE: f64 = 0.25;
+
+// Fonte D (wildcard): a história pesa mais que a planilha.
+const D_PESO_NARRATIVO: f64 = 0.50;
+const D_PESO_DESEMPENHO: f64 = 0.30;
+const D_PESO_PERFIL: f64 = 0.20;
+
+/// Pontos da temporada que valem o componente cheio de desempenho.
+const DESEMPENHO_PONTOS_CHEIOS: f64 = 200.0;
+
 /// Score composto 0–100 para ordenação de candidatos na convocação.
 /// Os pesos variam por fonte para refletir critérios diferentes por origem.
 pub fn calcular_score(driver: &Driver, fonte: &FonteConvocacao, historico_count: u32) -> f64 {
@@ -15,39 +49,38 @@ pub fn calcular_score(driver: &Driver, fonte: &FonteConvocacao, historico_count:
 // ── Fonte A: MeritoRegular ────────────────────────────────────────────────────
 // Desempenho 45% + Perfil 25% + Disponibilidade 10% + base 20%
 fn score_fonte_a(driver: &Driver) -> f64 {
-    let desempenho = score_desempenho(driver) * 0.45;
-    let perfil = score_perfil(driver) * 0.25;
-    let disponibilidade = score_disponibilidade(driver) * 0.10;
-    let base = 20.0;
-    (desempenho + perfil + disponibilidade + base).clamp(0.0, 100.0)
+    let desempenho = score_desempenho(driver) * A_PESO_DESEMPENHO;
+    let perfil = score_perfil(driver) * A_PESO_PERFIL;
+    let disponibilidade = score_disponibilidade(driver) * A_PESO_DISPONIBILIDADE;
+    (desempenho + perfil + disponibilidade + A_BASE).clamp(0.0, 100.0)
 }
 
 // ── Fonte B: ContinuidadeHistorica ────────────────────────────────────────────
 // Histórico 40% + Desempenho 25% + Perfil 20% + Disponibilidade 10% + Narrativo 5%
 fn score_fonte_b(driver: &Driver, historico_count: u32) -> f64 {
-    let historico = score_historico(historico_count) * 0.40;
-    let desempenho = score_desempenho(driver) * 0.25;
-    let perfil = score_perfil(driver) * 0.20;
-    let disponibilidade = score_disponibilidade(driver) * 0.10;
-    let narrativo = score_narrativo(driver) * 0.05;
+    let historico = score_historico(historico_count) * B_PESO_HISTORICO;
+    let desempenho = score_desempenho(driver) * B_PESO_DESEMPENHO;
+    let perfil = score_perfil(driver) * B_PESO_PERFIL;
+    let disponibilidade = score_disponibilidade(driver) * B_PESO_DISPONIBILIDADE;
+    let narrativo = score_narrativo(driver) * B_PESO_NARRATIVO;
     (historico + desempenho + perfil + disponibilidade + narrativo).clamp(0.0, 100.0)
 }
 
 // ── Fonte C: PoolGlobal ───────────────────────────────────────────────────────
 // Perfil 50% + Desempenho 25% + Disponibilidade 25%
 fn score_fonte_c(driver: &Driver) -> f64 {
-    let perfil = score_perfil(driver) * 0.50;
-    let desempenho = score_desempenho(driver) * 0.25;
-    let disponibilidade = score_disponibilidade(driver) * 0.25;
+    let perfil = score_perfil(driver) * C_PESO_PERFIL;
+    let desempenho = score_desempenho(driver) * C_PESO_DESEMPENHO;
+    let disponibilidade = score_disponibilidade(driver) * C_PESO_DISPONIBILIDADE;
     (perfil + desempenho + disponibilidade).clamp(0.0, 100.0)
 }
 
 // ── Fonte D: Wildcard ─────────────────────────────────────────────────────────
 // Narrativo 50% + Desempenho 30% + Perfil 20%
 fn score_fonte_d(driver: &Driver) -> f64 {
-    let narrativo = score_narrativo(driver) * 0.50;
-    let desempenho = score_desempenho(driver) * 0.30;
-    let perfil = score_perfil(driver) * 0.20;
+    let narrativo = score_narrativo(driver) * D_PESO_NARRATIVO;
+    let desempenho = score_desempenho(driver) * D_PESO_DESEMPENHO;
+    let perfil = score_perfil(driver) * D_PESO_PERFIL;
     (narrativo + desempenho + perfil).clamp(0.0, 100.0)
 }
 
@@ -55,7 +88,7 @@ fn score_fonte_d(driver: &Driver) -> f64 {
 
 /// Desempenho recente com base em stats da temporada corrente. Retorna 0–95.
 fn score_desempenho(driver: &Driver) -> f64 {
-    let pontos = (driver.stats_temporada.pontos / 200.0).min(1.0) * 60.0;
+    let pontos = (driver.stats_temporada.pontos / DESEMPENHO_PONTOS_CHEIOS).min(1.0) * 60.0;
     let vit = (driver.stats_temporada.vitorias as f64 * 5.0).min(20.0);
     let best = match driver.melhor_resultado_temp {
         Some(1) => 15.0,

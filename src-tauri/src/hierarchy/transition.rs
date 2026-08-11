@@ -1,14 +1,14 @@
-//! Transição de hierarquia interna de equipe entre temporadas.
+//! Transição de hierarquia interna de equipe entre temporadas: a invariante que
+//! roda no fim da pré-temporada, com DB. A persistência usa as DB functions de
+//! `db::queries::teams`.
 //!
-//! Helpers de decisão (domínio puro) + invariante final (com DB).
-//! A persistência usa as DB functions existentes em db::queries::teams.
-//!
-//! Regra:
-//! - `PartialPreserve`: mesma dupla, mesma direção, mesma categoria → preserva tensao/status,
-//!   zera os 5 contadores temporais.
-//! - `FullReset`: qualquer outra condição → tensao=0, status=Estavel, todos os contadores=0.
-
-#![allow(dead_code)]
+//! O módulo já teve um par de helpers puros (`decide_hierarchy_transition` /
+//! `resolve_transition_values`) que decidia entre preservar a tensão da dupla que
+//! continua junta e zerar tudo. Eles saíram em 11/08/2026 na revisão do D-09/R4:
+//! nunca tiveram chamador de produção, só os próprios testes, e a preservação
+//! parcial que descreviam nunca foi ligada. Hoje a transição é sempre reset: quem
+//! escreve N1/N2 da temporada nova é `market::pipeline::consolidacao`, e o que
+//! sobra desalinhado cai no reset completo desta função.
 
 use rusqlite::Connection;
 
@@ -16,28 +16,6 @@ use crate::db::queries::teams as team_queries;
 use crate::models::team::TeamHierarchyClimate;
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum HierarchyTransition {
-    PartialPreserve,
-    FullReset,
-}
-
-/// Estado hierárquico anterior da equipe (início da preseason — capturado de original_teams_by_id).
-pub struct PrevHierarchyState<'a> {
-    pub n1_id: Option<&'a str>,
-    pub n2_id: Option<&'a str>,
-    pub tensao: f64,
-    pub status: &'a str,
-    pub categoria: &'a str,
-}
-
-/// Configuração final da equipe para a nova temporada.
-pub struct NewSeasonSetup<'a> {
-    pub n1_id: Option<&'a str>,
-    pub n2_id: Option<&'a str>,
-    pub categoria: &'a str,
-}
 
 /// Configuração final canônica de uma equipe regular ao fim da preseason.
 ///
@@ -84,64 +62,14 @@ impl ResolvedTeamLineup {
     }
 }
 
-// ── Decisão (domínio puro) ────────────────────────────────────────────────────
-
-/// Decide o tipo de transição de hierarquia entre temporadas.
-///
-/// `PartialPreserve` apenas quando **todas** as condições são verdadeiras:
-/// 1. mesma categoria (sem promoção/rebaixamento)
-/// 2. novo lineup completo (N1 e N2 definidos)
-/// 3. mesma identidade de N1 (mesma direção)
-/// 4. mesma identidade de N2
-///
-/// Qualquer condição falsa → `FullReset`.
-pub fn decide_hierarchy_transition(
-    prev: &PrevHierarchyState<'_>,
-    new: &NewSeasonSetup<'_>,
-) -> HierarchyTransition {
-    let preserve = prev.categoria == new.categoria
-        && new.n1_id.is_some()
-        && new.n2_id.is_some()
-        && prev.n1_id == new.n1_id
-        && prev.n2_id == new.n2_id;
-
-    if preserve {
-        HierarchyTransition::PartialPreserve
-    } else {
-        HierarchyTransition::FullReset
-    }
-}
-
-/// Resolve os valores de tensao e status a persistir no banco.
-///
-/// `PartialPreserve` → preserva tensao e status anteriores (normalizados via enum).
-/// `FullReset`       → tensao=0.0, status="estavel".
-///
-/// Os contadores de duelo (`hierarquia_duelos_total` etc.) são **sempre** resetados
-/// pelo chamador via `update_team_duel_counters(..., 0, 0, 0, 0, 0)` — são temporais
-/// por natureza e não fazem parte desta decisão.
-pub fn resolve_transition_values(
-    decision: &HierarchyTransition,
-    prev_tensao: f64,
-    prev_status: &str,
-) -> (f64, &'static str) {
-    match decision {
-        HierarchyTransition::FullReset => (0.0, TeamHierarchyClimate::Estavel.as_str()),
-        HierarchyTransition::PartialPreserve => {
-            // Normaliza via enum para rejeitar valores legacy ("n1", "n2", etc.)
-            let status = TeamHierarchyClimate::from_str(prev_status).as_str();
-            (prev_tensao, status)
-        }
-    }
-}
-
 // ── Invariante de season (DB) ─────────────────────────────────────────────────
 
 /// Garante que N1/N2 de toda equipe regular está alinhado com o lineup final.
 ///
 /// Chamada após `fill_all_remaining_vacancies()` em `finalize_preseason_in_base_dir()`.
-/// Equipes que passaram pelo `UpdateHierarchy` do mercado nunca chegam aqui desalinhadas —
-/// esta função é safety net para equipes preenchidas por fallback sem contexto de hierarquia.
+/// Quem alinha N1/N2 antes daqui é `market::pipeline::consolidacao`, que ordena a dupla
+/// por skill e grava com status Estável e tensão 0. Esta função é safety net para as
+/// equipes preenchidas por fallback, que não passam por lá.
 ///
 /// Retorna `Err` se encontrar equipe regular com lineup incompleto — violação de contrato
 /// de grid que `fill_all_remaining_vacancies()` deve ter garantido.
@@ -195,7 +123,7 @@ pub fn validate_and_normalize_team_hierarchies(conn: &Connection) -> Result<(), 
         let p1 = Some(lineup.n1_id.as_str());
         let p2 = Some(lineup.n2_id.as_str());
 
-        // N1/N2 já corretos → skip (caminho normal para equipes que passaram pelo UpdateHierarchy)
+        // N1/N2 já corretos → skip (caminho normal, vindo da consolidação do mercado)
         if n1_id.as_deref() == p1 && n2_id.as_deref() == p2 {
             continue;
         }
@@ -227,151 +155,6 @@ pub fn validate_and_normalize_team_hierarchies(conn: &Connection) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn prev<'a>(
-        n1: Option<&'a str>,
-        n2: Option<&'a str>,
-        tensao: f64,
-        status: &'a str,
-        cat: &'a str,
-    ) -> PrevHierarchyState<'a> {
-        PrevHierarchyState {
-            n1_id: n1,
-            n2_id: n2,
-            tensao,
-            status,
-            categoria: cat,
-        }
-    }
-
-    fn new_setup<'a>(n1: Option<&'a str>, n2: Option<&'a str>, cat: &'a str) -> NewSeasonSetup<'a> {
-        NewSeasonSetup {
-            n1_id: n1,
-            n2_id: n2,
-            categoria: cat,
-        }
-    }
-
-    // ── decide_hierarchy_transition ──
-
-    #[test]
-    fn test_partial_preserve_same_pair_same_cat() {
-        let p = prev(Some("P001"), Some("P002"), 45.0, "tensao", "gt3");
-        let n = new_setup(Some("P001"), Some("P002"), "gt3");
-        assert_eq!(
-            decide_hierarchy_transition(&p, &n),
-            HierarchyTransition::PartialPreserve
-        );
-    }
-
-    #[test]
-    fn test_full_reset_changed_pilot() {
-        let p = prev(Some("P001"), Some("P002"), 45.0, "tensao", "gt3");
-        let n = new_setup(Some("P001"), Some("P003"), "gt3");
-        assert_eq!(
-            decide_hierarchy_transition(&p, &n),
-            HierarchyTransition::FullReset
-        );
-    }
-
-    #[test]
-    fn test_full_reset_direction_swap() {
-        // Mesma dupla mas N1↔N2 trocados
-        let p = prev(Some("P001"), Some("P002"), 45.0, "tensao", "gt3");
-        let n = new_setup(Some("P002"), Some("P001"), "gt3");
-        assert_eq!(
-            decide_hierarchy_transition(&p, &n),
-            HierarchyTransition::FullReset
-        );
-    }
-
-    #[test]
-    fn test_full_reset_different_category() {
-        // Mesmos pilotos, mesma direção, mas categoria diferente (promoção/rebaixamento)
-        let p = prev(Some("P001"), Some("P002"), 45.0, "tensao", "gt4");
-        let n = new_setup(Some("P001"), Some("P002"), "gt3");
-        assert_eq!(
-            decide_hierarchy_transition(&p, &n),
-            HierarchyTransition::FullReset
-        );
-    }
-
-    #[test]
-    fn test_full_reset_incomplete_new_lineup() {
-        let p = prev(Some("P001"), Some("P002"), 45.0, "tensao", "gt3");
-        let n = new_setup(None, Some("P002"), "gt3");
-        assert_eq!(
-            decide_hierarchy_transition(&p, &n),
-            HierarchyTransition::FullReset
-        );
-    }
-
-    #[test]
-    fn test_full_reset_both_new_none() {
-        let p = prev(Some("P001"), Some("P002"), 45.0, "tensao", "gt3");
-        let n = new_setup(None, None, "gt3");
-        assert_eq!(
-            decide_hierarchy_transition(&p, &n),
-            HierarchyTransition::FullReset
-        );
-    }
-
-    #[test]
-    fn test_full_reset_no_prev_hierarchy() {
-        // Equipe sem hierarquia anterior (nova dupla, nunca tinha N1/N2)
-        let p = prev(None, None, 0.0, "estavel", "gt3");
-        let n = new_setup(Some("P001"), Some("P002"), "gt3");
-        assert_eq!(
-            decide_hierarchy_transition(&p, &n),
-            HierarchyTransition::FullReset
-        );
-    }
-
-    #[test]
-    fn test_full_reset_prev_cat_empty_string() {
-        // prev_categoria vazio (old save sem context) → FullReset (comportamento seguro)
-        let p = prev(Some("P001"), Some("P002"), 60.0, "crise", "");
-        let n = new_setup(Some("P001"), Some("P002"), "gt3");
-        assert_eq!(
-            decide_hierarchy_transition(&p, &n),
-            HierarchyTransition::FullReset
-        );
-    }
-
-    // ── resolve_transition_values ──
-
-    #[test]
-    fn test_resolve_partial_preserve_returns_prev_values() {
-        let (tensao, status) =
-            resolve_transition_values(&HierarchyTransition::PartialPreserve, 45.0, "tensao");
-        assert!((tensao - 45.0).abs() < f64::EPSILON);
-        assert_eq!(status, "tensao");
-    }
-
-    #[test]
-    fn test_resolve_partial_preserve_normalizes_legacy_status() {
-        // Status legado "n1" deve ser normalizado para "estavel"
-        let (tensao, status) =
-            resolve_transition_values(&HierarchyTransition::PartialPreserve, 10.0, "n1");
-        assert!((tensao - 10.0).abs() < f64::EPSILON);
-        assert_eq!(status, "estavel");
-    }
-
-    #[test]
-    fn test_resolve_full_reset_ignores_prev_values() {
-        let (tensao, status) =
-            resolve_transition_values(&HierarchyTransition::FullReset, 60.0, "crise");
-        assert!((tensao - 0.0).abs() < f64::EPSILON);
-        assert_eq!(status, "estavel");
-    }
-
-    #[test]
-    fn test_resolve_partial_preserve_high_tensao() {
-        let (tensao, status) =
-            resolve_transition_values(&HierarchyTransition::PartialPreserve, 88.5, "inversao");
-        assert!((tensao - 88.5).abs() < f64::EPSILON);
-        assert_eq!(status, "inversao");
-    }
 
     // ── validate_and_normalize_team_hierarchies (integração DB) ──
 

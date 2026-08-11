@@ -2,6 +2,9 @@
 //!
 //! `use super::*` enxerga o módulo `pipeline` inteiro, incluindo os itens privados.
 
+/// Guard de ordem dos passos da virada (lê o fonte de `orquestracao.rs`).
+mod ordem;
+
 use rand::{rngs::StdRng, SeedableRng};
 use rusqlite::Connection;
 

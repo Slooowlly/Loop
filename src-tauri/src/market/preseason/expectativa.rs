@@ -40,7 +40,7 @@ pub(super) fn refresh_player_interest_forecast(
     plan.state.player_interest_forecast = if week <= 1 {
         forecast_from_expiring_seats(conn, season, contracts_snapshot)?
     } else {
-        forecast_from_open_seats(conn, season)?
+        forecast_from_open_seats(conn, season, week)?
     };
     Ok(())
 }
@@ -88,10 +88,13 @@ fn forecast_from_expiring_seats(
 fn forecast_from_open_seats(
     conn: &Connection,
     season: i32,
+    week: i32,
 ) -> Result<Option<PlayerInterestForecast>, String> {
     // `None` aqui é o jogador que renovou e não vai ao mercado — sem expectativa. Já
     // `Some(0)` é agente livre que ninguém quer, e isso ele precisa saber.
-    let Some(interessadas) = crate::market::pipeline::count_interested_teams(conn, season)? else {
+    let Some(interessadas) =
+        crate::market::pipeline::count_interested_teams(conn, season, week)?
+    else {
         return Ok(None);
     };
     Ok(Some(PlayerInterestForecast {

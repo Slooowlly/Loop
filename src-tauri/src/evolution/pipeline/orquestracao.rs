@@ -165,8 +165,10 @@ pub(super) fn run_end_of_season_with_mode(
     //
     // Companheiros: placar do duelo interno N1/N2 do ano, lido dos contadores de
     // hierarquia antes da pré-temporada zerá-los. É o caminho que de fato produz treta de
-    // dupla — o eixo de tensão mora no piso, porque o N2 leva ~29% dos duelos e o eixo
-    // exige 40% só para parar de cair.
+    // dupla, e continua sendo o principal: mesmo com o eixo de tensão recalibrado em
+    // 11/08/2026 (equilíbrio de 0,420 para 0,308, contra os ~0,28 que o N2 leva no
+    // mundo), quem sobe é a minoria de duplas parelhas — este gatilho lê o placar cru
+    // do ano.
     crate::rivalry::process_teammate_season_rivalry(&tx, season.numero)
         .map_err(|e| format!("Falha na rivalidade entre companheiros de equipe: {e}"))?;
 

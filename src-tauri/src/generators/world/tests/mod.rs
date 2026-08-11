@@ -345,6 +345,48 @@ fn test_generate_world_persists_real_special_rosters_by_class() {
         && team.nome == "Meridian"));
 }
 
+/// O mundo histórico não pode nascer com piloto cuja carreira começa no FUTURO dele.
+///
+/// Era exatamente o que acontecia: `career_start_year_from_age` chamava `Local::now()`,
+/// então num mundo de 2000 um piloto de 30 anos saía com início em 2012 — e o mesmo save
+/// gerado em anos civis diferentes produzia históricos diferentes, o que tira a
+/// reprodutibilidade por semente. O ano agora vem do mundo.
+#[test]
+fn o_mundo_historico_ancora_o_inicio_de_carreira_no_ano_dele() {
+    const ANO: i32 = 2000;
+    let mut rng = StdRng::seed_from_u64(20260811);
+    let world = generate_historical_world_with_rng("medio", ANO, &mut rng)
+        .expect("historical world should generate");
+
+    for driver in &world.drivers {
+        let inicio = driver.ano_inicio_carreira as i32;
+        assert!(
+            inicio <= ANO,
+            "{} ({} anos) começou a carreira em {inicio}, à frente do mundo de {ANO}",
+            driver.nome,
+            driver.idade
+        );
+        // E não é um valor degenerado: a convenção é começar aos 16.
+        assert_eq!(inicio, ANO - (driver.idade.max(16) as i32 - 16));
+    }
+
+    // Reprodutível por semente e independente do relógio: mesma semente, mesmo ano,
+    // mesmos anos de início.
+    let mut rng2 = StdRng::seed_from_u64(20260811);
+    let outro = generate_historical_world_with_rng("medio", ANO, &mut rng2).expect("segundo mundo");
+    let inicios: Vec<u32> = world
+        .drivers
+        .iter()
+        .map(|d| d.ano_inicio_carreira)
+        .collect();
+    let inicios2: Vec<u32> = outro
+        .drivers
+        .iter()
+        .map(|d| d.ano_inicio_carreira)
+        .collect();
+    assert_eq!(inicios, inicios2);
+}
+
 #[test]
 fn test_generate_historical_world_assigns_timeline_foundation_years() {
     let mut rng = StdRng::seed_from_u64(20260426);
