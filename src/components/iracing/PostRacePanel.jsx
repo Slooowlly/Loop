@@ -45,7 +45,6 @@ function PostRacePanel() {
   const sigRef = useRef("");
   // Tentativa já auto-salva (evita salvar a mesma corrida toda hora).
   const autoSavedRef = useRef(-1);
-  const adaptedRef = useRef(-1);
 
   const refreshSavedList = useCallback(async () => {
     try {
@@ -93,17 +92,9 @@ function PostRacePanel() {
           const name = await saveRace(true);
           if (name) setSaveMsg(t("postRacePanel.autoSaved", { name }));
         }
-        // Dificuldade adaptativa: processa em SILÊNCIO quando a corrida encerra
-        // (uma vez por tentativa). O jogador NÃO deve perceber o ajuste — senão
-        // passa a duvidar dos próprios resultados. Sem UI; erros ignorados.
-        if (
-          data.finished &&
-          hasData &&
-          adaptedRef.current !== data.attempt_number
-        ) {
-          adaptedRef.current = data.attempt_number;
-          invoke("iracing_process_race_result").catch(() => {});
-        }
+        // Dificuldade adaptativa: NÃO é daqui. O ajuste roda no import automático
+        // (iracing_auto_import_if_ready), amarrado à corrida ENTRAR na carreira —
+        // este painel é ferramenta de análise e processar aqui duplicaria o ajuste.
       } catch (e) {
         if (!silent) setError(String(e));
       } finally {

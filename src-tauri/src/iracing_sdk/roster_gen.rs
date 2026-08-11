@@ -355,16 +355,83 @@ fn fnv1a(s: &str) -> u64 {
     h
 }
 
+/// Faixa de skill EFETIVA que o roster PRETENDE para o grid, em pontos de skill do
+/// iRacing (a mesma escala do sweet spot, que vai até 125).
+///
+/// É o par que a temporada tem que escrever em `minSkill`/`maxSkill`. O iRacing estica o
+/// roster linearmente para preencher essa faixa; como o roster sai normalizado em 0–100
+/// exatamente a partir destes dois valores, o esticão vira a IDENTIDADE e cada IA corre
+/// no nível que o roster pretendia, com todos os nudges intactos.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SkillBand {
+    pub min: f64,
+    pub max: f64,
+}
+
+/// O roster montado mais a faixa efetiva que ele exige da temporada.
+pub struct RosterBuild {
+    pub file: RosterFile,
+    pub band: SkillBand,
+}
+
+/// Skills PRETENDIDAS (escala efetiva, pode passar de 100) → `driverSkill` do roster
+/// (inteiro 0–100) + a [`SkillBand`] que a temporada tem que escrever.
+///
+/// O `driverSkill` do roster só aceita 0–100 e a banda da temporada vai até 125. O iRacing
+/// estica o roster para preencher `[minSkill, maxSkill]`, então o melhor do roster SEMPRE
+/// aterrissa no `maxSkill` e o pior no `minSkill`, valham eles o que valerem. Enquanto a
+/// temporada calculava a faixa por fora, tudo o que só existe no roster (pressão, forma,
+/// acerto do dia, chuva, carro, rivalidade) era apagado por completo nos dois extremos e
+/// reescalado no meio pela razão entre as faixas: um líder com dia ruim voltava ao topo e
+/// ainda empurrava o resto do grid para cima junto.
+///
+/// Mapeando os alvos linearmente em 0–100 e mandando a temporada escrever `[min, max]` dos
+/// próprios alvos, o esticão vira a IDENTIDADE:
+/// `efetiva = min + (r/100)·(max − min)`, com `r = (alvo − min)/(max − min)·100` ⇒ `alvo`.
+/// O erro que sobra é só o arredondamento do inteiro do roster, meio passo da faixa.
+///
+/// De quebra some o empate no teto: antes, tier com sweet spot acima de 100 clampava vários
+/// pilotos em 100 e achatava a frente do grid num bloco só.
+pub fn normalize_to_roster(targets: &[f64]) -> (Vec<i64>, SkillBand) {
+    let min = targets.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max = targets.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    if !min.is_finite() || !max.is_finite() {
+        return (Vec::new(), SkillBand { min: 0.0, max: 1.0 });
+    }
+    let span = max - min;
+    // Grid de um piloto só (ou empate exato) não tem faixa para esticar: abre 1 ponto para a
+    // temporada não escrever min == max.
+    let band = SkillBand {
+        min,
+        max: if span > 1e-9 { max } else { min + 1.0 },
+    };
+    let skills = targets
+        .iter()
+        .map(|t| {
+            if span > 1e-9 {
+                (((t - min) / span) * 100.0).round().clamp(0.0, 100.0) as i64
+            } else {
+                50
+            }
+        })
+        .collect();
+    (skills, band)
+}
+
 /// Monta o roster a partir do grid (pilotos + time de cada um) e do mapa de números
 /// fixos por piloto. `behavior` (None = atributos crus) aplica a camada de
 /// comportamento por corrida. `id_factory` gera o GUID de cada entrada.
+///
+/// O `driverSkill` gravado é a skill pretendida NORMALIZADA em 0–100 (o formato do roster
+/// só aceita essa faixa), e a [`SkillBand`] devolvida carrega os valores absolutos. Ver
+/// [`RosterBuild`] para o porquê de os dois andarem juntos.
 pub fn build_roster(
     entries: &[(Driver, Option<TeamInfo>)],
     car: &CarSpec,
     numbers: &HashMap<String, i64>,
     behavior: Option<&BehaviorContext>,
     mut id_factory: impl FnMut() -> String,
-) -> RosterFile {
+) -> RosterBuild {
     // Ordena por pontos só para o rowIndex (ordem de exibição no editor).
     let mut order: Vec<usize> = (0..entries.len()).collect();
     order.sort_by(|&a, &b| {
@@ -384,7 +451,9 @@ pub fn build_roster(
     let sweet = behavior.map(|bc| bc.ai_sweet_spot).unwrap_or(100.0);
     let curve = skill_curve_from(&ai_skills, sweet);
 
-    let drivers = order
+    // Cada entrada sai com a skill PRETENDIDA (escala efetiva, pode passar de 100) ao lado;
+    // a normalização para 0–100 acontece depois, quando os extremos do grid são conhecidos.
+    let mut built: Vec<(RosterDriver, f64)> = order
         .iter()
         .enumerate()
         .map(|(row, &i)| {
@@ -507,16 +576,17 @@ pub fn build_roster(
                         seed: bc.seed_base ^ fnv1a(&driver.id),
                     };
                     let out = crate::iracing_sdk::behavior::compute(&inputs);
-                    // RE-RANK POR PILOTO NA CHUVA (opção B): desvio da média (fator 50).
-                    // A penalidade na BANDA (min/max skill, na season) já baixa o pelotão
-                    // todo pelo valor médio (pace absoluto cai); aqui só o DESVIO: quem é
-                    // bom de chuva sofre MENOS que a média (sobe), quem é ruim sofre MAIS
-                    // (cai). Soma 0 no piloto médio → não mexe no pace absoluto.
-                    let wet_rerank = if bc.is_wet {
-                        use crate::iracing_sdk::weather::rain_skill_penalty;
-                        (rain_skill_penalty(50.0, bc.rain_level)
-                            - rain_skill_penalty(a.fator_chuva, bc.rain_level))
-                            as f64
+                    // CHUVA POR PILOTO, em valor ABSOLUTO. Antes isto era só o desvio da
+                    // média (fator 50) e o rebaixamento do pelotão vinha da banda da season.
+                    // Com a banda derivada do próprio roster, os dois lados viraram um só:
+                    // cada IA leva a penalidade dela e a faixa acompanha. É o que o design
+                    // sempre quis e o esticão impedia — o bom de chuva perde menos DE FATO,
+                    // não só em posição relativa dentro de uma faixa fixa.
+                    let wet_penalty = if bc.is_wet {
+                        -(crate::iracing_sdk::weather::rain_skill_penalty(
+                            a.fator_chuva,
+                            bc.rain_level,
+                        ) as f64)
                     } else {
                         0.0
                     };
@@ -528,14 +598,14 @@ pub fn build_roster(
                     // Pressão de Duelo (export): o rival do jogador rende mais contra ele.
                     let rival_bonus = bc.rival_skill_bonus.get(&driver.id).copied().unwrap_or(0.0);
                     (
-                        out.skill + wet_rerank + car_spread + rival_bonus,
+                        out.skill + wet_penalty + car_spread + rival_bonus,
                         out.aggression,
                         out.optimism,
                         out.smoothness,
                     )
                 }
             };
-            RosterDriver {
+            let entry = RosterDriver {
                 driver_name: driver.nome.clone(),
                 car_number: number.to_string(),
                 car_design: design(car_pattern),
@@ -547,7 +617,8 @@ pub fn build_roster(
                 sponsor1,
                 sponsor2,
                 number_design: NUMBER_DESIGN.to_string(),
-                driver_skill: attr(d_skill),
+                // Preenchido na normalização abaixo (precisa dos extremos do grid).
+                driver_skill: 0,
                 driver_aggression: attr(d_aggression),
                 driver_optimism: attr(d_optimism),
                 driver_smoothness: attr(d_smoothness),
@@ -556,11 +627,34 @@ pub fn build_roster(
                 driver_age: driver.idade as i64,
                 id: id_factory(),
                 row_index: row as i64,
-            }
+            };
+            (entry, d_skill)
         })
         .collect();
 
-    RosterFile { drivers }
+    // Normaliza para o 0–100 do roster e devolve a faixa que a temporada tem que escrever.
+    // Ver [`normalize_to_roster`] para o porquê de os dois andarem juntos.
+    let targets: Vec<f64> = built.iter().map(|(_, t)| *t).collect();
+    let (skills, band) = normalize_to_roster(&targets);
+    for ((entry, _), skill) in built.iter_mut().zip(skills) {
+        entry.driver_skill = skill;
+    }
+    // Grid vazio: faixa neutra ancorada no sweet spot.
+    let band = if built.is_empty() {
+        SkillBand {
+            min: sweet,
+            max: sweet + 1.0,
+        }
+    } else {
+        band
+    };
+
+    RosterBuild {
+        file: RosterFile {
+            drivers: built.into_iter().map(|(entry, _)| entry).collect(),
+        },
+        band,
+    }
 }
 
 #[cfg(test)]
@@ -614,7 +708,8 @@ mod tests {
         let roster = build_roster(&entries, &car, &numbers, None, || {
             n += 1;
             format!("ID-{n}")
-        });
+        })
+        .file;
 
         // Número fixo do mapa (não a posição).
         let ana = roster
@@ -640,6 +735,117 @@ mod tests {
         // skill passa pela curva de 2 trechos: Bia é a melhor do grid → topo (100 no
         // roster; a banda da season re-ancora no sweet spot do tier).
         assert_eq!(bia.driver_skill, 100);
+    }
+
+    /// O esticão do iRacing, reproduzido: o roster (0–100) é mapeado linearmente na faixa
+    /// `[minSkill, maxSkill]` que a temporada escreve.
+    fn esticao_do_iracing(roster_skill: i64, band: SkillBand) -> f64 {
+        band.min + (roster_skill as f64 / 100.0) * (band.max - band.min)
+    }
+
+    #[test]
+    fn o_esticao_do_iracing_vira_identidade() {
+        // A propriedade que sustenta o sistema inteiro: depois do esticão, cada IA corre
+        // EXATAMENTE na skill que o roster pretendia. Sem ela, tudo o que só existe no
+        // roster (pressão, forma, acerto do dia, chuva, carro, rivalidade) é distorcido, e
+        // apagado de vez em quem está na ponta e no fundo do grid.
+        let mut numbers = HashMap::new();
+        let skills = [72.0, 68.0, 65.0, 61.0, 58.0, 52.0, 47.0, 40.0];
+        let entries: Vec<(Driver, Option<TeamInfo>)> = skills
+            .iter()
+            .enumerate()
+            .map(|(i, &s)| {
+                numbers.insert(format!("D-{i}"), i as i64 + 1);
+                (
+                    driver(
+                        &format!("D-{i}"),
+                        &format!("P{i}"),
+                        100.0 - i as f64,
+                        s,
+                        50.0,
+                    ),
+                    Some(team("T1", "#3a86ff", "#222222", false)),
+                )
+            })
+            .collect();
+        let car = car_spec("mx5").unwrap();
+        let built = build_roster(&entries, &car, &numbers, None, || "id".to_string());
+
+        // Alvo de cada piloto = a MESMA curva de 2 trechos que o roster usa por dentro.
+        let curve = skill_curve_from(&skills, 100.0);
+        for (i, &s) in skills.iter().enumerate() {
+            let entrada = built
+                .file
+                .drivers
+                .iter()
+                .find(|d| d.driver_name == format!("P{i}"))
+                .expect("piloto no roster");
+            let alvo = skill_curve(s, &curve);
+            let efetiva = esticao_do_iracing(entrada.driver_skill, built.band);
+            // Tolerância = meio passo do roster (inteiro 0–100 sobre a faixa).
+            let passo = (built.band.max - built.band.min) / 100.0;
+            assert!(
+                (efetiva - alvo).abs() <= passo,
+                "P{i}: pretendido {alvo:.2}, o sim roda {efetiva:.2}"
+            );
+        }
+    }
+
+    #[test]
+    fn dia_ruim_do_lider_sobrevive_ao_esticao() {
+        // O caso que o esticão quebrava, e que é o motivo desta camada existir: o melhor do
+        // grid leva 5 pontos de nudge para baixo (dia ruim, chuva, o que for). Antes ele
+        // voltava inteiro ao topo, porque o esticão sempre põe o melhor do roster no
+        // maxSkill, e ainda empurrava o resto do grid para cima junto. Agora a faixa
+        // acompanha a queda dele E os outros ficam onde estavam.
+        let inteiro = [100.0, 76.4, 64.6, 48.0];
+        let dia_ruim = [95.0, 76.4, 64.6, 48.0];
+
+        let efetivas = |alvos: &[f64]| {
+            let (skills, band) = normalize_to_roster(alvos);
+            skills
+                .into_iter()
+                .map(|s| esticao_do_iracing(s, band))
+                .collect::<Vec<f64>>()
+        };
+        let antes = efetivas(&inteiro);
+        let depois = efetivas(&dia_ruim);
+
+        // O líder cai os 5 pontos, sem devolução.
+        assert!(
+            (antes[0] - depois[0] - 5.0).abs() < 0.5,
+            "o nudge do líder não chegou: {:.2} → {:.2}",
+            antes[0],
+            depois[0]
+        );
+        // E ninguém abaixo dele sobe de carona (a distorção antiga).
+        for i in 1..antes.len() {
+            assert!(
+                (antes[i] - depois[i]).abs() < 0.5,
+                "P{i} se mexeu sem nudge: {:.2} → {:.2}",
+                antes[i],
+                depois[i]
+            );
+        }
+    }
+
+    #[test]
+    fn normalizacao_preserva_o_alvo_acima_de_100() {
+        // Tier com sweet spot acima de 100: antes o roster clampava em 100 e vários pilotos
+        // EMPATAVAM no teto, achatando a frente do grid num bloco só. A faixa carrega os
+        // valores absolutos (até 125), o roster carrega só a forma.
+        let alvos = [118.0, 112.0, 105.0, 98.0, 80.0];
+        let (skills, band) = normalize_to_roster(&alvos);
+        assert_eq!(skills[0], 100);
+        assert!(skills[1] < 100 && skills[1] > skills[2], "{skills:?}");
+        assert!((band.max - 118.0).abs() < 1e-9);
+        for (i, alvo) in alvos.iter().enumerate() {
+            let efetiva = esticao_do_iracing(skills[i], band);
+            assert!(
+                (efetiva - alvo).abs() <= (band.max - band.min) / 100.0,
+                "alvo {alvo:.2} virou {efetiva:.2}"
+            );
+        }
     }
 
     #[test]
@@ -714,8 +920,8 @@ mod tests {
             Some(team("T9", "#3a86ff", "#222222", false)),
         )];
         let car = car_spec("mx5").unwrap();
-        let r1 = build_roster(&entries, &car, &numbers, None, || "id".to_string());
-        let r2 = build_roster(&entries, &car, &numbers, None, || "id".to_string());
+        let r1 = build_roster(&entries, &car, &numbers, None, || "id".to_string()).file;
+        let r2 = build_roster(&entries, &car, &numbers, None, || "id".to_string()).file;
         // Determinístico: mesma entrada → mesmo padrão.
         assert_eq!(r1.drivers[0].car_design, r2.drivers[0].car_design);
         // Padrão pertence ao pool aprovado do MX-5.

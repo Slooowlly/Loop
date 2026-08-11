@@ -24,7 +24,7 @@ pub struct SeasonGenResult {
 /// Acima de rookie é progressivamente mais difícil (sweet spot maior).
 /// Degrau FIXO abaixo do sweet spot no rookie (tier 0), seja qual for a pista. Rookie é a
 /// categoria de iniciante: rebaixamos SEMPRE este tanto de pontos, independente do offset da
-/// pista (Rudskogen 72→64, Oulton 78→70, VIR 105→97). Só o rookie recebe; as outras divisões
+/// pista (Rudskogen 62→54, Oulton 68→60, VIR 95→87). Só o rookie recebe; as outras divisões
 /// ficam iguais. Aplicado sobre o sweet spot final — pode descer abaixo do baseline do tier.
 const ROOKIE_DIFFICULTY_DISCOUNT: i64 = 8;
 
@@ -33,14 +33,17 @@ fn tier_difficulty_base(tier: u8) -> i64 {
     // no iRacing o CARRO já faz a divisão de cima ser mais rápida; o driverSkill% só precisa
     // subir um pouco. Isso deixa MARGEM (até 125) pro offset de pista + adaptativo + futuro
     // efeito de carro, e a dificuldade real mora no adaptativo (que se estica pra quem é bom).
+    // Escada REBAIXADA em 10 pontos em 10/08/2026 (base anterior 72–84): a dificuldade de
+    // partida estava alta demais. Os sweet spots citados nos comentários de calibração de
+    // `track_skill_offset` foram medidos na escada antiga (some 10 pra comparar).
     match tier {
-        0 => 72, // Rookie   (base baixa = "rodinhas"; o adaptativo sobe se dominar)
-        1 => 79, // Amador
-        2 => 81, // Pro / Production / BMW
-        3 => 82, // GT4
-        4 => 83, // GT3
-        5 => 84, // LMP2
-        _ => 84, // Endurance / Elite
+        0 => 62, // Rookie   (base baixa = "rodinhas"; o adaptativo sobe se dominar)
+        1 => 69, // Amador
+        2 => 71, // Pro / Production / BMW
+        3 => 72, // GT4
+        4 => 73, // GT3
+        5 => 74, // LMP2
+        _ => 74, // Endurance / Elite
     }
 }
 
@@ -146,7 +149,8 @@ pub(crate) fn field_car_advantages(
 /// mesmo 73 → 1:36.95, ~0,8s mais lenta). Então cada pista soma/subtrai do sweet spot
 /// base do tier pra acertar a dificuldade ideal. Calibrado em corrida real; default 0.
 /// No fluxo de reexportar antes de cada corrida, recebe a pista daquela corrida.
-/// VALORES (rookie sweet spot = 73 + offset) — preencher conforme o user for testando:
+/// VALORES calibrados na escada ANTIGA (rookie sweet spot = 73 + offset); a escada atual
+/// está 10 pontos abaixo (ver `tier_difficulty_base`) — preencher conforme o user for testando:
 fn track_skill_offset(track_id: i64) -> i64 {
     match track_id {
         // Lédenon: no sweet spot 83 a ponta (Alvarez 1:35.946) EMPATOU com o jogador
@@ -309,9 +313,14 @@ pub fn iracing_generate_season(
         .map(|e| e.id.clone());
 
     // Clima + horário gerados por pista+estação (determinístico por etapa). Guarda a
-    // história de cada pista para a penalidade da chuva na banda.
-    let mut stories: std::collections::HashMap<i64, crate::iracing_sdk::weather::WeatherStory> =
-        std::collections::HashMap::new();
+    // história de cada ETAPA (chave = id da corrida) para a penalidade da chuva na banda.
+    // Chaveava por PISTA: calendário que repete a mesma pista sobrescrevia a história e a
+    // penalidade da banda podia sair da rodada errada — molhada onde a corrida é seca, ou
+    // o contrário. O valor guarda o track_id só para o alvo manual de teste.
+    let mut stories: std::collections::HashMap<
+        String,
+        (i64, crate::iracing_sdk::weather::WeatherStory),
+    > = std::collections::HashMap::new();
     let mut substituted = 0;
     for entry in &entries {
         // Fallback de TESTE: se a pista do calendário é conteúdo PAGO (que o jogador
@@ -352,7 +361,7 @@ pub fn iracing_generate_season(
                 "UPDATE calendar SET clima = ?1, temperatura = ?2 WHERE id = ?3",
                 rusqlite::params![wc.as_str(), ew.temp_c as f64, entry.id],
             );
-            stories.insert(entry.track_id as i64, story);
+            stories.insert(entry.id.clone(), (entry.track_id as i64, story));
             // Etapa já disputada no app → escreve os resultados (iRacing "pula").
             // No modo teste (zerado) nunca escreve resultados.
             let results = if !test_blank
@@ -454,6 +463,26 @@ pub fn iracing_generate_season(
     // Sweet spot do tier na pista alvo (âncora da curva; MESMO valor que o roster usa).
     // Perfil adaptativo por custid entra aqui dentro.
     let base_sweet = ai_sweet_spot(cat.tier, resolved_track_id, &base_dir, custid);
+    // Rastro do CONSUMO do perfil adaptativo — a outra ponta do ciclo. O pós-corrida
+    // loga "global X → Y"; esta linha prova que o Y gravado foi LIDO no export seguinte
+    // e entrou no sweet spot da pista alvo. Sem ela, "gravou mas nunca aplicou" e
+    // "aplicou" são indistinguíveis no log.
+    {
+        let profile = load_adaptive_profile(&base_dir, custid);
+        let adapt_track = resolved_track_id
+            .map(|id| profile.track_delta(id))
+            .unwrap_or(0);
+        crate::diagnostico::linha(
+            "adaptativo",
+            &format!(
+                "Export {categoria} (tier {}): pista {} · perfil global {:+} · pista {:+} · sweet spot {base_sweet}",
+                cat.tier,
+                resolved_track_id.unwrap_or(0),
+                profile.global,
+                adapt_track
+            ),
+        );
+    }
     // Sistema de Nível do Carro → dificuldade: rebaixa/eleva a BANDA inteira pela vantagem do
     // SEU carro vs a média do campo na pista alvo (o spread por-IA vai no roster). MESMO
     // cálculo que o roster usa, pra os dois baterem sob o esticão do iRacing.
@@ -487,13 +516,45 @@ pub fn iracing_generate_season(
     // Chuva: se a corrida ALVO é molhada, baixa a banda (pelotão mais lento — chuva
     // no iRacing é punitiva; subir a IA faria o humano forçar e rodar). v1: rebaixa o
     // campo todo pela penalidade num fator_chuva médio (~50). Re-rank por piloto depois.
-    let rain_pen = resolved_track_id
-        .and_then(|id| stories.get(&id))
+    // História da etapa ALVO: no auto-targeting é a PRÓPRIA próxima corrida pendente (pelo
+    // id, não pela pista); no alvo manual de teste, a primeira etapa daquela pista.
+    let target_story = if auto_targeted {
+        next_pending_id
+            .as_deref()
+            .and_then(|rid| stories.get(rid))
+            .map(|(_, s)| s)
+    } else {
+        resolved_track_id
+            .and_then(|id| stories.values().find(|(tid, _)| *tid == id).map(|(_, s)| s))
+    };
+    let rain_pen = target_story
         .filter(|s| s.is_wet_race)
         .map(|s| crate::iracing_sdk::weather::rain_skill_penalty(50.0, s.race_intensity))
         .unwrap_or(0);
-    let max_skill = (max_skill - rain_pen).clamp(0, 125);
-    let min_skill = (min_skill - rain_pen).clamp(0, max_skill);
+
+    // FAIXA EFETIVA vinda do roster (post-it do export que roda logo antes). É ela que faz o
+    // esticão do iRacing virar a identidade: o roster sai normalizado em 0–100 a partir
+    // exatamente destes dois valores, então cada IA corre no nível que o roster pretendia.
+    // Sem isso a faixa saía das skills CRUAS e o esticão apagava tudo o que só existe no
+    // roster — o líder com dia ruim voltava ao topo e ainda empurrava o grid inteiro junto.
+    // A chuva já entra por piloto no roster, então a faixa dela vem pronta e o `rain_pen`
+    // NÃO se aplica aqui.
+    // Só vale quando categoria E pista casam; post-it de outro export é post-it velho.
+    let roster_band = load_export_skill_band(&base_dir, custid).filter(|b| {
+        b.categoria == categoria && Some(b.track_id) == resolved_track_id && b.max > b.min
+    });
+    let (min_skill, max_skill) = match &roster_band {
+        Some(b) => {
+            let max = (b.max.round() as i64).clamp(0, 125);
+            ((b.min.round() as i64).clamp(0, max), max)
+        }
+        // Sem post-it (roster não exportado, ou exportado para outra pista): fórmula antiga,
+        // com a penalidade de chuva na banda. Continua correta como aproximação.
+        None => {
+            let max = (max_skill - rain_pen).clamp(0, 125);
+            ((min_skill - rain_pen).clamp(0, max), max)
+        }
+    };
     let max_drivers = (skills.len() as i64 + 1).max(2);
 
     // Clima global (fallback) = o da 1ª etapa do calendário.

@@ -407,13 +407,31 @@ pub fn iracing_generate_roster(
 
     let behavior_ctx = next.as_ref().and_then(|(season, race)| {
         let track = get_track(race.track_id)?;
+        // Corrida de ESTREIA do save (roteiro fixo do clima). MESMA definição do export
+        // da temporada: nenhuma etapa concluída no calendário da categoria e esta é a da
+        // primeira semana. Estava fixo em `false` — na estreia o aiseason escrevia o
+        // roteiro SECO e o roster montava a história aleatória, que podia sair molhada.
+        // A penalidade da banda e o re-rank por piloto saíam de climas diferentes.
+        let is_first_race = calq::get_calendar(&db.conn, &season.id, &categoria)
+            .map(|entries| {
+                let first_week = entries
+                    .iter()
+                    .map(|e| e.week_of_year)
+                    .min()
+                    .unwrap_or(i32::MAX);
+                entries
+                    .iter()
+                    .all(|e| !matches!(e.status, crate::models::enums::RaceStatus::Concluida))
+                    && race.week_of_year == first_week
+            })
+            .unwrap_or(false);
         // Clima da próxima corrida (mesma geração determinística da season).
         let mut story = weather::generate_weather(
             month_from_week(race.week_of_year),
             track_hemisphere(track.pais),
             climate_tendency(track.rain_group),
             event_seed(&career_id, &race.id),
-            false,
+            is_first_race,
         );
         // TESTE: força chuva forte na próxima corrida.
         if force_wet.unwrap_or(false) {
@@ -559,9 +577,27 @@ pub fn iracing_generate_roster(
         })
     });
 
-    let roster = roster_gen::build_roster(&entries, &car, &numbers, behavior_ctx.as_ref(), || {
+    let built = roster_gen::build_roster(&entries, &car, &numbers, behavior_ctx.as_ref(), || {
         uuid::Uuid::new_v4().to_string()
     });
+    let roster = built.file;
+
+    // Post-it da FAIXA EFETIVA para o export da temporada, que roda logo depois. Sem ele a
+    // temporada calcularia `minSkill`/`maxSkill` pelas skills CRUAS, e o esticão do iRacing
+    // apagaria tudo o que só existe no roster. Best-effort: só grava quando há corrida alvo
+    // (a temporada exige que categoria e pista casem para usar).
+    if let Some((_, race)) = next.as_ref() {
+        let _ = save_export_skill_band(
+            &base_dir,
+            crate::iracing_sdk::cached_custid().unwrap_or(0),
+            &ExportSkillBand {
+                categoria: categoria.clone(),
+                track_id: race.track_id as i64,
+                min: built.band.min,
+                max: built.band.max,
+            },
+        );
+    }
 
     // Grava em airosters/<roster_name>/roster.json.
     let safe_name: String = roster_name
@@ -597,6 +633,7 @@ pub fn iracing_generate_roster(
             race.week_of_year,
             ev_seed,
             force_wet.unwrap_or(false),
+            1.0, // corrida do JOGADOR (export ao vivo): sem viés de chuva
         );
         let track_pha = maintenance_demand(&[race.track_id]);
 

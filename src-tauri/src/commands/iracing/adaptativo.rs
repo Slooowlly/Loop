@@ -98,6 +98,60 @@ pub(crate) fn load_car_difficulty_context(
         .and_then(|s| serde_json::from_str(&s).ok())
 }
 
+/// Faixa de skill EFETIVA do último roster exportado — o post-it que fecha o ciclo entre
+/// os dois arquivos do iRacing.
+///
+/// O roster grava `driverSkill` normalizado em 0–100 e o sim ESTICA esse roster para
+/// preencher o `minSkill`/`maxSkill` da temporada. Se a temporada calcular a faixa por
+/// conta própria (a partir das skills CRUAS), tudo o que só existe no roster (pressão,
+/// forma, acerto do dia, chuva, carro, rivalidade) é distorcido pelo esticão e apagado de
+/// vez em quem está na ponta e no fundo do grid. Com a faixa vindo daqui, o esticão vira a
+/// identidade. O roster é sempre exportado ANTES da temporada no fluxo do botão Correr.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct ExportSkillBand {
+    /// Categoria do export (a temporada só usa se casar com a dela).
+    pub(crate) categoria: String,
+    /// Pista alvo do export (idem — post-it de outra pista é post-it velho).
+    pub(crate) track_id: i64,
+    /// Menor e maior skill PRETENDIDA do grid, na escala efetiva (vai até 125).
+    pub(crate) min: f64,
+    pub(crate) max: f64,
+}
+
+pub(crate) fn export_skill_band_path(
+    base_dir: &std::path::Path,
+    custid: i64,
+) -> std::path::PathBuf {
+    base_dir
+        .join("iracing_adaptive")
+        .join(format!("{custid}_band.json"))
+}
+
+/// Persiste a faixa efetiva do roster (best-effort; erro só é logado pelo chamador).
+pub(crate) fn save_export_skill_band(
+    base_dir: &std::path::Path,
+    custid: i64,
+    band: &ExportSkillBand,
+) -> Result<(), String> {
+    let path = export_skill_band_path(base_dir, custid);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Falha ao criar pasta: {e}"))?;
+    }
+    let json =
+        serde_json::to_string_pretty(band).map_err(|e| format!("Falha ao serializar: {e}"))?;
+    std::fs::write(&path, json).map_err(|e| format!("Falha ao gravar: {e}"))
+}
+
+/// Lê a faixa efetiva do último roster exportado (None se não existe).
+pub(crate) fn load_export_skill_band(
+    base_dir: &std::path::Path,
+    custid: i64,
+) -> Option<ExportSkillBand> {
+    std::fs::read_to_string(export_skill_band_path(base_dir, custid))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+}
+
 /// Resultado do processamento adaptativo pós-corrida (para a UI).
 #[derive(serde::Serialize)]
 pub struct AdaptiveResult {
@@ -135,6 +189,20 @@ pub fn iracing_process_race_result(app: tauri::AppHandle) -> Result<AdaptiveResu
     let track_id = history.track_id;
     if track_id <= 0 {
         return Err("Pista da corrida não identificada (sem TrackID na sessão).".to_string());
+    }
+    // Idempotência: a MESMA tentativa nunca ajusta duas vezes. O histórico fica
+    // `finished` na memória até a próxima sessão começar, então qualquer segunda
+    // chamada nesse intervalo (invocação manual, código futuro religando um painel)
+    // reaplicaria o passo inteiro — +5 virava +10 sem ninguém perceber. A chave
+    // (subsession, tentativa) é única dentro de uma execução do app, que é
+    // exatamente o tempo de vida do histórico em memória.
+    static ULTIMA_PROCESSADA: std::sync::Mutex<Option<(i64, i32)>> = std::sync::Mutex::new(None);
+    let chave = (history.subsession_id, history.attempt_number);
+    if ULTIMA_PROCESSADA.lock().ok().and_then(|u| *u) == Some(chave) {
+        return Err(format!(
+            "Corrida já processada (tentativa {}): o ajuste não se aplica duas vezes.",
+            history.attempt_number
+        ));
     }
     let custid = iracing_sdk::cached_custid().unwrap_or(0);
     let base_dir = app
@@ -220,6 +288,11 @@ pub fn iracing_process_race_result(app: tauri::AppHandle) -> Result<AdaptiveResu
             .tracks
             .insert(track_id.to_string(), update.new.track);
         save_adaptive_profile(&base_dir, custid, &profile)?;
+    }
+    // Só marca DEPOIS do save: se a gravação falhar, a corrida continua elegível
+    // para uma nova tentativa de processamento (o Err sobe e o import loga).
+    if let Ok(mut ultima) = ULTIMA_PROCESSADA.lock() {
+        *ultima = Some(chave);
     }
     Ok(AdaptiveResult {
         applied: update.applied,
