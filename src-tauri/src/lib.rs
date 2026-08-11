@@ -381,6 +381,12 @@ pub fn run() {
                 diagnostico::linha("spotter", &format!("sincronizar no boot falhou: {error}"));
             }
 
+            // Modo janela do iRacing: pré-requisito do overlay, aplicado sem
+            // perguntar. Janela sem borda maximizada é indistinguível de tela cheia
+            // para quem joga, então a antiga confirmação só cobrava atrito. Como o
+            // spotter acima, não é fatal — ver `iracing_sdk::modo_janela`.
+            iracing_sdk::modo_janela::sincronizar_no_boot();
+
             // Overlays de monitor: click-through por PADRÃO (o mouse vai pro jogo).
             // Definido uma vez aqui; o hover (vigia de cursor) alterna pra arrastar.
             if let Some(overlay) = app.get_webview_window("overlay") {
@@ -465,6 +471,7 @@ pub fn run() {
             commands::career_commands::create_career,
             commands::career_commands::create_historical_career_draft,
             commands::career_commands::get_career_draft,
+            commands::career_commands::update_career_draft_identity,
             commands::career_commands::discard_career_draft,
             commands::career_commands::finalize_career_draft,
             commands::career_commands::load_career,
@@ -593,7 +600,6 @@ pub fn run() {
             commands::iracing::iracing_spotter_set,
             commands::iracing::iracing_spotter_restore,
             commands::iracing::iracing_spotter_vizinhanca,
-            commands::iracing::iracing_modo_janela_status,
             commands::iracing::iracing_modo_janela_aplicar,
             // POC de latência do TTS (docs/tts-poc-latencia.md). Vive fora do jogo:
             // nenhuma tela de carreira invoca isso.

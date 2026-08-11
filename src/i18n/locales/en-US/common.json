@@ -35,6 +35,11 @@
       "off": "Off — the iRacing spotter talks normally.",
       "semAppIni": "The iRacing app.ini was not found."
     },
+    "autoPaint": {
+      "label": "Paint my car in the team's color",
+      "on": "On — when you export the round, your car gets the team color in the iRacing garage. Any paint already there is kept alongside it, ending in .loop-bak. If you use Trading Paints, its paint wins.",
+      "off": "Off — Loop leaves your car paint alone."
+    },
     "spotterVoz": {
       "label": "Spotter voice",
       "on": "On — the spotter checks in when you get in the car and calls out cars alongside.",
@@ -1337,24 +1342,8 @@
       "colPts": "Pts"
     },
     "paint": {
-      "eyebrow": "Your car color in iRacing",
-      "promptTitle": "Want to paint your car in your team's color?",
-      "promptBody": "We automatically apply the team color in your iRacing garage. From here on, the color updates itself whenever you change teams.",
-      "painting": "Painting…",
-      "grab": "🎨 Grab the car color",
-      "notNow": "Not now",
-      "requiresTradingPaints": "Requires Trading Paints installed.",
-      "toastPainted": "🎨 Car painted in {{color}} in your iRacing garage.",
-      "teamColorFallback": "the team's color"
-    },
-    "windowMode": {
-      "eyebrow": "Windowed mode",
-      "promptTitle": "Loop needs iRacing in windowed mode",
-      "promptBody": "The panel can't show over fullscreen.",
-      "adjust": "Adjust",
-      "adjusting": "Adjusting…",
-      "notNow": "Not now",
-      "toastDone": "🖥️ iRacing in windowed mode."
+      "toastPainted": "🎨 Your car was painted in the team's {{color}} in your iRacing garage. You can turn this off in Settings.",
+      "teamColorFallback": "color"
     },
     "toast": {
       "exportedTitle": "Data exported",
@@ -1372,12 +1361,10 @@
     },
     "errors": {
       "buildBriefing": "Couldn't build the briefing.",
-      "grabPaint": "Couldn't grab the car color.",
       "simulate": "Couldn't simulate the race.",
       "advancePreseason": "Couldn't advance to the preseason.",
       "noCareerCategory": "No career or category to export.",
       "export": "Couldn't export to iRacing.",
-      "windowMode": "Couldn't switch iRacing to windowed mode.",
       "skipSeason": "Error skipping the season."
     }
   },

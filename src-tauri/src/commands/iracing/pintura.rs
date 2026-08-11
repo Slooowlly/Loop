@@ -76,6 +76,8 @@ pub struct ApplyPaintResult {
 
 /// Escreve a pintura (cor sólida do time) do carro do jogador como custom paint
 /// do iRacing: `paint/<carro>/car_<custid>.tga`. Usa o custid já capturado.
+/// Disparo MANUAL do painel de diagnóstico, então ignora o interruptor das
+/// Configurações de propósito: quem clicou pediu a pintura agora.
 #[tauri::command]
 pub fn iracing_apply_player_paint(
     app: tauri::AppHandle,
@@ -85,13 +87,10 @@ pub fn iracing_apply_player_paint(
     use crate::config::app_config::AppConfig;
     use crate::db::connection::Database;
     use crate::db::queries::{contracts as cq, drivers as dq, teams as tq};
-    use crate::iracing_sdk::{paint_gen, paths, roster_gen};
     use tauri::Manager;
 
     let custid = iracing_sdk::cached_custid()
         .ok_or("Ainda não capturei seu custid — abra o iRacing e entre numa sessão uma vez.")?;
-    let car =
-        roster_gen::car_spec(&car_key).ok_or_else(|| format!("Carro desconhecido: {car_key}"))?;
 
     // Cor do time do jogador.
     let base_dir = app
@@ -111,19 +110,12 @@ pub fn iracing_apply_player_paint(
         .flatten()
         .and_then(|c| tq::get_team_by_id(&db.conn, &c.equipe_id).ok().flatten())
         .ok_or("Você não tem contrato/time ativo nesta carreira.")?;
-    let hex = roster_gen::normalize_hex(&team.cor_primaria);
 
-    // Escreve car_<custid>.tga na pasta de pintura do carro.
-    let dir = paths::car_paint_dir(car.car_path)
-        .ok_or("Não foi possível localizar a pasta de pintura do iRacing.")?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Falha ao criar pasta: {e}"))?;
-    let path = dir.join(format!("car_{custid}.tga"));
-    paint_gen::write_solid_tga(&path, &hex).map_err(|e| format!("Falha ao gravar pintura: {e}"))?;
-
+    let (path, color) = write_player_car_tga(&car_key, &team.cor_primaria, custid)?;
     Ok(ApplyPaintResult {
-        path: path.display().to_string(),
+        path,
         custid,
-        color: format!("#{hex}"),
+        color,
     })
 }
 
@@ -144,9 +136,20 @@ fn car_key_for_category(categoria: &str) -> &'static str {
     }
 }
 
+/// Sufixo do backup da pintura que já existia na pasta do iRacing. Guardado UMA
+/// vez, antes da primeira escrita nossa: aquele `.tga` pode ser arquivo do
+/// jogador (pintura baixada do Trading Paints ou feita à mão) e sobrescrever sem
+/// preservar apagaria trabalho dele de forma definitiva. Existindo o backup, ele
+/// é o original — as repinturas seguintes são todas nossas e não o substituem.
+const PAINT_BACKUP_SUFFIX: &str = "tga.loop-bak";
+
 /// Escreve `car_<custid>.tga` (cor sólida `hex`) na pasta de pintura do carro.
-/// Núcleo compartilhado pela pintura da 1ª vez e pela repintura no mercado.
-/// Recebe o `hex` já normalizado pelo chamador.
+/// Núcleo compartilhado por todos os caminhos de pintura. Recebe o `hex` já
+/// normalizado pelo chamador.
+///
+/// Preserva a pintura anterior antes de escrever (ver [`PAINT_BACKUP_SUFFIX`]).
+/// A falha ao preservar ABORTA a escrita: perder o arquivo do jogador é pior que
+/// ficar sem a cor da equipe.
 fn write_player_car_tga(car_key: &str, hex: &str, custid: i64) -> Result<(String, String), String> {
     use crate::iracing_sdk::{paint_gen, paths, roster_gen};
     let car =
@@ -156,8 +159,26 @@ fn write_player_car_tga(car_key: &str, hex: &str, custid: i64) -> Result<(String
         .ok_or("Não foi possível localizar a pasta de pintura do iRacing.")?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("Falha ao criar pasta: {e}"))?;
     let path = dir.join(format!("car_{custid}.tga"));
+    if path.is_file() {
+        let backup = path.with_extension(PAINT_BACKUP_SUFFIX);
+        if !backup.exists() {
+            std::fs::copy(&path, &backup)
+                .map_err(|e| format!("Falha ao preservar a pintura que já estava lá: {e}"))?;
+        }
+    }
     paint_gen::write_solid_tga(&path, &hex).map_err(|e| format!("Falha ao gravar pintura: {e}"))?;
     Ok((path.display().to_string(), format!("#{hex}")))
+}
+
+/// A pintura automática está ligada nas Configurações? Na dúvida (não deu para
+/// resolver o `app_data_dir`), responde o padrão: ligada.
+fn auto_paint_enabled(app: &tauri::AppHandle) -> bool {
+    use crate::config::app_config::AppConfig;
+    use tauri::Manager;
+    app.path()
+        .app_data_dir()
+        .map(|dir| AppConfig::load_or_default(&dir).auto_paint_car)
+        .unwrap_or(true)
 }
 
 /// Lê o custid já capturado (sampler) ou tenta ler a sessão atual agora.
@@ -171,58 +192,33 @@ fn capture_player_custid() -> Option<i64> {
     iracing_sdk::cached_custid()
 }
 
-/// `true` se já capturamos o custid do jogador — ou seja, ele já conectou ao iRacing
-/// (SDK) ao menos uma vez. O front usa para mostrar a opção "pegar a cor do carro"
-/// na Sala de Estratégia só quando faz sentido: já temos o ID para poder pintar.
+/// Exportação da etapa: pinta o carro do jogador na cor da equipe atual e VINCULA
+/// o custid a este save. Roda sozinho, sem perguntar nada — o arquivo é local
+/// (ninguém mais na sessão vê a nossa cor), a cor é a da carreira, e o `.tga` que
+/// já estava lá fica preservado em `.tga.loop-bak`.
+///
+/// Silencioso por contrato: devolve `None` quando a pintura está desligada nas
+/// Configurações ou quando ainda não temos o custid (o jogador nunca abriu o
+/// iRacing). Nos dois casos não há nada a mostrar, e a exportação segue.
 #[tauri::command]
-pub fn iracing_has_player_id() -> bool {
-    iracing_sdk::cached_custid().is_some()
-}
-
-/// Custid do iRacing VINCULADO a este save (`None` se ainda não vinculado). O front
-/// usa isto para decidir se mostra o popup de "pegar a cor do carro" na 1ª corrida.
-#[tauri::command]
-pub fn iracing_linked_custid(
-    app: tauri::AppHandle,
-    career_id: String,
-) -> Result<Option<i64>, String> {
-    use crate::config::app_config::AppConfig;
-    use crate::db::connection::Database;
-    use tauri::Manager;
-
-    let base_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
-    let config = AppConfig::load_or_default(&base_dir);
-    let db_path = config.saves_dir().join(&career_id).join("career.db");
-    if !db_path.exists() {
-        return Err(format!("Save não encontrado: {career_id}"));
-    }
-    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
-    let val = crate::db::queries::meta::get_meta_value(&db.conn, PLAYER_CUSTID_META_KEY)
-        .map_err(|e| format!("Falha ao ler meta: {e}"))?;
-    Ok(val.and_then(|s| s.trim().parse::<i64>().ok()))
-}
-
-/// 1ª vez (popup da Sala de Estratégia): captura o custid do iRacing, VINCULA ao
-/// save (tabela meta) e pinta o carro na cor do time atual do jogador. Erro claro
-/// se o custid ainda não foi capturado (precisa abrir o iRacing uma vez).
-#[tauri::command]
-pub fn iracing_link_player_paint(
+pub fn iracing_auto_paint_player(
     app: tauri::AppHandle,
     career_id: String,
     car_key: String,
-) -> Result<ApplyPaintResult, String> {
+) -> Result<Option<ApplyPaintResult>, String> {
     use crate::config::app_config::AppConfig;
     use crate::db::connection::Database;
     use crate::db::queries::{contracts as cq, drivers as dq, teams as tq};
     use crate::iracing_sdk::roster_gen;
     use tauri::Manager;
 
-    let custid = capture_player_custid().ok_or(
-        "Ainda não capturei seu ID do iRacing — abra o iRacing e entre numa sessão ou pista uma vez para vincularmos.",
-    )?;
+    if !auto_paint_enabled(&app) {
+        return Ok(None);
+    }
+    let custid = match capture_player_custid() {
+        Some(id) => id,
+        None => return Ok(None), // nunca abriu o iRacing → pinta na próxima vez
+    };
 
     let base_dir = app
         .path()
@@ -251,17 +247,18 @@ pub fn iracing_link_player_paint(
     crate::db::queries::meta::put_meta_value(&db.conn, PLAYER_CUSTID_META_KEY, &custid.to_string())
         .map_err(|e| format!("Falha ao vincular o ID ao save: {e}"))?;
 
-    Ok(ApplyPaintResult {
+    Ok(Some(ApplyPaintResult {
         path,
         custid,
         color,
-    })
+    }))
 }
 
 /// Mercado: repinta o carro do jogador na cor da NOVA equipe ao aceitar um contrato.
 /// Usa o custid vinculado ao save (ou o capturado na sessão, persistindo-o). Devolve
-/// `None` silenciosamente se ainda não há custid (jamais abriu o iRacing) — o front
-/// simplesmente não mostra o toast nesse caso.
+/// `None` silenciosamente se a pintura está desligada nas Configurações ou se ainda
+/// não há custid (jamais abriu o iRacing) — o front simplesmente não mostra o toast
+/// nesses casos.
 #[tauri::command]
 pub fn iracing_apply_market_paint(
     app: tauri::AppHandle,
@@ -272,6 +269,10 @@ pub fn iracing_apply_market_paint(
     use crate::config::app_config::AppConfig;
     use crate::db::connection::Database;
     use tauri::Manager;
+
+    if !auto_paint_enabled(&app) {
+        return Ok(None);
+    }
 
     let base_dir = app
         .path()

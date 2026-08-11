@@ -35,6 +35,11 @@
       "off": "Desligado — o spotter do iRacing fala normalmente.",
       "semAppIni": "O app.ini do iRacing não foi encontrado."
     },
+    "autoPaint": {
+      "label": "Pintar meu carro na cor da equipe",
+      "on": "Ligado — ao exportar a etapa, seu carro recebe a cor da equipe na garagem do iRacing. A pintura que já estava lá fica guardada ao lado, com o final .loop-bak. Se você usa Trading Paints, a pintura dele prevalece.",
+      "off": "Desligado — o Loop não mexe na pintura do seu carro."
+    },
     "spotterVoz": {
       "label": "Voz do spotter",
       "on": "Ligada — o spotter se apresenta quando você senta no carro e avisa dos carros ao lado.",
@@ -1337,24 +1342,8 @@
       "colPts": "Pts"
     },
     "paint": {
-      "eyebrow": "Cor do seu carro no iRacing",
-      "promptTitle": "Quer pintar seu carro na cor da sua equipe?",
-      "promptBody": "Aplicamos automaticamente a cor do time na sua garagem do iRacing. A partir daqui, a cor é atualizada sozinha sempre que você trocar de equipe.",
-      "painting": "Pintando…",
-      "grab": "🎨 Pegar a cor do carro",
-      "notNow": "Agora não",
-      "requiresTradingPaints": "Requer o Trading Paints instalado.",
-      "toastPainted": "🎨 Carro pintado na cor {{color}} na sua garagem do iRacing.",
+      "toastPainted": "🎨 Seu carro foi pintado na cor {{color}} da equipe, na sua garagem do iRacing. Pode desligar isso em Configurações.",
       "teamColorFallback": "do time"
-    },
-    "windowMode": {
-      "eyebrow": "Modo janela",
-      "promptTitle": "O Loop precisa do iRacing em modo janela",
-      "promptBody": "O painel não aparece por cima de tela cheia.",
-      "adjust": "Ajustar",
-      "adjusting": "Ajustando…",
-      "notNow": "Agora não",
-      "toastDone": "🖥️ iRacing em modo janela."
     },
     "toast": {
       "exportedTitle": "Dados exportados",
@@ -1372,12 +1361,10 @@
     },
     "errors": {
       "buildBriefing": "Não foi possível montar o briefing.",
-      "grabPaint": "Não foi possível pegar a cor do carro.",
       "simulate": "Não foi possível simular a corrida.",
       "advancePreseason": "Não foi possível avançar para a pré-temporada.",
       "noCareerCategory": "Sem carreira ou categoria para exportar.",
       "export": "Não foi possível exportar para o iRacing.",
-      "windowMode": "Não foi possível ajustar o modo janela do iRacing.",
       "skipSeason": "Erro ao pular temporada."
     }
   },

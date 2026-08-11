@@ -1,12 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 
 import { exportSuccess } from "../../../utils/sfx";
 import { IRACING_TUTORIAL_KEY, carKeyForCategory, getDisplayError } from "./nextRaceHelpers";
 
+// Chave (por save) do aviso único da pintura. A cor do carro é aplicada em toda
+// exportação sem perguntar nada, e avisar sempre viraria ruído. Avisamos uma vez,
+// para o jogador saber de onde veio a cor e onde desligar.
+const PAINT_NOTICE_KEY = "loop.paintNoticed.";
+
 // Exportação para o iRacing (roster + temporada), toasts de ação, tutorial da 1ª ida
-// e o vínculo da cor do carro do jogador.
+// e a pintura automática do carro do jogador.
 export function useIracingExport({ careerId, player, playerTeam, setError }) {
   const { t } = useTranslation();
   const [exportNotice, setExportNotice] = useState("");
@@ -17,78 +22,38 @@ export function useIracingExport({ careerId, player, playerTeam, setError }) {
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialMsg, setTutorialMsg] = useState("");
   const toastTimers = useRef([]);
-  // "Pegar a cor do carro": botão ao lado de Simular Corrida que abre o modal.
-  // Só aparece quando o jogador já conectou ao iRacing (temos o custid) e ainda
-  // não vinculou a cor a este save.
-  const [canPickPaint, setCanPickPaint] = useState(false);
-  const [showPaintPrompt, setShowPaintPrompt] = useState(false);
-  const [paintBusy, setPaintBusy] = useState(false);
-  const [paintError, setPaintError] = useState("");
+  // Timer próprio: o aviso da pintura NÃO entra em `toastTimers`, que é limpo pelo
+  // `dismissToasts` da exportação. Limpo ali, o toast ficaria preso na tela.
+  const paintTimer = useRef(null);
   const [paintToast, setPaintToast] = useState("");
-  // Modo janela do iRacing: o overlay não aparece por cima de tela cheia exclusiva.
-  // O pedido nasce aqui, na exportação, porque é o único momento em que o jogador
-  // tem o iRacing no lobby (o simulador fechado) e está indo correr.
-  const [showWindowPrompt, setShowWindowPrompt] = useState(false);
-  const [windowBusy, setWindowBusy] = useState(false);
-  const [windowError, setWindowError] = useState("");
-  const [windowToast, setWindowToast] = useState("");
 
-  // Decide se a opção "pegar a cor do carro" aparece na Sala de Estratégia: só
-  // quando o jogador JÁ conectou ao iRacing (temos o custid — ele correu de verdade,
-  // não simulou) e ainda NÃO vinculou a cor a este save. Checa o vínculo uma vez e
-  // então faz um poll leve da conexão (o custid pode surgir enquanto ele está aqui).
-  useEffect(() => {
-    let active = true;
-    if (!careerId) {
-      setCanPickPaint(false);
-      return undefined;
-    }
-    let handle;
-    invoke("iracing_linked_custid", { careerId })
-      .then((linked) => {
-        if (!active) return;
-        if (linked !== null && linked !== undefined) {
-          setCanPickPaint(false); // já vinculado → não aparece mais aqui (vai pro mercado)
-          return;
-        }
-        const check = () => {
-          invoke("iracing_has_player_id")
-            .then((hasId) => {
-              if (active) setCanPickPaint(Boolean(hasId));
-            })
-            .catch(() => {});
-        };
-        check();
-        handle = setInterval(check, 5000);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      if (handle) clearInterval(handle);
-    };
-  }, [careerId]);
-
-  async function handleGrabPaint() {
-    if (!careerId) return;
-    const carKey = carKeyForCategory(playerTeam?.categoria);
-    setPaintBusy(true);
-    setPaintError("");
+  // Pinta o carro do jogador na cor da equipe junto com a exportação da etapa. Sem
+  // pergunta: o arquivo é local (só ele vê essa cor), a cor é a da carreira, e o
+  // .tga que já existia fica preservado ao lado, em .tga.loop-bak. O backend devolve
+  // null quando a pintura está desligada nas Configurações ou quando ainda não temos
+  // o ID do iRacing — nos dois casos não há nada a dizer.
+  async function pintarCarro(careerIdAtual, carKey) {
+    let res;
     try {
-      const res = await invoke("iracing_link_player_paint", { careerId, carKey });
-      setShowPaintPrompt(false);
-      setCanPickPaint(false); // vinculado → não aparece mais na Sala de Estratégia
-      setPaintToast(
-        t("nextRaceTab.paint.toastPainted", {
-          color: res?.color ?? t("nextRaceTab.paint.teamColorFallback"),
-        }),
-      );
-      const timer = setTimeout(() => setPaintToast(""), 6000);
-      toastTimers.current.push(timer);
-    } catch (e) {
-      setPaintError(getDisplayError(e, t("nextRaceTab.errors.grabPaint")));
-    } finally {
-      setPaintBusy(false);
+      res = await invoke("iracing_auto_paint_player", { careerId: careerIdAtual, carKey });
+    } catch {
+      return; // pintura é acessório da exportação, nunca a derruba
     }
+    if (!res) return;
+    const chave = PAINT_NOTICE_KEY + careerIdAtual;
+    try {
+      if (localStorage.getItem(chave) === "1") return;
+      localStorage.setItem(chave, "1");
+    } catch {
+      return; // sem localStorage, prefira o silêncio a avisar toda exportação
+    }
+    setPaintToast(
+      t("nextRaceTab.paint.toastPainted", {
+        color: res.color ?? t("nextRaceTab.paint.teamColorFallback"),
+      }),
+    );
+    clearTimeout(paintTimer.current);
+    paintTimer.current = setTimeout(() => setPaintToast(""), 8000);
   }
 
   async function handleExport() {
@@ -110,19 +75,18 @@ export function useIracingExport({ careerId, player, playerTeam, setError }) {
       // momento, então a escrita no app.ini "cola" (o sim só reescreve ao fechar).
       // Não-fatal: se falhar (ex.: app.ini não encontrado), não bloqueia a exportação.
       await invoke("iracing_install_yellow_macro").catch(() => {});
+      // Mesmo tratamento para o modo janela (pré-requisito do overlay): o boot do
+      // Loop já tentou, e esta é a segunda chance para quem abriu o Loop com o
+      // simulador rodando. Ajustar depois que ele entrar no sim não adiantaria — o
+      // iRacing reescreve esses arquivos ao fechar. Não-fatal e sem pergunta.
+      await invoke("iracing_modo_janela_aplicar").catch(() => {});
       dismissToasts();
       setExported(true);
       exportSuccess();
-      // O pedido do modo janela entra ANTES do convite de ir ao iRacing: ajustar
-      // depois de o jogador já ter entrado no simulador não adiantaria nada — o
-      // sim reescreve esses arquivos ao fechar. Sem nada a ajustar, segue direto.
-      const modo = await invoke("iracing_modo_janela_status").catch(() => null);
-      if (modo?.deve_perguntar) {
-        setWindowError("");
-        setShowWindowPrompt(true);
-      } else {
-        agendarToastsDeIda();
-      }
+      agendarToastsDeIda();
+      // Depois do `dismissToasts` acima, senão o aviso da pintura nasceria e morreria
+      // no mesmo instante.
+      await pintarCarro(careerId, carKey);
     } catch (invokeError) {
       setError(getDisplayError(invokeError, t("nextRaceTab.errors.export")));
     } finally {
@@ -135,32 +99,6 @@ export function useIracingExport({ careerId, player, playerTeam, setError }) {
   function agendarToastsDeIda() {
     toastTimers.current.push(setTimeout(() => setShowGoToast(true), 550));
     toastTimers.current.push(setTimeout(() => dismissToasts(), 15000));
-  }
-
-  // "Sim, pode ajustar": escreve nos rendererDX11*.ini e só então convida a ir.
-  async function handleWindowModeConfirm() {
-    setWindowBusy(true);
-    setWindowError("");
-    try {
-      await invoke("iracing_modo_janela_aplicar");
-      setShowWindowPrompt(false);
-      setWindowToast(t("nextRaceTab.windowMode.toastDone"));
-      toastTimers.current.push(setTimeout(() => setWindowToast(""), 6000));
-      agendarToastsDeIda();
-    } catch (e) {
-      // Fica no popup com o motivo (simulador aberto, arquivo ausente): é um erro
-      // que o jogador consegue resolver e tentar de novo ali mesmo.
-      setWindowError(getDisplayError(e, t("nextRaceTab.errors.windowMode")));
-    } finally {
-      setWindowBusy(false);
-    }
-  }
-
-  // "Agora não": a exportação continua valendo, só o overlay é que não vai aparecer.
-  function handleWindowModeSkip() {
-    setShowWindowPrompt(false);
-    setWindowError("");
-    agendarToastsDeIda();
   }
 
   // Limpa os toasts pós-exportação e seus timers.
@@ -244,20 +182,7 @@ export function useIracingExport({ careerId, player, playerTeam, setError }) {
     iracingFocusMsg,
     showTutorial,
     tutorialMsg,
-    canPickPaint,
-    showPaintPrompt,
-    setShowPaintPrompt,
-    paintBusy,
-    paintError,
-    setPaintError,
     paintToast,
-    showWindowPrompt,
-    windowBusy,
-    windowError,
-    windowToast,
-    handleWindowModeConfirm,
-    handleWindowModeSkip,
-    handleGrabPaint,
     handleExport,
     handleGoToIracing,
     handleTutorialDone,

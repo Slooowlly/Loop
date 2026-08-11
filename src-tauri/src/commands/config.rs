@@ -25,6 +25,7 @@ pub fn update_config(app: AppHandle, new_config: AppConfig) -> Result<(), String
     // Aplicar mudanças (Merge manual dos campos de settings)
     current_config.language = new_config.language;
     current_config.autosave_enabled = new_config.autosave_enabled;
+    current_config.auto_paint_car = new_config.auto_paint_car;
 
     // Telemetria de produto: só sobrescreve se o front MANDOU um valor. `None`
     // vindo do front significa "não mexi nisso", e não "o jogador recusou" — a

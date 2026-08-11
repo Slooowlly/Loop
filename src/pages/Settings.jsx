@@ -508,6 +508,26 @@ function Settings() {
             </div>
           </div>
 
+          {/* Pintura automática do carro do jogador. Grava car_<custid>.tga na pasta de
+              pintura do iRacing junto com a exportação da etapa, e de novo quando ele troca
+              de equipe no mercado. Sem popup de propósito: o arquivo é local, ninguém mais
+              na sessão vê essa cor, e a pintura que já estava lá é preservada uma vez em
+              .tga.loop-bak antes da primeira escrita. */}
+          <div
+            className="flex cursor-pointer items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5"
+            onClick={() => handleToggle("auto_paint_car")}
+          >
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-text-primary">{t("settings.autoPaint.label")}</p>
+              <p className="text-[11px] text-text-secondary">
+                {config.auto_paint_car ? t("settings.autoPaint.on") : t("settings.autoPaint.off")}
+              </p>
+            </div>
+            <div className={`h-6 w-11 shrink-0 rounded-full p-1 transition-all ${config.auto_paint_car ? "bg-accent-primary" : "bg-white/10"}`}>
+              <div className={`h-4 w-4 rounded-full bg-white transition-all ${config.auto_paint_car ? "translate-x-5" : "translate-x-0"}`} />
+            </div>
+          </div>
+
           {/* Voz do spotter + botão de ouvir agora. O teste automático sai ao sentar no
               carro, mas quem quer conferir a saída de áudio ANTES de abrir o simulador
               não deveria ter que entrar numa sessão pra isso. */}

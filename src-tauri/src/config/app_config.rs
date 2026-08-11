@@ -57,6 +57,13 @@ fn spotter_padrao() -> bool {
     true
 }
 
+/// Padrão do `auto_paint_car`. Mesmo motivo do spotter: `false` num `config.json`
+/// gravado antes desta chave existir deixaria a pintura desligada para quem já
+/// joga, e a intenção é o contrário.
+fn pintura_automatica_padrao() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -109,6 +116,19 @@ pub struct AppConfig {
     #[serde(default = "spotter_padrao")]
     pub spotter_takeover: bool,
 
+    /// Pintar o carro do jogador na cor da equipe atual, gravando
+    /// `car_<custid>.tga` na pasta de pintura do iRacing. Acontece sozinho ao
+    /// exportar a etapa e ao trocar de equipe no mercado, sem perguntar nada.
+    ///
+    /// Padrão LIGADO: a cor da equipe é parte da carreira, o arquivo é local
+    /// (ninguém mais na sessão vê) e o `.tga` que já estava lá é preservado uma
+    /// vez em `car_<custid>.tga.loop-bak` antes da primeira escrita.
+    ///
+    /// Quem usa Trading Paints escreve no MESMO arquivo, e ele grava ao entrar na
+    /// sessão, ou seja, depois de nós. Nesse caso a pintura dele prevalece.
+    #[serde(default = "pintura_automatica_padrao")]
+    pub auto_paint_car: bool,
+
     // Window state
     pub window_width: u32,
     pub window_height: u32,
@@ -132,6 +152,7 @@ impl Default for AppConfig {
             vr_overlay_mode: modo_vr_padrao(),
             monitor_overlay_in_vr: false,
             spotter_takeover: spotter_padrao(),
+            auto_paint_car: pintura_automatica_padrao(),
             window_width: 1280,
             window_height: 720,
             window_maximized: false,

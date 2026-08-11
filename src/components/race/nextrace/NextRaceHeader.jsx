@@ -1,16 +1,14 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-// Cabeçalho da Sala de Estratégia: identificação da etapa + ações (simular, pegar a
-// cor do carro e exportar para o iRacing).
+// Cabeçalho da Sala de Estratégia: identificação da etapa + ações (simular e
+// exportar para o iRacing).
 function NextRaceHeader({
   nextRace,
   season,
   briefing,
   isSimulating,
   onSimulate,
-  canPickPaint,
-  onOpenPaintPrompt,
   isExporting,
   exported,
   onExport,
@@ -69,14 +67,6 @@ function NextRaceHeader({
             </span>
           )}
         </div>
-        {canPickPaint && (
-          <button
-            onClick={onOpenPaintPrompt}
-            className="w-full sm:w-auto px-5 py-2 border border-[#58a6ff66] bg-[#58a6ff22] hover:bg-[#58a6ff33] text-[#58a6ff] font-semibold rounded-lg transition text-xs flex justify-center items-center gap-1.5"
-          >
-            {t("nextRaceTab.paint.grab")}
-          </button>
-        )}
         <button
           onClick={onExport}
           disabled={isExporting}

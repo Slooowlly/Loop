@@ -39,15 +39,17 @@ significa "feature removida"** — significa que ela mudou de casa.
 
 ## 2. O que o Loop faz com o iRacing hoje, de verdade
 
-Só o que é alcançável pelo jogador numa tela montada. 49 comandos registrados; os que
+Só o que é alcançável pelo jogador numa tela montada. 53 comandos registrados; os que
 sustentam o produto são estes.
 
 ### 2.1 Antes da corrida — Sala de Estratégia (`NextRaceTab`)
 
 [`useIracingExport.js`](../src/components/race/nextrace/useIracingExport.js) faz, num
 botão só: `iracing_generate_roster` → `iracing_generate_season` →
-`iracing_install_yellow_macro` (best-effort, aproveitando que o sim está fechado e o
-`app.ini` "cola"). Depois oferece `iracing_focus_window` e, se o sim estiver fechado,
+`iracing_install_yellow_macro` → `iracing_modo_janela_aplicar` (os dois últimos
+best-effort, aproveitando que o sim está fechado e a escrita nos `.ini` "cola"; o modo
+janela também é aplicado no boot do Loop, sem perguntar nada). Depois oferece
+`iracing_focus_window` e, se o sim estiver fechado,
 `iracing_launch_ui` para o jogador cair direto no iRacing.
 
 O roster carrega a identidade da carreira: atributos do piloto viram `driverSkill` /
@@ -55,8 +57,11 @@ O roster carrega a identidade da carreira: atributos do piloto viram `driverSkil
 `strategyRiskiness`, e cor/padrão de carro, macacão e capacete saem da paleta do time.
 A temporada carrega o calendário com **clima por evento** (keyframes dinâmicos, versão 3).
 
-Ainda aqui: `iracing_linked_custid` / `iracing_has_player_id` / `iracing_link_player_paint`
-— o "pegar a cor do carro", que vincula a pintura real do jogador ao save.
+Ainda aqui: `iracing_auto_paint_player`, que pinta o carro do jogador na cor da equipe
+junto com a exportação e vincula o custid ao save. Roda sem perguntar nada, porque o
+`car_<custid>.tga` é local (só ele vê essa cor) e a pintura anterior é preservada em
+`.tga.loop-bak`. O interruptor mora em Configurações (`auto_paint_car`), e não depende do
+Trading Paints — que escreve no mesmo arquivo, ao entrar na sessão, ou seja, depois de nós.
 
 Briefing da corrida: `get_breakdown_forecast` e `get_grid_breakdown_risk`
 ([`useBriefingData.js`](../src/components/race/nextrace/useBriefingData.js) e o

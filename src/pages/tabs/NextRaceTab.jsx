@@ -8,14 +8,13 @@ import ChampionshipTablePanel from "../../components/race/ChampionshipTablePanel
 import EngineerBriefingPanel from "../../components/race/EngineerBriefingPanel";
 import NextRaceEmptyState from "../../components/race/NextRaceEmptyState";
 import NextRaceExportToasts from "../../components/race/NextRaceExportToasts";
-import NextRacePaintPrompt from "../../components/race/NextRacePaintPrompt";
-import NextRaceWindowModePrompt from "../../components/race/NextRaceWindowModePrompt";
 import PodiumFavoritesPanel from "../../components/race/PodiumFavoritesPanel";
 import NextRaceHeader from "../../components/race/nextrace/NextRaceHeader";
 import { getDisplayError } from "../../components/race/nextrace/nextRaceHelpers";
 import { useBriefingData } from "../../components/race/nextrace/useBriefingData";
 import { useIracingExport } from "../../components/race/nextrace/useIracingExport";
 import { usePreRaceAi } from "../../components/race/nextrace/usePreRaceAi";
+import useTempoDeTela from "../../hooks/useTempoDeTela";
 import useCareerStore from "../../stores/useCareerStore";
 import { useAttentionStore } from "../../stores/useAttentionStore";
 import { renderTextWithDriverMentions } from "../../utils/driverMentions";
@@ -24,6 +23,10 @@ import { isPortuguese, localizedAiError } from "../../utils/aiFallback";
 
 function NextRaceTab() {
   const { t } = useTranslation();
+  // Telemetria de produto: a sala de estratégia carrega a prévia pré-corrida gerada
+  // por IA. Só é montada sob `showRaceBriefing`, então o cronômetro daqui é o tempo
+  // de briefing e nada mais.
+  useTempoDeTela("briefing");
   const [error, setError] = useState("");
   const [hasExistingPreseason, setHasExistingPreseason] = useState(false);
   // Piloto realçado ao passar o mouse num nome mencionado no texto do engenheiro: acende
@@ -232,35 +235,7 @@ function NextRaceTab() {
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#06090e]/80 to-[#06090e]"></div>
       </div>
 
-      {/* Popup: pegar a cor do carro (1ª corrida da 1ª temporada) */}
-      <NextRacePaintPrompt
-        open={iracing.showPaintPrompt}
-        busy={iracing.paintBusy}
-        error={iracing.paintError}
-        onConfirm={iracing.handleGrabPaint}
-        onCancel={() => {
-          iracing.setShowPaintPrompt(false);
-          iracing.setPaintError("");
-        }}
-      />
-
-      {/* Popup: pôr o iRacing em modo janela, logo após exportar a etapa */}
-      <NextRaceWindowModePrompt
-        open={iracing.showWindowPrompt}
-        busy={iracing.windowBusy}
-        error={iracing.windowError}
-        onConfirm={iracing.handleWindowModeConfirm}
-        onCancel={iracing.handleWindowModeSkip}
-      />
-
-      {/* Toast de confirmação do modo janela */}
-      {iracing.windowToast && (
-        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-[#58a6ff44] bg-[#0d1117] px-4 py-2.5 text-sm font-semibold text-white shadow-2xl">
-          {iracing.windowToast}
-        </div>
-      )}
-
-      {/* Toast de confirmação da pintura */}
+      {/* Aviso único da pintura automática do carro */}
       {iracing.paintToast && (
         <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-[#58a6ff44] bg-[#0d1117] px-4 py-2.5 text-sm font-semibold text-white shadow-2xl">
           {iracing.paintToast}
@@ -281,11 +256,6 @@ function NextRaceTab() {
           briefing={briefing}
           isSimulating={isSimulating}
           onSimulate={() => void handleSimulate()}
-          canPickPaint={iracing.canPickPaint}
-          onOpenPaintPrompt={() => {
-            iracing.setPaintError("");
-            iracing.setShowPaintPrompt(true);
-          }}
           isExporting={iracing.isExporting}
           exported={iracing.exported}
           onExport={iracing.handleExport}

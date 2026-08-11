@@ -30,8 +30,14 @@
 //! lê ao abrir e REESCREVE ao fechar. Aqui, diferente de lá, isso é motivo de
 //! BLOQUEAR: escrever com o simulador aberto não é "vale na próxima abertura", é
 //! perder a escrita no fechamento dele. Com só a UI/lobby aberta não há problema —
-//! quem reescreve esses arquivos é o simulador, não o launcher. É por isso que o
-//! pedido aparece na exportação da etapa: o jogador está no lobby, prestes a entrar.
+//! quem reescreve esses arquivos é o simulador, não o launcher.
+//!
+//! **Não se pergunta.** O ajuste roda sozinho no boot do Loop (ver
+//! [`sincronizar_no_boot`]) e de novo na exportação da etapa, que é o momento em que
+//! o simulador está garantidamente fechado. Borderless e tela cheia exclusiva são
+//! indistinguíveis para quem joga, então a pergunta só cobrava atrito por uma
+//! diferença que o jogador nunca ia ver — o mesmo critério da macro de bandeira
+//! amarela, que também entra sem pedir licença.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -69,15 +75,11 @@ pub struct ModoJanelaStatus {
     /// Achou pelo menos um `rendererDX11*.ini` do caminho de monitor.
     pub encontrado: bool,
     /// Todos os arquivos achados já estão em janela. Sem arquivo nenhum isto é
-    /// `false` querendo dizer "não sei" — quem decide se pergunta é
-    /// [`ModoJanelaStatus::deve_perguntar`], não este campo.
+    /// `false` querendo dizer "não sei" — leia junto com `encontrado`.
     pub em_janela: bool,
     /// O SIMULADOR está aberto agora. A UI/lobby NÃO conta: ela não reescreve
     /// esses arquivos, então dá para ajustar com o jogador parado no lobby.
     pub simulador_aberto: bool,
-    /// Vale a pena pedir permissão ao jogador agora? Falso quando não há o que
-    /// ajustar, quando já está ajustado, ou quando a escrita seria perdida.
-    pub deve_perguntar: bool,
     pub arquivos: Vec<ArquivoModoJanela>,
 }
 
@@ -166,8 +168,26 @@ pub fn status() -> ModoJanelaStatus {
         encontrado,
         em_janela,
         simulador_aberto,
-        deve_perguntar: encontrado && !em_janela && !simulador_aberto,
         arquivos,
+    }
+}
+
+/// Ajuste do boot: aplica calado e nunca falha para cima.
+///
+/// Sai na hora quando não há iRacing instalado ou quando os arquivos já estão como
+/// o overlay precisa, para não pagar leitura à toa nem sujar o log a cada abertura.
+/// O caso do simulador já aberto vira uma linha de log e nada mais: a exportação da
+/// etapa tenta de novo, e lá o sim está fechado.
+pub fn sincronizar_no_boot() {
+    let atual = status();
+    if !atual.encontrado || atual.em_janela {
+        return;
+    }
+    match aplicar() {
+        Ok(_) => crate::diagnostico::linha("modo_janela", "iRacing posto em janela sem borda"),
+        Err(erro) => {
+            crate::diagnostico::linha("modo_janela", &format!("ajuste no boot adiado: {erro}"))
+        }
     }
 }
 
