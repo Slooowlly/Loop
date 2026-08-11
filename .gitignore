@@ -47,14 +47,61 @@ npm-debug.log*
 src-tauri/*.txt
 src-tauri/__codex_tmp_*
 
+# Bancadas de layout soltas na raiz.
+#
+# São páginas HTML avulsas que alguém abre no navegador para olhar um desenho antes de
+# escrevê-lo em React: a curva de campeonato, a fita de equipes, o card do mercado. Nascem
+# num dia, servem àquela decisão e nunca mais são abertas — a que ficou mais tempo na raiz
+# tinha quatro meses e desenhava um componente que já mudou duas vezes desde então.
+#
+# Ficam fora do git de propósito, e não apagadas: quem está no meio de um ajuste continua com
+# a sua no disco, e ela para de aparecer no `git status` de todo mundo. Bancada que virar
+# ferramenta de verdade tem lugar próprio — `src/dev/`, roteado por `import.meta.env.DEV`.
+#
+# O `__curva_preview.html` não é escrito à mão: um teste de `DriverDetailModalV2.test.jsx`
+# o REGRAVA a cada `npm run test:ui`. Ignorá-lo é o único desfecho possível enquanto esse
+# teste existir — apagar o arquivo não adianta, ele volta na próxima suíte.
+/__*.html
+/fita-mock.html
+/.tabela-equipes.txt
+
+# O `preview-curva-campeonato.html` é a EXCEÇÃO da vizinhança acima, e por isso não há um
+# `/preview-*.html` aqui: ele não é bancada solta, é a casca de um ponto de entrada que está
+# no git (`src/previewCurvaCampeonato.jsx`, servido pelo Vite em `npm run dev`). Ignorar a
+# casca deixaria o `.jsx` rastreado apontando para um arquivo que não existe no clone —
+# quebrado para todo mundo menos para quem já o tinha no disco. Os dois vivem ou morrem
+# juntos: se o preview da curva for aposentado, apague o par.
+
 # Career saves (dados do jogador, não sobem ao repo)
 app_data/
 
 # Masters WAV dos acervos de voz — o repo carrega o Opus, que é o que o app importa.
 #
-# São 3.994 peças. Em PCM 24 kHz mono dá 328 MB; em Opus 32 kbps, 29 MB. E WAV não
-# delta-comprime: cada regravação de uma peça somaria o arquivo inteiro ao histórico para
-# sempre, num acervo que cresce a cada fala nova.
+# São 3.999 peças (3.948 do engenheiro + 51 do spotter), medidas em 11/08/2026. Em PCM
+# 24 kHz mono dão 326 MB; em Opus 32 kbps, 29 MB. E WAV não delta-comprime: cada regravação
+# de uma peça somaria o arquivo inteiro ao histórico para sempre, num acervo que cresce a
+# cada fala nova.
+#
+# O Opus FICA no git, e isto é a decisão, não um adiamento. Ela foi tomada contra a medição do
+# pack em 11/08/2026, que desmente a intuição de que o acervo é o que pesa no clone:
+#
+#   222 MB de blobs na história inteira
+#     112 MB  public/utilities   (imagens de pista)
+#      58 MB  src/assets/utilities (PNG)
+#      29 MB  src/assets/engenheiro + spotter  (.opus)  ← 13% do total
+#
+# Três em cada quatro megabytes clonados são IMAGEM. Tirar a voz do git resolveria 13% do
+# problema e cobraria um preço alto: o `.opus` é o que o app importa em tempo de build, então
+# ele viraria passo obrigatório de setup e de CI, e todo guard de acervo (`quebra-pecas`,
+# `engenheiro-pecas-*`, que conferem o pé de disco) passaria a depender de um download.
+#
+# E o medo de acumular história morta não se confirmou: as 3.999 peças de hoje somam 29,3 MB no
+# disco, e a história INTEIRA delas soma os mesmos 29,3 MB empacotados — nenhuma regravação
+# sobrou como peso morto, porque o `.opus` só entra no commit depois de a redação estar fechada.
+#
+# O gatilho para revisitar é o tamanho do acervo, não o número de peças: se o `.opus` passar dos
+# 100 MB, ou se as regravações começarem a deixar rastro (história muito maior que o disco), ele
+# vira artefato de release. Antes disso, a conta a fazer é a das imagens.
 #
 # Os masters continuam no DISCO — só não no git. Quem os tem roda `engenheiro-auditar.mjs`
 # (que mede forma de onda e precisa do PCM); quem não os tem builda e joga normalmente.
