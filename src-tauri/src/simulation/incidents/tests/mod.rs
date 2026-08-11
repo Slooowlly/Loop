@@ -797,3 +797,86 @@ fn dano_latente_custa_posicoes_mais_do_que_tira_o_carro() {
         1.0 - CHANCE_DE_ABANDONO_NA_MANIFESTACAO
     );
 }
+
+/// **Nenhum abandono por ERRO DE PILOTAGEM sai com severidade `Minor`.**
+///
+/// Fecha a pergunta que a varredura de bugs de 07/2026 deixou em aberto (bug #4): a regra
+/// antiga de `is_crash` excluía `DriverError + Minor` de "batida", a unificação em
+/// `race_signals` deixou a severidade de fora, e o doc pedia confirmar se a combinação era
+/// possível. **Não é**, e por construção: `roll_driver_error` só devolve `Minor` com
+/// `is_dnf = false`, e o agravamento para stall promove a `Major` antes de virar abandono.
+/// A regra removida era redundante, e este teste é o que trava isso.
+///
+/// **A colisão é outra história, e este teste registra o contrário dela**: em
+/// `roll_collision` a severidade e a consequência são sorteios INDEPENDENTES (55% Minor;
+/// 40% de DNF, decidido em `resolve_collision_consequence`), então uma batida "leve" tira
+/// o carro da prova com alguma frequência. Isso tem consequência fora daqui:
+/// `estrategia::traz_bandeira_amarela` só neutraliza `(Collision, Major)` quando é DNF e
+/// `(Collision, Critical)` sempre, de modo que **um abandono por colisão Minor deixa o
+/// carro parado na pista sem safety car**. Amarrar as duas coisas mexeria na frequência de
+/// safety car, que é balanceamento medido — fica como decisão, e o teste garante que a
+/// situação não passe despercebida.
+#[test]
+fn abandono_por_erro_de_pilotagem_nunca_nasce_com_severidade_minor() {
+    let drivers = vec![
+        make_driver("P1", 20, 90, 30, 40.0),
+        make_driver("P2", 25, 85, 35, 45.0),
+        make_driver("P3", 30, 80, 40, 50.0),
+    ];
+    let states: Vec<RaceState> = (1..=3).map(|i| make_state(&format!("P{i}"), i)).collect();
+
+    let mut abandonos_por_erro = 0;
+    let mut colisoes_minor_com_abandono = 0;
+    for seed in 0..400u64 {
+        let mut rng = StdRng::seed_from_u64(seed);
+        for segment in [
+            RaceSegment::Start,
+            RaceSegment::Early,
+            RaceSegment::Mid,
+            RaceSegment::Late,
+            RaceSegment::Finish,
+        ] {
+            let out = process_segment_incidents_cfg(
+                &drivers,
+                &states,
+                segment,
+                WeatherCondition::HeavyRain,
+                true,
+                3.0,
+                2.0,
+                1.5,
+                &IncidentCatalog::empty(),
+                VehicleClass::StreetBased,
+                false,
+                true,
+                &mut rng,
+            );
+            for inc in out.incidents.iter().filter(|i| i.is_dnf) {
+                match inc.incident_type {
+                    IncidentType::DriverError => {
+                        abandonos_por_erro += 1;
+                        assert_ne!(
+                            inc.severity,
+                            IncidentSeverity::Minor,
+                            "abandono por erro de pilotagem com severidade Minor (seed {seed})"
+                        );
+                    }
+                    IncidentType::Collision if inc.severity == IncidentSeverity::Minor => {
+                        colisoes_minor_com_abandono += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    assert!(
+        abandonos_por_erro > 20,
+        "o cenário precisa produzir abandonos por erro para o teste valer algo (viu {abandonos_por_erro})"
+    );
+    // O outro lado do achado, escrito como fato e não como suspeita.
+    assert!(
+        colisoes_minor_com_abandono > 0,
+        "a colisão Minor com abandono existe hoje; se ela sumir, foi mudança de modelo e o \
+         comentário deste teste (e a lacuna da bandeira amarela) precisa ser revisto"
+    );
+}

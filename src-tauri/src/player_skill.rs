@@ -14,6 +14,32 @@
 //! Fase 1 = "Grupo A": tudo computável do resultado oficial + o roster que nós
 //! geramos, sem telemetria nova. `skill`, `ritmo_classificacao`, `aggression`,
 //! `racecraft`, `fator_chuva`, `adaptabilidade`, `experiencia`, `midia`.
+//!
+//! ## As curvas de conversão são ILUSTRATIVAS, e isto é uma decisão registrada
+//!
+//! Três atributos daqui não saem de uma inferência contra o grid — saem de uma reta escolhida
+//! à mão, escrita no comentário da própria função:
+//!
+//! | atributo | curva | o que ela SUPÕE |
+//! |---|---|---|
+//! | `aggression` | `15 + 16 × incidentes/corrida` | que a média percorra 0–5 incidentes |
+//! | `adaptabilidade` | `50 + 5 × posições ganhas entre 1ª e última temporada` | que ±10 posições seja o extremo |
+//! | `experiencia` | `100 · r / (r + 60)` | que 60 corridas seja "metade da carreira" |
+//!
+//! **A primeira já está medida, e está errada.** [`medicao::distribuicao_de_incidentes_por_corrida`]
+//! mediu 4.800 piloto-corridas em 11/08/2026: a média real é 0,43–0,48 incidentes por corrida e
+//! o percentil 90 é 1,0 — o que joga a população inteira entre as notas 22 e 31 de uma escala de
+//! 84 pontos. O jogador mediano e o jogador do percentil 90 recebem leituras a 8 pontos um do
+//! outro. Detalhe e conserto na própria função.
+//!
+//! As outras duas seguem sem medição.
+//!
+//! O que segura a gravidade disto: **o dossiê é só exibição.** O mercado, a evolução e a
+//! simulação não leem nada daqui; o `SimDriver` do jogador usa os atributos de verdade. O risco
+//! é o dossiê MENTIR PARA O JOGADOR (dizer "passivo" a quem bate toda corrida), não desbalancear
+//! o jogo. É por isso que o conserto não foi aplicado nesta passagem: ele muda uma curva de
+//! exibição que o jogador já viu, e a escolha entre "normalizar contra o grid" e "reconciliar as
+//! duas fontes de contagem de incidente" é decisão de produto, não dedução do código.
 
 use std::collections::BTreeMap;
 
@@ -338,6 +364,32 @@ fn estimate_start(samples: &[RaceSample]) -> (Option<f64>, u32) {
 }
 
 /// `aggression`: média de incidentes por corrida. Muitos incidentes = agressivo.
+///
+/// **CURVA ILUSTRATIVA, e agora MEDIDA como mal escalada.** O mapa `0 inc → 15` e `5 inc → 95`
+/// supõe que a média de incidentes por corrida percorra a faixa 0–5. Ela não percorre.
+/// [`medicao::distribuicao_de_incidentes_por_corrida`], 4.800 piloto-corridas por categoria em
+/// 11/08/2026:
+///
+/// | categoria | média | → nota | p90 | → nota | máximo | → nota |
+/// |---|---|---|---|---|---|---|
+/// | `mazda_rookie` | 0,484 | **23** | 1,000 | **31** | 5,000 | 95 |
+/// | `gt3` | 0,426 | **22** | 1,000 | **31** | 5,000 | 95 |
+///
+/// Ou seja: **do piloto mediano ao percentil 90 vão 8 pontos de uma escala de 84.** Toda a
+/// população cai entre 22 e 31, e a leitura que o jogador recebe é "passivo" quase sempre,
+/// independentemente de como ele corre. O extremo superior existe (5 incidentes → 95), mas é
+/// cauda rara, não faixa de trabalho.
+///
+/// O defeito é de ESCALA, não de deslocamento: mudar o `15` só move a faixa inteira, não a
+/// abre. O conserto certo é o que [`estimate_skill`] já faz — normalizar contra a distribuição
+/// do próprio grid em vez de usar o valor absoluto —, e ele não está feito aqui.
+///
+/// **Um caveat que impede fechar o número só com isto:** a medição acima é do MOTOR. Quando a
+/// corrida vem importada do iRacing (`commands::iracing::resultado`), `player_incidents` é a
+/// contagem do iRacing — o `x` de "4x" —, que vive numa escala bem mais alta. Os dois caminhos
+/// alimentam o mesmo campo com grandezas diferentes, e essa é a pergunta a resolver ANTES de
+/// escolher a curva: ou a normalização é por fonte, ou as duas contagens têm que ser
+/// reconciliadas na entrada.
 fn estimate_aggression(samples: &[RaceSample]) -> (Option<f64>, u32) {
     let inc: Vec<f64> = samples.iter().map(|s| s.player_incidents as f64).collect();
     let n = inc.len() as u32;
@@ -887,5 +939,79 @@ mod tests {
             .find(|a| a.key == "racecraft")
             .unwrap();
         assert_eq!(rc.value, Some(66));
+    }
+}
+
+// ── Medição das curvas ilustrativas ──────────────────────────────────────────
+//
+// Ver o aviso no topo do módulo. Isto não é teste de invariante: é o instrumento que transforma
+// "a curva parece errada" em "a curva está errada nesta faixa e por esta razão".
+
+#[cfg(test)]
+mod medicao {
+    use crate::simulation::calibracao::arena::{self, ConfigTemporada};
+
+    /// **Onde a curva de `aggression` realmente cai.**
+    ///
+    /// A curva supõe uma média de 0 a 5 incidentes por corrida. Este harness roda temporadas
+    /// sintéticas pelo mesmo caminho do jogo, conta os incidentes por piloto-corrida e imprime
+    /// a média, o percentil 90 e o máximo — junto com o valor de `aggression` que o dossiê
+    /// atribuiria a cada um desses pontos.
+    ///
+    /// A leitura que interessa é a AMPLITUDE: se o piloto mediano e o piloto do topo do
+    /// percentil 90 recebem notas coladas, a curva não está errada por deslocamento (que se
+    /// conserta mudando o 15), está errada por ESCALA — e aí o conserto é trocar o coeficiente
+    /// linear por uma normalização contra a distribuição do grid, do mesmo jeito que
+    /// `estimate_skill` já faz com a posição em vez de usar o valor absoluto.
+    ///
+    /// **Por que a saída daqui não fecha o número sozinha:** o jogador NÃO é um piloto de IA.
+    /// Ele corre no iRacing de verdade, com um contador de incidentes que é do iRacing (o `x`
+    /// de "4x"), não o do nosso motor. Fechar a curva exige a distribuição de incidentes de
+    /// corrida REAL do jogador, que só existe depois de haver histórico de corrida importada.
+    /// O que este harness entrega é o LIMITE INFERIOR — a faixa do lado simulado — e a
+    /// demonstração de que a suposição de 0–5 não vem dele.
+    #[test]
+    #[ignore = "pesado; harness de calibração da curva de aggression do dossiê"]
+    fn distribuicao_de_incidentes_por_corrida() {
+        for (rotulo, config) in [
+            ("mazda_rookie", ConfigTemporada::rookie()),
+            ("gt3", ConfigTemporada::gt3()),
+        ] {
+            let config = ConfigTemporada {
+                pilotos: 20,
+                etapas: 12,
+                ..config
+            }
+            .com_incidentes(true);
+
+            let mut por_piloto_corrida: Vec<f64> = Vec::new();
+            for (_, corridas) in arena::rodar_campanha_crua(&config, 20, 7_311) {
+                for corrida in &corridas {
+                    for r in &corrida.race_results {
+                        por_piloto_corrida.push(r.incidents_count as f64);
+                    }
+                }
+            }
+            por_piloto_corrida.sort_by(f64::total_cmp);
+
+            let n = por_piloto_corrida.len();
+            assert!(n > 0, "a campanha não produziu corrida nenhuma");
+            let media = por_piloto_corrida.iter().sum::<f64>() / n as f64;
+            let p90 = por_piloto_corrida[((n as f64 * 0.90) as usize).min(n - 1)];
+            let maximo = por_piloto_corrida[n - 1];
+            let nota = |i: f64| (15.0 + i * 16.0).clamp(1.0, 99.0);
+
+            println!(
+                "\n== {rotulo} — incidentes por piloto-corrida ({n} amostras) ==\n\
+                 média  {media:.3} → aggression {:.0}\n\
+                 p90    {p90:.3} → aggression {:.0}\n\
+                 máximo {maximo:.3} → aggression {:.0}\n\
+                 amplitude média→p90: {:.0} pontos de 84 possíveis",
+                nota(media),
+                nota(p90),
+                nota(maximo),
+                nota(p90) - nota(media),
+            );
+        }
     }
 }

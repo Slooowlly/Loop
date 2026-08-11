@@ -1,6 +1,10 @@
 use super::*;
 use rand::{rngs::StdRng, SeedableRng};
 
+/// Os parâmetros de PRODUÇÃO. Estes testes descrevem o comportamento que o jogo roda, então
+/// eles medem o padrão — a variação existe para o harness, não para a asserção de propriedade.
+const PAR: &ParametrosDeTrafego = &ParametrosDeTrafego::PADRAO;
+
 use crate::models::driver::Driver;
 use crate::models::team::placeholder_team_from_db;
 
@@ -24,17 +28,17 @@ fn piloto(id: &str, racecraft: f64, defesa: f64, aggression: f64) -> SimDriver {
 #[test]
 fn ar_sujo_so_vale_dentro_da_janela() {
     // Colado dói; na borda da janela, nada.
-    assert!(perda_por_ar_sujo(0.0, 1.0) > 0.0);
-    assert_eq!(perda_por_ar_sujo(JANELA_AR_SUJO_MS, 1.0), 0.0);
-    assert_eq!(perda_por_ar_sujo(JANELA_AR_SUJO_MS * 3.0, 1.0), 0.0);
+    assert!(perda_por_ar_sujo(0.0, 1.0, PAR) > 0.0);
+    assert_eq!(perda_por_ar_sujo(JANELA_AR_SUJO_MS, 1.0, PAR), 0.0);
+    assert_eq!(perda_por_ar_sujo(JANELA_AR_SUJO_MS * 3.0, 1.0, PAR), 0.0);
     // Gap negativo (carro à frente por arredondamento) não vira bônus.
-    assert_eq!(perda_por_ar_sujo(-50.0, 1.0), 0.0);
+    assert_eq!(perda_por_ar_sujo(-50.0, 1.0, PAR), 0.0);
 }
 
 #[test]
 fn ar_sujo_cresce_conforme_cola() {
-    let longe = perda_por_ar_sujo(900.0, 0.0);
-    let perto = perda_por_ar_sujo(200.0, 0.0);
+    let longe = perda_por_ar_sujo(900.0, 0.0, PAR);
+    let perto = perda_por_ar_sujo(200.0, 0.0, PAR);
     assert!(perto > longe, "{perto} vs {longe}");
 }
 
@@ -42,9 +46,9 @@ fn ar_sujo_cresce_conforme_cola() {
 fn carro_de_apoio_sofre_mais_que_carro_de_ponta() {
     // O eixo é o mesmo `vies_de_pico` do trim de classificação: apoio (handling) vive de
     // aerodinâmica e sofre atrás; ponta (power) dependia menos dela.
-    let apoio = perda_por_ar_sujo(300.0, 1.0);
-    let neutro = perda_por_ar_sujo(300.0, 0.0);
-    let ponta = perda_por_ar_sujo(300.0, -1.0);
+    let apoio = perda_por_ar_sujo(300.0, 1.0, PAR);
+    let neutro = perda_por_ar_sujo(300.0, 0.0, PAR);
+    let ponta = perda_por_ar_sujo(300.0, -1.0, PAR);
     assert!(apoio > neutro && neutro > ponta, "{apoio} {neutro} {ponta}");
     assert_eq!(
         ponta, 0.0,
@@ -55,7 +59,7 @@ fn carro_de_apoio_sofre_mais_que_carro_de_ponta() {
 #[test]
 fn ar_sujo_respeita_o_teto() {
     for gap in [0.0, 100.0, 500.0, 999.0] {
-        assert!(perda_por_ar_sujo(gap, 1.0) <= PERDA_MAXIMA_AR_SUJO_PONTOS + 1e-9);
+        assert!(perda_por_ar_sujo(gap, 1.0, PAR) <= PERDA_MAXIMA_AR_SUJO_PONTOS + 1e-9);
     }
 }
 
@@ -63,14 +67,20 @@ fn ar_sujo_respeita_o_teto() {
 
 #[test]
 fn sem_vantagem_de_ritmo_nao_se_passa() {
-    assert_eq!(prob_de_ultrapassagem(0.0, 80.0, 20.0, 90.0, 1.0, 0.0), 0.0);
-    assert_eq!(prob_de_ultrapassagem(-2.0, 80.0, 20.0, 90.0, 1.0, 0.0), 0.0);
+    assert_eq!(
+        prob_de_ultrapassagem(0.0, 80.0, 20.0, 90.0, 1.0, 0.0, PAR),
+        0.0
+    );
+    assert_eq!(
+        prob_de_ultrapassagem(-2.0, 80.0, 20.0, 90.0, 1.0, 0.0, PAR),
+        0.0
+    );
 }
 
 #[test]
 fn mais_rapido_passa_mais() {
-    let pouco = prob_de_ultrapassagem(0.5, 60.0, 60.0, 50.0, 1.0, 0.0);
-    let muito = prob_de_ultrapassagem(5.0, 60.0, 60.0, 50.0, 1.0, 0.0);
+    let pouco = prob_de_ultrapassagem(0.5, 60.0, 60.0, 50.0, 1.0, 0.0, PAR);
+    let muito = prob_de_ultrapassagem(5.0, 60.0, 60.0, 50.0, 1.0, 0.0, PAR);
     assert!(muito > pouco, "{muito} vs {pouco}");
 }
 
@@ -78,23 +88,23 @@ fn mais_rapido_passa_mais() {
 fn racecraft_ataca_e_defesa_segura() {
     // `defesa` estava no `SimDriver` desde sempre e nunca tinha sido lida por ninguém.
     // Este é o pacote que a consome.
-    let contra_defensor_fraco = prob_de_ultrapassagem(3.0, 80.0, 20.0, 50.0, 1.0, 0.0);
-    let contra_defensor_forte = prob_de_ultrapassagem(3.0, 80.0, 90.0, 50.0, 1.0, 0.0);
+    let contra_defensor_fraco = prob_de_ultrapassagem(3.0, 80.0, 20.0, 50.0, 1.0, 0.0, PAR);
+    let contra_defensor_forte = prob_de_ultrapassagem(3.0, 80.0, 90.0, 50.0, 1.0, 0.0, PAR);
     assert!(
         contra_defensor_fraco > contra_defensor_forte,
         "{contra_defensor_fraco} vs {contra_defensor_forte}"
     );
 
-    let atacante_bom = prob_de_ultrapassagem(3.0, 90.0, 50.0, 50.0, 1.0, 0.0);
-    let atacante_ruim = prob_de_ultrapassagem(3.0, 20.0, 50.0, 50.0, 1.0, 0.0);
+    let atacante_bom = prob_de_ultrapassagem(3.0, 90.0, 50.0, 50.0, 1.0, 0.0, PAR);
+    let atacante_ruim = prob_de_ultrapassagem(3.0, 20.0, 50.0, 50.0, 1.0, 0.0, PAR);
     assert!(atacante_bom > atacante_ruim);
 }
 
 #[test]
 fn agressivo_passa_mais_e_bate_mais() {
     // O trade-off que faltava à `aggression`.
-    let agressivo = prob_de_ultrapassagem(3.0, 60.0, 60.0, 95.0, 1.0, 0.0);
-    let cauteloso = prob_de_ultrapassagem(3.0, 60.0, 60.0, 15.0, 1.0, 0.0);
+    let agressivo = prob_de_ultrapassagem(3.0, 60.0, 60.0, 95.0, 1.0, 0.0, PAR);
+    let cauteloso = prob_de_ultrapassagem(3.0, 60.0, 60.0, 15.0, 1.0, 0.0, PAR);
     assert!(agressivo > cauteloso, "{agressivo} vs {cauteloso}");
 
     assert!(prob_de_contato(95.0, 1.0) > prob_de_contato(15.0, 1.0));
@@ -104,9 +114,9 @@ fn agressivo_passa_mais_e_bate_mais() {
 fn pista_dificil_segura_a_ultrapassagem() {
     // O `overtaking_difficulty_multiplier` é calculado em `profile/`, carregado no contexto
     // e — até este pacote — nunca lido por ninguém. Agora ele decide.
-    let facil = prob_de_ultrapassagem(3.0, 60.0, 60.0, 50.0, 0.7, 0.0);
-    let neutra = prob_de_ultrapassagem(3.0, 60.0, 60.0, 50.0, 1.0, 0.0);
-    let dificil = prob_de_ultrapassagem(3.0, 60.0, 60.0, 50.0, 1.6, 0.0);
+    let facil = prob_de_ultrapassagem(3.0, 60.0, 60.0, 50.0, 0.7, 0.0, PAR);
+    let neutra = prob_de_ultrapassagem(3.0, 60.0, 60.0, 50.0, 1.0, 0.0, PAR);
+    let dificil = prob_de_ultrapassagem(3.0, 60.0, 60.0, 50.0, 1.6, 0.0, PAR);
     assert!(
         facil > neutra && neutra > dificil,
         "{facil} {neutra} {dificil}"
@@ -117,7 +127,7 @@ fn pista_dificil_segura_a_ultrapassagem() {
 fn probabilidade_fica_no_intervalo() {
     for delta in [0.1, 1.0, 5.0, 50.0] {
         for dif in [0.1, 0.5, 1.0, 2.0, 5.0] {
-            let p = prob_de_ultrapassagem(delta, 99.0, 0.0, 99.0, dif, 0.0);
+            let p = prob_de_ultrapassagem(delta, 99.0, 0.0, 99.0, dif, 0.0, PAR);
             assert!((0.0..=0.95).contains(&p), "p={p}");
         }
     }
@@ -132,7 +142,7 @@ fn tentativa_devolve_os_tres_desfechos() {
     let mut falhas = 0;
     let mut contatos = 0;
     for _ in 0..2000 {
-        match tentar_ultrapassagem(&atacante, &defensor, 3.0, 1.0, true, 0.0, &mut rng) {
+        match tentar_ultrapassagem(&atacante, &defensor, 3.0, 1.0, true, 0.0, PAR, &mut rng) {
             DesfechoDaTentativa::Concluida => concluidas += 1,
             DesfechoDaTentativa::Falhou => falhas += 1,
             DesfechoDaTentativa::FalhouComContato => contatos += 1,
@@ -153,7 +163,7 @@ fn sem_incidentes_ligados_nao_ha_contato() {
     let mut rng = StdRng::seed_from_u64(9);
     for _ in 0..500 {
         assert_ne!(
-            tentar_ultrapassagem(&atacante, &defensor, 3.0, 1.0, false, 0.0, &mut rng),
+            tentar_ultrapassagem(&atacante, &defensor, 3.0, 1.0, false, 0.0, PAR, &mut rng),
             DesfechoDaTentativa::FalhouComContato
         );
     }
@@ -193,19 +203,25 @@ fn fator_de_rivalidade_entra_na_clara_e_satura_na_intensa() {
 /// comportamento anterior — a calibração da corrida depende disso.
 #[test]
 fn rivalidade_zero_nao_altera_a_ultrapassagem() {
-    let sem = prob_de_ultrapassagem(3.0, 70.0, 50.0, 60.0, 1.0, 0.0);
+    let sem = prob_de_ultrapassagem(3.0, 70.0, 50.0, 60.0, 1.0, 0.0, PAR);
     assert!(sem > 0.0);
     // Sem vantagem de ritmo e sem rivalidade continua sendo zero.
-    assert_eq!(prob_de_ultrapassagem(0.0, 70.0, 50.0, 60.0, 1.0, 0.0), 0.0);
-    assert_eq!(prob_de_ultrapassagem(-2.0, 70.0, 50.0, 60.0, 1.0, 0.0), 0.0);
+    assert_eq!(
+        prob_de_ultrapassagem(0.0, 70.0, 50.0, 60.0, 1.0, 0.0, PAR),
+        0.0
+    );
+    assert_eq!(
+        prob_de_ultrapassagem(-2.0, 70.0, 50.0, 60.0, 1.0, 0.0, PAR),
+        0.0
+    );
 }
 
 /// Contra o rival o piloto VAI mesmo sem carro para a manobra — mas tentar não é
 /// passar: a chance sai do piso emprestado, bem abaixo da de quem tem ritmo.
 #[test]
 fn contra_rival_ataca_sem_ter_ritmo_mas_com_chance_baixa() {
-    let sem_ritmo_contra_rival = prob_de_ultrapassagem(0.0, 70.0, 50.0, 60.0, 1.0, 1.0);
-    let com_ritmo_de_sobra = prob_de_ultrapassagem(6.0, 70.0, 50.0, 60.0, 1.0, 0.0);
+    let sem_ritmo_contra_rival = prob_de_ultrapassagem(0.0, 70.0, 50.0, 60.0, 1.0, 1.0, PAR);
+    let com_ritmo_de_sobra = prob_de_ultrapassagem(6.0, 70.0, 50.0, 60.0, 1.0, 0.0, PAR);
 
     assert!(
         sem_ritmo_contra_rival > 0.0,
@@ -222,8 +238,8 @@ fn contra_rival_ataca_sem_ter_ritmo_mas_com_chance_baixa() {
 /// ultrapassagem limpa — e duelo longo é chegada colada.
 #[test]
 fn contra_rival_a_defesa_endurece() {
-    let estranho = prob_de_ultrapassagem(3.0, 70.0, 50.0, 60.0, 1.0, 0.0);
-    let rival = prob_de_ultrapassagem(3.0, 70.0, 50.0, 60.0, 1.0, 1.0);
+    let estranho = prob_de_ultrapassagem(3.0, 70.0, 50.0, 60.0, 1.0, 0.0, PAR);
+    let rival = prob_de_ultrapassagem(3.0, 70.0, 50.0, 60.0, 1.0, 1.0, PAR);
     assert!(
         rival < estranho,
         "passar o rival tem que ser mais dificil: {rival} vs {estranho}"

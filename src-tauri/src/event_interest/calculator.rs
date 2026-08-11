@@ -5,6 +5,25 @@ use super::models::{
     HeadlineStrength, InterestTier, RealizedEventInterest,
 };
 
+// ── Constantes de escala ──────────────────────────────────────────────────────
+//
+// Nenhuma delas tem medição por trás: são a régua de EXIBIÇÃO e os tetos de efeito
+// escolhidos no desenho. Ficam nomeadas aqui porque estavam soltas no corpo das
+// funções, e mexer no que a tela mostra não pode depender de achar um literal.
+
+/// Converte o score 0–100 no número de espectadores que a tela exibe.
+const DISPLAY_SCALE: f32 = 450.0;
+/// Tetos do efeito do interesse, no score máximo (100): pressão +20%, mídia +35%,
+/// motivação +25%. A mídia puxa mais porque é o eixo que o evento de fato move.
+const PRESSURE_MAX_BOOST: f32 = 0.20;
+const MEDIA_MAX_BOOST: f32 = 0.35;
+const MOTIVATION_MAX_BOOST: f32 = 0.25;
+/// Cortes de tier sobre o score.
+const TIER_EVENTO_PRINCIPAL: f32 = 85.0;
+const TIER_MUITO_ALTO: f32 = 65.0;
+const TIER_ALTO: f32 = 45.0;
+const TIER_MODERADO: f32 = 25.0;
+
 // ── Cálculo principal ─────────────────────────────────────────────────────────
 
 pub fn calculate_expected_event_interest(ctx: &EventInterestContext) -> ExpectedEventInterest {
@@ -15,11 +34,11 @@ pub fn calculate_expected_event_interest(ctx: &EventInterestContext) -> Expected
         + competitive_context_bonus(ctx)
         + player_prominence_bonus(ctx);
 
-    let display_value = (score * 450.0).round() as i32;
+    let display_value = (score * DISPLAY_SCALE).round() as i32;
     let tier = score_to_tier(score);
-    let pressure_modifier = 1.0 + (score / 100.0) * 0.20;
-    let media_multiplier = 1.0 + (score / 100.0) * 0.35;
-    let motivation_multiplier = 1.0 + (score / 100.0) * 0.25;
+    let pressure_modifier = 1.0 + (score / 100.0) * PRESSURE_MAX_BOOST;
+    let media_multiplier = 1.0 + (score / 100.0) * MEDIA_MAX_BOOST;
+    let motivation_multiplier = 1.0 + (score / 100.0) * MOTIVATION_MAX_BOOST;
 
     ExpectedEventInterest {
         score,
@@ -79,6 +98,9 @@ pub fn headline_strength_label(strength: &HeadlineStrength) -> String {
 
 // ── Blocos internos do score ──────────────────────────────────────────────────
 
+/// Score de partida por divisão: a escada de prestígio do mundo, do rookie ao
+/// endurance. Tabela de desenho, sem medição — é ela que define quanto uma corrida
+/// vale ANTES de qualquer contexto de campeonato.
 fn base_score_for_category(categoria: &str) -> f32 {
     match categoria {
         "mazda_rookie" | "toyota_rookie" => 18.0,
@@ -177,13 +199,13 @@ fn player_prominence_bonus(ctx: &EventInterestContext) -> f32 {
 }
 
 fn score_to_tier(score: f32) -> InterestTier {
-    if score >= 85.0 {
+    if score >= TIER_EVENTO_PRINCIPAL {
         InterestTier::EventoPrincipal
-    } else if score >= 65.0 {
+    } else if score >= TIER_MUITO_ALTO {
         InterestTier::MuitoAlto
-    } else if score >= 45.0 {
+    } else if score >= TIER_ALTO {
         InterestTier::Alto
-    } else if score >= 25.0 {
+    } else if score >= TIER_MODERADO {
         InterestTier::Moderado
     } else {
         InterestTier::Baixo
@@ -276,7 +298,7 @@ pub fn calculate_realized_event_interest(
         expected_display_value: expected.display_value,
         expected_tier: expected.tier.clone(),
         final_score,
-        final_display_value: (final_score * 450.0).round() as i32,
+        final_display_value: (final_score * DISPLAY_SCALE).round() as i32,
         final_tier: score_to_tier(final_score),
         delta_vs_expected: final_score - expected.score,
         media_delta_modifier,

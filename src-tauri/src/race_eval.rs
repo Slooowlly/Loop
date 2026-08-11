@@ -12,6 +12,32 @@
 //! exata, para a avaliação ser humana e não "burra" por 1 posição de diferença.
 //!
 //! Lógica pura e testável; o chamador injeta o mérito de cada piloto (do banco).
+//!
+//! ## Os pesos da NOTA estão fechados — conferido em 11/08/2026
+//!
+//! `0,52 expectativa + 0,30 grid→chegada + 0,18 incidentes`, com a posição absoluta entrando
+//! como TETO (`7,0 + 0,3 × pontos absolutos`) e não como quarto peso. A vistoria de 10/08 listou
+//! isto como pendência de calibração; a conferência do código diz que não é, e o registro fica
+//! aqui para que a próxima varredura não o levante como achado novo.
+//!
+//! Três razões pelas quais este desenho não precisa de harness:
+//!
+//! 1. **A nota não realimenta nada.** Ela é texto de tela. Nenhum outro sistema — mercado,
+//!    evolução, moral, simulação — lê `grade`. Um peso errado aqui produz uma frase discutível,
+//!    não um mundo desbalanceado. É o oposto das constantes de `race::trafego`, que decidem o
+//!    resultado da corrida.
+//! 2. **O teto é o que faz o desenho estar certo, e ele é estrutural, não numérico.** Somar a
+//!    posição absoluta como quarto peso puniria a recuperação limpa (subir de P18 para P11 num
+//!    carro ruim ainda é P11); usá-la como teto impede a nota 10 sem derrubar a recuperação para
+//!    o meio. Essa escolha não tem número para calibrar — ela é a forma da fórmula.
+//! 3. **Não existe alvo contra o qual medir.** As faixas de `calibracao::alvos` são propriedades
+//!    da corrida (correlação entre etapas, vencedores distintos); "a nota da corrida está justa"
+//!    não é uma distribuição, é julgamento. O instrumento certo já existe e é humano:
+//!    `imprime_exemplos`, marcado `#[ignore]` de propósito, imprime a tabela de casos-limite
+//!    (recuperação, subdesempenho, DNF, vitória fácil) para inspeção.
+//!
+//! **Condição de reabertura:** reclamação de jogador sobre uma nota específica, com o caso
+//! concreto. Aí o caso entra em `imprime_exemplos` e a discussão passa a ter um número.
 
 use serde::{Deserialize, Serialize};
 

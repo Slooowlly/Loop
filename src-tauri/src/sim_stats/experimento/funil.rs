@@ -131,16 +131,18 @@ pub(super) fn imprimir(t: &Totals, runs: usize, seasons: usize) {
 
     // PRA ONDE: tier da vaga que a emergência preencheu (onde a escassez bate);
     // DE ONDE: tier do feeder de onde o piloto foi promovido.
-    let paths: Vec<(u8, u8)> = crate::market::pipeline::EMERGENCY_PROMO_PATHS
+    // O estático guarda o CONTADOR por par de tiers, não a lista de eventos.
+    let paths: BTreeMap<(u8, u8), u64> = crate::market::pipeline::EMERGENCY_PROMO_PATHS
         .lock()
         .map(|p| p.clone())
         .unwrap_or_default();
-    if !paths.is_empty() {
+    let total_paths: u64 = paths.values().sum();
+    if total_paths > 0 {
         let mut by_to: BTreeMap<u8, u64> = BTreeMap::new();
         let mut gaps: BTreeMap<i32, u64> = BTreeMap::new(); // (to_tier - from_tier)
-        for (from, to) in &paths {
-            *by_to.entry(*to).or_insert(0) += 1;
-            *gaps.entry(*to as i32 - *from as i32).or_insert(0) += 1;
+        for ((from, to), n) in &paths {
+            *by_to.entry(*to).or_insert(0) += n;
+            *gaps.entry(*to as i32 - *from as i32).or_insert(0) += n;
         }
         println!("\n  PRA ONDE vai a promoção de emergência (tier da vaga):");
         for (to, n) in &by_to {
@@ -148,7 +150,7 @@ pub(super) fn imprimir(t: &Totals, runs: usize, seasons: usize) {
                 "    → {:<14} {:>4}  ({:.1}%)",
                 tier_label(*to),
                 n,
-                pct(*n, paths.len() as u64)
+                pct(*n, total_paths)
             );
         }
         println!("  DE ONDE vem o piloto (salto de tiers feeder→vaga):");
@@ -157,7 +159,7 @@ pub(super) fn imprimir(t: &Totals, runs: usize, seasons: usize) {
                 "    {} tier(s) abaixo: {:>4}  ({:.1}%)",
                 gap,
                 n,
-                pct(*n, paths.len() as u64)
+                pct(*n, total_paths)
             );
         }
     }

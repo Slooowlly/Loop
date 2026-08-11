@@ -4,6 +4,21 @@ use super::*;
 
 // ── Acumuladores ──────────────────────────────────────────────────────────────
 
+/// Uma amostra por RUN das taxas de um índice de temporada. Guardar as amostras cruas, e não
+/// só a soma, é o que permite imprimir o desvio ao lado da média — sem ele a tabela por
+/// temporada teria a mesma doença do agregado: um número sem a régua do próprio ruído.
+#[derive(Default, Clone)]
+pub(super) struct TaxasDaTemporada {
+    pub(super) lesao: Vec<f64>,
+    pub(super) aposentadoria: Vec<f64>,
+    pub(super) sobe: Vec<f64>,
+    pub(super) desce: Vec<f64>,
+    pub(super) estagna: Vec<f64>,
+    /// Pilotos ativos no início da temporada — o denominador de tudo acima. Uma população que
+    /// encolhe ao longo das temporadas explica taxa subindo sem nada ter piorado.
+    pub(super) ativos: Vec<f64>,
+}
+
 #[derive(Default)]
 pub(super) struct Totals {
     // ── Fama e público, lidos do save no fim de cada run (ver experimento::fama) ──
@@ -44,6 +59,21 @@ pub(super) struct Totals {
     pub(super) sobe_rate_samples: Vec<f64>,
     pub(super) desce_rate_samples: Vec<f64>,
     pub(super) estagna_rate_samples: Vec<f64>,
+    /// **As mesmas taxas, mas indexadas pelo ÍNDICE DA TEMPORADA dentro da run.**
+    ///
+    /// Os cinco vetores acima são um saco: todas as temporadas de todas as runs jogadas juntas.
+    /// A média deles responde "qual é a taxa de lesão do mundo" e **esconde a pergunta que
+    /// importa para calibração**, que é se a taxa é ESTÁVEL. Um mundo que lesiona 1,2% na
+    /// temporada 1 e 2,8% na temporada 8 tem a mesma média de um que lesiona 2,0% sempre, e os
+    /// dois são mundos completamente diferentes — o primeiro está derretendo devagar.
+    ///
+    /// Isto importa mais aqui do que num harness qualquer por causa do ruído medido do próprio
+    /// Monte Carlo: execuções idênticas variam ~8–10% entre si. Com esse chão de ruído, uma
+    /// diferença de agregado entre duas rodadas não distingue "a mudança fez efeito" de "foi o
+    /// sorteio". Uma TENDÊNCIA ao longo das temporadas, que aparece nas duas rodadas, distingue.
+    ///
+    /// Chave: índice da temporada (0-based). Valor: uma amostra por run.
+    pub(super) taxas_por_temporada: BTreeMap<usize, TaxasDaTemporada>,
     // Trajetória de carreira (primeiro vs último overall observado por piloto,
     // entre pilotos vistos em >= 2 temporadas)
     pub(super) traj_count: u64,

@@ -21,6 +21,17 @@ use crate::simulation::incidents::{IncidentResult, IncidentType};
 // ───────────────────────── Limiares (um por conceito) ─────────────────────────
 
 /// Ganho de posições que já conta como REMONTADA.
+///
+/// **Nota de calibração (fechada em 11/08/2026).** Os quatro motores usavam quatro
+/// limiares (>0, 4, 5, 8) e a unificação teve de escolher um. Ficou **4**, que era o do
+/// boletim, e não o 5 do debrief — o debrief perde uma posição de exigência. A escolha é
+/// deliberada: `remontada` é o predicado GROSSO, o que decide se o assunto entra na
+/// conversa, e o conceito de manchete tem constante própria
+/// ([`REMONTADA_EPICA_MIN`], 8, com chegada no top-6). Com 5, um grid de 12 exigia
+/// atravessar quase metade do pelotão para a corrida ser "de recuperação", e a
+/// diferença entre subir 4 e subir 5 lugares não é a diferença entre ter havido e não
+/// ter havido remontada. Não é medição — é onde a régua foi cravada, e mexer aqui é
+/// decisão de design.
 pub const REMONTADA_MIN: i32 = 4;
 /// Remontada que vira MANCHETE: ganho grande E terminando na frente. É um
 /// conceito próprio (não um segundo limiar de [`remontada`]) — a revista só
@@ -62,6 +73,19 @@ impl DnfKind {
 
     /// "Batida" no sentido do boletim: alguém se meteu numa — por contato ou por
     /// erro próprio. Pane mecânica não conta.
+    ///
+    /// **Não olha a SEVERIDADE, e isso está resolvido, não esquecido.** A regra antiga
+    /// tirava de "batida" o `DriverError` de severidade `Minor`; a investigação (fechada
+    /// em 11/08/2026) mostrou que esse caso não existe no motor: `roll_driver_error`
+    /// devolve `Minor ⇒ segue na prova` / `Major ⇒ abandona`, e a escalada por stall
+    /// sobe severidade e abandono JUNTOS. Erro de pilotagem que abandona é sempre
+    /// `Major` ou pior, então filtrar por severidade não removeria caso nenhum.
+    ///
+    /// O acoplamento é do motor, não deste módulo — e por isso o guard mora lá:
+    /// `simulation::incidents::tests::erro_de_pilotagem_com_abandono_nunca_sai_minor`
+    /// varre 1500 segmentos e quebra se alguém desacoplar as duas coisas. A colisão fica
+    /// de fora de propósito: lá severidade e consequência são sorteadas em separado, e
+    /// contato é batida em qualquer severidade.
     pub fn is_crash(self) -> bool {
         matches!(self, DnfKind::Contato | DnfKind::Erro)
     }
@@ -88,6 +112,10 @@ const PALAVRAS_MECANICAS: &[&str] = &[
     "elétric",
     "eletric",
     "diferencial",
+    // "bateria" precisa estar AQUI, e não só por completude: `PALAVRAS_BATIDA` carrega
+    // "bate", que é prefixo dela. As mecânicas são testadas primeiro, então a precedência é
+    // o que impede "bateria descarregou" de virar batida.
+    "bateria",
     // EN
     "engine",
     "gearbox",
@@ -100,6 +128,7 @@ const PALAVRAS_MECANICAS: &[&str] = &[
     "electric",
     "differential",
     "failure",
+    "battery",
 ];
 
 /// ...e as que denunciam BATIDA.
@@ -107,6 +136,9 @@ const PALAVRAS_BATIDA: &[&str] = &[
     // PT
     "batida",
     "bateu",
+    // Presente no tempo presente: é a redação do contato de disputa que o motor gera
+    // (`race.incident.contact_attacker`). Faltava, e a frase caía em `Desconhecido`.
+    "bate",
     "colis",
     "acidente",
     "contato",
@@ -144,6 +176,19 @@ fn contem(reason: Option<&str>, palavras: &[&str]) -> bool {
 /// chamava de mecânico.
 pub fn dnf_kind(inc: Option<&IncidentResult>, mech_break: bool, reason: Option<&str>) -> DnfKind {
     if let Some(i) = inc {
+        // DANO LATENTE de colisão: o motor o registra como `Mechanical` (o tipo decide a
+        // bandeira amarela em `estrategia::traz_bandeira_amarela`, e trocá-lo mexeria no
+        // safety car), mas a natureza dele é CONTATO — o carro morreu da batida de dois
+        // trechos atrás, e o texto gerado diz exatamente isso. `damage_origin_segment` é a
+        // marca dessa origem e sobrevive ao save.
+        //
+        // Sem este ramo os dois motores divergiam no mesmo abandono: o boletim, que tem o
+        // incidente em mãos, lia `Mecanico`; o debrief, que só tem o motivo salvo ("dano de
+        // colisão anterior"), lia `Contato` pela palavra-chave. Era o desencontro que este
+        // módulo existe para não deixar acontecer.
+        if i.incident_type == IncidentType::Mechanical && i.damage_origin_segment.is_some() {
+            return DnfKind::Contato;
+        }
         return match i.incident_type {
             IncidentType::Collision => DnfKind::Contato,
             IncidentType::DriverError => DnfKind::Erro,
@@ -265,6 +310,65 @@ mod tests {
             DnfKind::Desconhecido
         );
         assert!(!dnf_kind(None, false, None).is_crash());
+    }
+
+    /// O dano latente de colisão precisa dar a MESMA resposta pelos dois caminhos: com o
+    /// incidente em mãos (boletim) e só com o texto salvo (debrief). É a divergência que o
+    /// módulo existe para não deixar existir, e ela era real — o incidente vem como
+    /// `Mechanical` e o texto fala em colisão.
+    #[test]
+    fn dano_latente_de_colisao_e_contato_pelos_dois_caminhos() {
+        let mut latente = inc(IncidentType::Mechanical);
+        latente.damage_origin_segment = Some("early".to_string());
+        assert_eq!(dnf_kind(Some(&latente), false, None), DnfKind::Contato);
+        // O mesmo abandono, visto pelo save (só o motivo textual sobrevive).
+        assert_eq!(
+            dnf_kind(
+                None,
+                false,
+                Some("Fulano abandona por dano de colisão anterior")
+            ),
+            DnfKind::Contato
+        );
+        // Pane mecânica de verdade (sem origem de dano) segue mecânica.
+        assert!(dnf_kind(Some(&inc(IncidentType::Mechanical)), false, None).is_mecanico());
+    }
+
+    /// As frases que o MOTOR gera (contato de disputa e fallback de dano latente) são
+    /// classificadas por palavra-chave quando o incidente cru não sobrevive ao save. Elas
+    /// moram no rust-i18n, então mudar a redação em qualquer um dos dois idiomas passaria a
+    /// degradar `dnf_kind` para `Desconhecido` em silêncio. Este teste é o alarme.
+    ///
+    /// `#[serial]`: o locale é estado global do processo.
+    #[test]
+    #[serial_test::serial]
+    fn textos_do_motor_sao_classificaveis_nos_dois_idiomas() {
+        let anterior = rust_i18n::locale().to_string();
+        for locale in ["pt-BR", "en-US"] {
+            rust_i18n::set_locale(locale);
+            let atacante = rust_i18n::t!(
+                "race.incident.contact_attacker",
+                atacante = "Ayrton",
+                defensor = "Alain"
+            )
+            .to_string();
+            let defensor = rust_i18n::t!(
+                "race.incident.contact_defender",
+                atacante = "Ayrton",
+                defensor = "Alain"
+            )
+            .to_string();
+            let dano =
+                rust_i18n::t!("race.incident.latent_damage_dnf", name = "Ayrton").to_string();
+            for texto in [&atacante, &defensor, &dano] {
+                assert_eq!(
+                    dnf_kind(None, false, Some(texto)),
+                    DnfKind::Contato,
+                    "[{locale}] \"{texto}\" deixou de ser lido como contato"
+                );
+            }
+        }
+        rust_i18n::set_locale(&anterior);
     }
 
     #[test]

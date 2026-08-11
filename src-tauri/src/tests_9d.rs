@@ -474,14 +474,39 @@ mod ciclo_dois_temporadas {
     ///
     /// Em cada transição: verificar archive, standings, licenças, mercado,
     /// invariante de temporada única, zero tabelas legadas e zero contratos Especial.
+    ///
+    /// O corpo é só a SEQUÊNCIA das fases; cada uma vive na sua função abaixo. Antes era
+    /// um `#[test]` de quase 300 linhas, e o problema não era o tamanho: uma falha no
+    /// meio abortava o teste e escondia todas as asserções seguintes, sem dizer em que
+    /// transição do ciclo o mundo tinha quebrado. Agora o nome da função no stack trace
+    /// já é a resposta, e os helpers de asserção (`assert_temporada_unica_em_andamento`,
+    /// `assert_archives_da_temporada`, `assert_estado_9d_intacto`) valem para qualquer
+    /// teste de ciclo futuro.
+    ///
+    /// Continua sendo UM teste de propósito: as fases não são independentes — cada uma
+    /// consome o estado que a anterior deixou no save, e separá-las em `#[test]` custaria
+    /// uma carreira completa por fase.
     #[test]
     fn ciclo_completo_s1_s2_s3() {
         let base_dir = create_career_dir("ciclo_2t");
         let (_, career_dir, db_path, _) = career_paths(&base_dir);
 
-        // ── Checkpoint 0: S1 recém-criada ────────────────────────────────────
+        let s1_id = fase_0_s1_recem_criada(&db_path);
+        let s2_id = fase_1_advance_s1_para_s2(&base_dir, &db_path, &career_dir, &s1_id);
+        fase_2_pretemporada_s2_vira_temporada(&base_dir, &db_path, &career_dir);
+        fase_3_primeira_corrida_de_s2(&base_dir, &db_path);
+        let s3_id = fase_4_advance_s2_para_s3(&base_dir, &db_path, &career_dir, &s2_id);
+        fase_5_pretemporada_s3_fecha_o_ciclo(&base_dir, &db_path, &career_dir, &s3_id);
+
+        let _ = std::fs::remove_dir_all(&base_dir);
+    }
+
+    // ── Fases do ciclo ────────────────────────────────────────────────────────
+
+    /// Checkpoint 0: a S1 recém-criada já nasce em Temporada, com calendário 9D válido.
+    fn fase_0_s1_recem_criada(db_path: &std::path::Path) -> String {
         let s1_id = {
-            let db = Database::open_existing(&db_path).expect("db");
+            let db = Database::open_existing(db_path).expect("db");
             let s = season_queries::get_active_season(&db.conn)
                 .expect("query")
                 .expect("S1");
@@ -489,112 +514,29 @@ mod ciclo_dois_temporadas {
             assert_eq!(s.fase, SeasonPhase::Temporada);
             s.id
         };
-        assert_calendar_invariants_9d(&db_path, &s1_id);
-        assert_no_duplicate_rounds(&db_path, &s1_id);
-        assert_zero_legacy_tables(&db_path);
-        assert_no_legacy_phases(&db_path);
+        assert_estado_9d_intacto(db_path, &s1_id);
+        s1_id
+    }
 
-        // ── Advance S1 → S2 ───────────────────────────────────────────────────
-        let s2_id = skip_and_advance(&base_dir, &db_path, &career_dir);
+    /// Checkpoint 1: S1 finalizada e arquivada, S2 ativa em PreTemporada, campeões de
+    /// classe eleitos, LMP2 sem movimento de escada e licenças concedidas.
+    fn fase_1_advance_s1_para_s2(
+        base_dir: &std::path::Path,
+        db_path: &std::path::Path,
+        career_dir: &std::path::Path,
+        s1_id: &str,
+    ) -> String {
+        let s2_id = skip_and_advance(base_dir, db_path, career_dir);
 
-        // Checkpoint 1: S1 finalizada, S2 em PreTemporada com 74 entradas
         {
-            let db = Database::open_existing(&db_path).expect("db");
+            let db = Database::open_existing(db_path).expect("db");
             let conn = &db.conn;
 
-            // S1 deve estar Finalizada
-            let s1_status: String = conn
-                .query_row(
-                    "SELECT status FROM seasons WHERE id = ?1",
-                    rusqlite::params![s1_id],
-                    |r| r.get(0),
-                )
-                .expect("status S1");
-            assert_eq!(s1_status, "Finalizada", "S1 deve estar Finalizada");
-
-            // S2 deve estar EmAndamento em PreTemporada
-            let s2 = season_queries::get_active_season(conn)
-                .expect("query")
-                .expect("S2 ativa");
-            assert_eq!(s2.id, s2_id, "S2 deve ser a temporada ativa");
-            assert_eq!(s2.numero, 2);
-            assert_eq!(
-                s2.fase,
-                SeasonPhase::PreTemporada,
-                "S2 deve estar em PreTemporada"
-            );
-
-            // Única temporada EmAndamento
-            let em_andamento: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM seasons WHERE status = 'EmAndamento'",
-                    [],
-                    |r| r.get(0),
-                )
-                .expect("contar EmAndamento");
-            assert_eq!(
-                em_andamento, 1,
-                "única temporada EmAndamento após advance: {em_andamento}"
-            );
-
-            // driver_season_archive da S1 criado
-            let dsa: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM driver_season_archive WHERE season_number = 1",
-                    [],
-                    |r| r.get(0),
-                )
-                .expect("driver_season_archive S1");
-            assert!(
-                dsa > 0,
-                "driver_season_archive da S1 deve existir (encontrou {dsa})"
-            );
-
-            // team_season_archive da S1 criado
-            let tsa: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM team_season_archive WHERE season_number = 1",
-                    [],
-                    |r| r.get(0),
-                )
-                .expect("team_season_archive S1");
-            assert!(
-                tsa > 0,
-                "team_season_archive da S1 deve existir (encontrou {tsa})"
-            );
-
-            // Standings finais: campeões por classe de production e endurance
-            let prod_champs: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM standings
-                     WHERE temporada_id = ?1
-                       AND posicao = 1
-                       AND categoria = 'production_challenger'
-                       AND classe IS NOT NULL",
-                    rusqlite::params![s1_id],
-                    |r| r.get(0),
-                )
-                .expect("campeões production");
-            assert!(
-                prod_champs >= 2,
-                "production_challenger deve ter ao menos 2 campeões de classe (encontrou {prod_champs})"
-            );
-
-            let end_champs: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM standings
-                     WHERE temporada_id = ?1
-                       AND posicao = 1
-                       AND categoria = 'endurance'
-                       AND classe IS NOT NULL",
-                    rusqlite::params![s1_id],
-                    |r| r.get(0),
-                )
-                .expect("campeões endurance");
-            assert!(
-                end_champs >= 2,
-                "endurance deve ter ao menos 2 campeões de classe (encontrou {end_champs})"
-            );
+            assert_temporada_finalizada(conn, s1_id, "S1");
+            assert_temporada_ativa(conn, &s2_id, 2, SeasonPhase::PreTemporada, "S2");
+            assert_temporada_unica_em_andamento(conn, "após advance");
+            assert_archives_da_temporada(conn, 1);
+            assert_campeoes_de_classe(conn, s1_id);
 
             // LMP2 não pode ter sido promovida/rebaixada (é fixa)
             let lmp2_movements: i64 = conn
@@ -621,129 +563,184 @@ mod ciclo_dois_temporadas {
         }
 
         // Calendário de S2 deve ter 74 entradas Pendente em 10-51
-        assert_calendar_invariants_9d(&db_path, &s2_id);
-        assert_no_duplicate_rounds(&db_path, &s2_id);
-        assert_zero_legacy_tables(&db_path);
-        assert_no_legacy_phases(&db_path);
+        assert_estado_9d_intacto(db_path, &s2_id);
+        s2_id
+    }
 
-        // ── Pré-temporada S2 → Temporada ─────────────────────────────────────
-        run_preseason_to_temporada(&base_dir, &db_path, &career_dir);
+    /// Checkpoint 2: a pré-temporada da S2 roda o mercado e entrega a fase Temporada.
+    fn fase_2_pretemporada_s2_vira_temporada(
+        base_dir: &std::path::Path,
+        db_path: &std::path::Path,
+        career_dir: &std::path::Path,
+    ) {
+        run_preseason_to_temporada(base_dir, db_path, career_dir);
+        assert_zero_legacy_tables(db_path);
+        assert_no_legacy_phases(db_path);
+    }
 
-        // Checkpoint 2: S2 em Temporada
-        assert_zero_legacy_tables(&db_path);
-        assert_no_legacy_phases(&db_path);
+    /// A 1ª corrida da S2, quando o jogador tem contrato.
+    ///
+    /// Sem contrato (possível quando `force_complete_preseason_plan` passa por cima do
+    /// mercado normal), pula a simulação — o restante do ciclo ainda valida archives,
+    /// standings e transições de fase.
+    fn fase_3_primeira_corrida_de_s2(base_dir: &std::path::Path, db_path: &std::path::Path) {
+        let db = Database::open_existing(db_path).expect("db");
+        let s2 = season_queries::get_active_season(&db.conn)
+            .expect("query")
+            .expect("S2 ativa");
+        let player = crate::db::queries::drivers::get_player_driver(&db.conn).expect("player");
 
-        // ── Simular 1ª corrida de S2 ──────────────────────────────────────────
-        {
-            let db = Database::open_existing(&db_path).expect("db");
-            let s2 = season_queries::get_active_season(&db.conn)
-                .expect("query")
-                .expect("S2 ativa");
-            let player = crate::db::queries::drivers::get_player_driver(&db.conn).expect("player");
+        let next_race = crate::db::queries::contracts::get_active_regular_contract_for_pilot(
+            &db.conn, &player.id,
+        )
+        .ok()
+        .flatten()
+        .and_then(|contract| {
+            calendar_queries::get_next_race(&db.conn, &s2.id, &contract.categoria)
+                .ok()
+                .flatten()
+        });
 
-            // Obtém próxima corrida do jogador; se não tiver equipe, pega qualquer corrida
-            // Simula 1ª corrida de S2 apenas se o jogador tem contrato ativo.
-            // Sem contrato (possível quando force_complete_preseason_plan bypassa o
-            // mercado normal), pula a simulação — o restante do ciclo ainda valida
-            // archives, standings e transições de fase.
-            let next_race = crate::db::queries::contracts::get_active_regular_contract_for_pilot(
-                &db.conn, &player.id,
-            )
-            .ok()
-            .flatten()
-            .and_then(|contract| {
-                calendar_queries::get_next_race(&db.conn, &s2.id, &contract.categoria)
-                    .ok()
-                    .flatten()
-            });
-
-            if let Some(race) = next_race {
-                drop(db);
-                simulate_race_weekend_in_base_dir(&base_dir, "career_001", &race.id)
-                    .expect("simular 1ª corrida de S2");
-            }
+        if let Some(race) = next_race {
+            drop(db);
+            simulate_race_weekend_in_base_dir(base_dir, "career_001", &race.id)
+                .expect("simular 1ª corrida de S2");
         }
+    }
 
-        // ── Advance S2 → S3 ───────────────────────────────────────────────────
-        let s3_id = skip_and_advance(&base_dir, &db_path, &career_dir);
+    /// Checkpoint 3: S2 finalizada e arquivada, S3 ativa em PreTemporada.
+    fn fase_4_advance_s2_para_s3(
+        base_dir: &std::path::Path,
+        db_path: &std::path::Path,
+        career_dir: &std::path::Path,
+        s2_id: &str,
+    ) -> String {
+        let s3_id = skip_and_advance(base_dir, db_path, career_dir);
 
-        // Checkpoint 3: S2 finalizada, S3 em PreTemporada com 74 entradas
         {
-            let db = Database::open_existing(&db_path).expect("db");
+            let db = Database::open_existing(db_path).expect("db");
             let conn = &db.conn;
 
-            let s2_status: String = conn
-                .query_row(
-                    "SELECT status FROM seasons WHERE id = ?1",
-                    rusqlite::params![s2_id],
-                    |r| r.get(0),
-                )
-                .expect("status S2");
-            assert_eq!(s2_status, "Finalizada", "S2 deve estar Finalizada");
-
-            let s3 = season_queries::get_active_season(conn)
-                .expect("query")
-                .expect("S3 ativa");
-            assert_eq!(s3.id, s3_id);
-            assert_eq!(s3.numero, 3);
-            assert_eq!(
-                s3.fase,
-                SeasonPhase::PreTemporada,
-                "S3 deve estar em PreTemporada"
-            );
-
-            let em_andamento: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM seasons WHERE status = 'EmAndamento'",
-                    [],
-                    |r| r.get(0),
-                )
-                .expect("contar EmAndamento");
-            assert_eq!(
-                em_andamento, 1,
-                "única temporada EmAndamento após S2 advance"
-            );
-
-            // driver_season_archive e team_season_archive da S2 criados
-            let dsa2: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM driver_season_archive WHERE season_number = 2",
-                    [],
-                    |r| r.get(0),
-                )
-                .expect("dsa S2");
-            assert!(dsa2 > 0, "driver_season_archive da S2 deve existir");
-
-            let tsa2: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM team_season_archive WHERE season_number = 2",
-                    [],
-                    |r| r.get(0),
-                )
-                .expect("tsa S2");
-            assert!(tsa2 > 0, "team_season_archive da S2 deve existir");
+            assert_temporada_finalizada(conn, s2_id, "S2");
+            assert_temporada_ativa(conn, &s3_id, 3, SeasonPhase::PreTemporada, "S3");
+            assert_temporada_unica_em_andamento(conn, "após S2 advance");
+            assert_archives_da_temporada(conn, 2);
         }
 
-        assert_calendar_invariants_9d(&db_path, &s3_id);
-        assert_no_duplicate_rounds(&db_path, &s3_id);
-        assert_zero_legacy_tables(&db_path);
-        assert_no_legacy_phases(&db_path);
+        assert_estado_9d_intacto(db_path, &s3_id);
+        s3_id
+    }
 
-        // Pré-temporada S3 → Temporada (completude do ciclo)
-        run_preseason_to_temporada(&base_dir, &db_path, &career_dir);
+    /// Fecha o ciclo: a S3 também atravessa a pré-temporada e chega em Temporada.
+    fn fase_5_pretemporada_s3_fecha_o_ciclo(
+        base_dir: &std::path::Path,
+        db_path: &std::path::Path,
+        career_dir: &std::path::Path,
+        s3_id: &str,
+    ) {
+        run_preseason_to_temporada(base_dir, db_path, career_dir);
 
-        let db = Database::open_existing(&db_path).expect("db");
+        let db = Database::open_existing(db_path).expect("db");
         let s3_final = season_queries::get_active_season(&db.conn)
             .expect("query")
             .expect("S3 ativa final");
+        assert_eq!(s3_final.id, s3_id);
         assert_eq!(
             s3_final.fase,
             SeasonPhase::Temporada,
             "S3 deve estar em Temporada ao final do ciclo"
         );
         assert_eq!(s3_final.numero, 3);
+    }
 
-        let _ = std::fs::remove_dir_all(&base_dir);
+    // ── Helpers de asserção ───────────────────────────────────────────────────
+
+    /// O pacote de invariantes 9D que vale em TODA transição: calendário completo, sem
+    /// rodada duplicada, sem tabela legada e sem fase legada.
+    fn assert_estado_9d_intacto(db_path: &std::path::Path, season_id: &str) {
+        assert_calendar_invariants_9d(db_path, season_id);
+        assert_no_duplicate_rounds(db_path, season_id);
+        assert_zero_legacy_tables(db_path);
+        assert_no_legacy_phases(db_path);
+    }
+
+    fn assert_temporada_finalizada(conn: &rusqlite::Connection, season_id: &str, rotulo: &str) {
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM seasons WHERE id = ?1",
+                rusqlite::params![season_id],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|e| panic!("status {rotulo}: {e}"));
+        assert_eq!(status, "Finalizada", "{rotulo} deve estar Finalizada");
+    }
+
+    fn assert_temporada_ativa(
+        conn: &rusqlite::Connection,
+        season_id: &str,
+        numero: i32,
+        fase: SeasonPhase,
+        rotulo: &str,
+    ) {
+        let ativa = season_queries::get_active_season(conn)
+            .expect("query")
+            .unwrap_or_else(|| panic!("{rotulo} deveria ser a temporada ativa"));
+        assert_eq!(ativa.id, season_id, "{rotulo} deve ser a temporada ativa");
+        assert_eq!(ativa.numero, numero);
+        assert_eq!(ativa.fase, fase, "{rotulo} deve estar em {fase:?}");
+    }
+
+    /// A invariante que a Fase 9D existe para garantir: nunca duas temporadas correndo.
+    fn assert_temporada_unica_em_andamento(conn: &rusqlite::Connection, quando: &str) {
+        let em_andamento: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM seasons WHERE status = 'EmAndamento'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("contar EmAndamento");
+        assert_eq!(
+            em_andamento, 1,
+            "única temporada EmAndamento {quando}: {em_andamento}"
+        );
+    }
+
+    /// Os dois arquivos de temporada (piloto e equipe) foram gravados no encerramento.
+    fn assert_archives_da_temporada(conn: &rusqlite::Connection, numero: i64) {
+        for tabela in ["driver_season_archive", "team_season_archive"] {
+            let total: i64 = conn
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM {tabela} WHERE season_number = ?1"),
+                    rusqlite::params![numero],
+                    |r| r.get(0),
+                )
+                .unwrap_or_else(|e| panic!("{tabela} S{numero}: {e}"));
+            assert!(
+                total > 0,
+                "{tabela} da S{numero} deve existir (encontrou {total})"
+            );
+        }
+    }
+
+    /// Production e Endurance são multiclasse: cada classe elege o seu campeão.
+    fn assert_campeoes_de_classe(conn: &rusqlite::Connection, season_id: &str) {
+        for categoria in ["production_challenger", "endurance"] {
+            let campeoes: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM standings
+                     WHERE temporada_id = ?1
+                       AND posicao = 1
+                       AND categoria = ?2
+                       AND classe IS NOT NULL",
+                    rusqlite::params![season_id, categoria],
+                    |r| r.get(0),
+                )
+                .unwrap_or_else(|e| panic!("campeões {categoria}: {e}"));
+            assert!(
+                campeoes >= 2,
+                "{categoria} deve ter ao menos 2 campeões de classe (encontrou {campeoes})"
+            );
+        }
     }
 
     /// Jogador em endurance LMP2 — cobertura do caminho player-facing.

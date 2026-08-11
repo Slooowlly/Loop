@@ -55,15 +55,14 @@ pub(crate) fn process_pending_damage(
                     (sel.rendered_text, Some(sel.catalog_id))
                 } else if is_dnf {
                     (
-                        format!("{} abandona por dano de colisao anterior", driver_name),
+                        rust_i18n::t!("race.incident.latent_damage_dnf", name = driver_name)
+                            .to_string(),
                         None,
                     )
                 } else {
                     (
-                        format!(
-                            "{} perde posicoes por dano de colisao anterior",
-                            driver_name
-                        ),
+                        rust_i18n::t!("race.incident.latent_damage_positions", name = driver_name)
+                            .to_string(),
                         None,
                     )
                 };

@@ -68,6 +68,23 @@ pub const CLASSIFICACAO: &[(&str, bool)] = &[
     // chegou". Um knob órfão numa varredura dá alavanca 0,000 e denuncia a si mesmo; num
     // instrumento de medição pareada ele produz um zero que parece resposta.
     ("peso_animo", true),
+    // --- As constantes de POSIÇÃO NA PISTA (A1.1) ---
+    //
+    // Não são campo do contexto no sentido antigo: moram em `ParametrosDeTrafego`, que o
+    // contexto CARREGA. Entraram nesta classificação porque entraram na varredura, e a guarda
+    // `a_varredura_de_knobs_esta_sincronizada_com_a_de_consumo` exige o par. A heurística de
+    // `.<nome>` funciona igual — o acesso é `ctx.trafego.janela_ar_sujo_ms` em `race/motor.rs` e
+    // `par.prob_base_ultrapassagem` em `race/trafego.rs`.
+    ("janela_ar_sujo_ms", true),
+    ("perda_maxima_ar_sujo_pontos", true),
+    ("gap_minimo_entre_carros_ms", true),
+    ("janela_de_ataque_ms", true),
+    ("prob_base_ultrapassagem", true),
+    ("delta_de_ritmo_que_satura", true),
+    ("peso_da_habilidade_na_ultrapassagem", true),
+    ("peso_da_agressividade_na_ultrapassagem", true),
+    ("custo_tentativa_falha_atacante_ms", true),
+    ("custo_tentativa_falha_defensor_ms", true),
 ];
 
 /// Knobs que são LIDOS mas cuja alavanca medida é nula — morte por magnitude, o defeito que a

@@ -16,6 +16,10 @@
 //! - [`variancia`] — a decomposição do orçamento (piloto / carro / evento / corrida): diz o que
 //!   ajustar. É a peça que transforma calibração em decisão informada.
 //! - [`processo`] — as métricas de COMO a corrida acontece (trocas, gaps, poder da largada).
+//! - [`pressao`] — a régua da camada de clutch/choke. É a única que fecha o CICLO DE PONTOS
+//!   (etapa → classificação → situação de título → esteira da etapa seguinte), porque sem ele a
+//!   pressão de campeonato não tem entrada e as constantes de `simulation::pressure` ficam sem
+//!   como ser medidas.
 //! - [`atrito`] — as métricas e os ALVOS do pacote D (ar sujo e ultrapassagem), definidos antes
 //!   de D existir para que ele seja construído contra alvo em vez de ajustado depois.
 //! - [`consumo`] — guarda contra knob calculado e nunca lido, generalizando o achado do
@@ -59,6 +63,7 @@ pub mod busca;
 pub mod campo;
 pub mod consumo;
 pub mod metricas;
+pub mod pressao;
 pub mod previa;
 pub mod processo;
 pub mod relatorio;

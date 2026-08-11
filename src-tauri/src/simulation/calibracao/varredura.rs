@@ -12,6 +12,8 @@
 //! Os knobs são campos públicos do contexto, então a varredura sobrescreve depois que o perfil da
 //! categoria resolveu ([`AjustesCtx`]). Nada em `profile/**` é tocado.
 
+use crate::simulation::race::trafego::ParametrosDeTrafego;
+
 use super::arena::{self, AjustesCtx, ConfigTemporada};
 use super::metricas::MetricasAgregadas;
 
@@ -34,6 +36,39 @@ pub enum Knob {
     /// contexto guarda, e o único consumidor possível (`math::adjusted_weather_multiplier`) não
     /// é chamado por ninguém. Mesma expectativa de alavanca zero exata.
     RainSensitivity,
+
+    // ── As constantes de POSIÇÃO NA PISTA ────────────────────────────────────────────────
+    //
+    // Nasceram `const` dentro de `race::trafego` e por isso ficavam INVISÍVEIS para esta
+    // varredura, que só enxergava campo de contexto. Isso é o pior arranjo possível: a busca
+    // fecha os knobs externos por cima de um conjunto interno que ninguém mediu, e o erro de
+    // baixo fica travado debaixo de uma calibração com cara de boa.
+    //
+    // Elas são as que decidem QUANTO VALE LARGAR NA FRENTE, então a saída de interesse aqui
+    // não é só ρ(N,N+1) — é `ρ(grid × chegada)`, medida por
+    // [`Saida::RhoGridChegada`]. As cinco constantes de rivalidade e o
+    // `RISCO_DE_CONTATO_NA_TENTATIVA_FALHA` continuam fora de propósito: a primeira é decisão
+    // de desenho, o segundo está medido contra a tabela de órfãos de 26 temporadas.
+    /// Janela de ar sujo, em ms.
+    JanelaArSujo,
+    /// Perda máxima de ritmo no ar sujo, em pontos.
+    PerdaMaximaArSujo,
+    /// Espaçamento mínimo entre dois carros em fila, em ms — o "não dá para atravessar".
+    GapMinimoEntreCarros,
+    /// Janela dentro da qual dá para TENTAR passar, em ms.
+    JanelaDeAtaque,
+    /// Chance base de a tentativa dar certo em condições neutras.
+    ProbBaseUltrapassagem,
+    /// Delta de ritmo que satura a chance de passar.
+    DeltaDeRitmoQueSatura,
+    /// Peso de `racecraft − defesa` na chance.
+    PesoDaHabilidadeNaUltrapassagem,
+    /// Peso da agressividade na chance.
+    PesoDaAgressividadeNaUltrapassagem,
+    /// Tempo perdido pelo atacante numa tentativa falha, em ms.
+    CustoTentativaFalhaAtacante,
+    /// Tempo perdido pelo defensor numa tentativa falha, em ms.
+    CustoTentativaFalhaDefensor,
 }
 
 impl Knob {
@@ -48,6 +83,16 @@ impl Knob {
             Self::OvertakingDifficulty => "overtaking_difficulty_multiplier",
             Self::TrackDifficulty => "track_difficulty_multiplier",
             Self::RainSensitivity => "rain_sensitivity",
+            Self::JanelaArSujo => "janela_ar_sujo_ms",
+            Self::PerdaMaximaArSujo => "perda_maxima_ar_sujo_pontos",
+            Self::GapMinimoEntreCarros => "gap_minimo_entre_carros_ms",
+            Self::JanelaDeAtaque => "janela_de_ataque_ms",
+            Self::ProbBaseUltrapassagem => "prob_base_ultrapassagem",
+            Self::DeltaDeRitmoQueSatura => "delta_de_ritmo_que_satura",
+            Self::PesoDaHabilidadeNaUltrapassagem => "peso_da_habilidade_na_ultrapassagem",
+            Self::PesoDaAgressividadeNaUltrapassagem => "peso_da_agressividade_na_ultrapassagem",
+            Self::CustoTentativaFalhaAtacante => "custo_tentativa_falha_atacante_ms",
+            Self::CustoTentativaFalhaDefensor => "custo_tentativa_falha_defensor_ms",
         }
     }
 
@@ -56,7 +101,48 @@ impl Knob {
         matches!(self, Self::IncidentRate)
     }
 
-    fn aplicar(&self, valor: f64) -> AjustesCtx {
+    /// Knob de POSIÇÃO NA PISTA — vive em [`ParametrosDeTrafego`], não no contexto.
+    ///
+    /// A diferença importa na faixa varrida: os do contexto são multiplicadores adimensionais
+    /// que giram em torno de 1,0, e estes são valores ABSOLUTOS na unidade da constante (ms,
+    /// pontos, fração). Varrer os dois com a mesma lista `[0 … 10]` daria janela de ar sujo de
+    /// 10 ms, que é o mesmo que desligá-la.
+    pub fn e_de_trafego(&self) -> bool {
+        matches!(
+            self,
+            Self::JanelaArSujo
+                | Self::PerdaMaximaArSujo
+                | Self::GapMinimoEntreCarros
+                | Self::JanelaDeAtaque
+                | Self::ProbBaseUltrapassagem
+                | Self::DeltaDeRitmoQueSatura
+                | Self::PesoDaHabilidadeNaUltrapassagem
+                | Self::PesoDaAgressividadeNaUltrapassagem
+                | Self::CustoTentativaFalhaAtacante
+                | Self::CustoTentativaFalhaDefensor
+        )
+    }
+
+    /// O valor que o jogo roda hoje. Só existe para knob de tráfego, que é onde a faixa de
+    /// varredura precisa ser relativa ao valor atual em vez de absoluta.
+    pub fn valor_de_hoje(&self) -> Option<f64> {
+        let p = ParametrosDeTrafego::PADRAO;
+        Some(match self {
+            Self::JanelaArSujo => p.janela_ar_sujo_ms,
+            Self::PerdaMaximaArSujo => p.perda_maxima_ar_sujo_pontos,
+            Self::GapMinimoEntreCarros => p.gap_minimo_entre_carros_ms,
+            Self::JanelaDeAtaque => p.janela_de_ataque_ms,
+            Self::ProbBaseUltrapassagem => p.prob_base_ultrapassagem,
+            Self::DeltaDeRitmoQueSatura => p.delta_de_ritmo_que_satura,
+            Self::PesoDaHabilidadeNaUltrapassagem => p.peso_da_habilidade_na_ultrapassagem,
+            Self::PesoDaAgressividadeNaUltrapassagem => p.peso_da_agressividade_na_ultrapassagem,
+            Self::CustoTentativaFalhaAtacante => p.custo_tentativa_falha_atacante_ms,
+            Self::CustoTentativaFalhaDefensor => p.custo_tentativa_falha_defensor_ms,
+            _ => return None,
+        })
+    }
+
+    pub(super) fn aplicar(&self, valor: f64) -> AjustesCtx {
         let mut a = AjustesCtx::default();
         match self {
             Self::RaceVariance => a.race_variance_multiplier = Some(valor),
@@ -68,12 +154,30 @@ impl Knob {
             Self::OvertakingDifficulty => a.overtaking_difficulty_multiplier = Some(valor),
             Self::TrackDifficulty => a.track_difficulty_multiplier = Some(valor),
             Self::RainSensitivity => a.rain_sensitivity = Some(valor),
+            Self::JanelaArSujo => a.trafego.janela_ar_sujo_ms = Some(valor),
+            Self::PerdaMaximaArSujo => a.trafego.perda_maxima_ar_sujo_pontos = Some(valor),
+            Self::GapMinimoEntreCarros => a.trafego.gap_minimo_entre_carros_ms = Some(valor),
+            Self::JanelaDeAtaque => a.trafego.janela_de_ataque_ms = Some(valor),
+            Self::ProbBaseUltrapassagem => a.trafego.prob_base_ultrapassagem = Some(valor),
+            Self::DeltaDeRitmoQueSatura => a.trafego.delta_de_ritmo_que_satura = Some(valor),
+            Self::PesoDaHabilidadeNaUltrapassagem => {
+                a.trafego.peso_da_habilidade_na_ultrapassagem = Some(valor)
+            }
+            Self::PesoDaAgressividadeNaUltrapassagem => {
+                a.trafego.peso_da_agressividade_na_ultrapassagem = Some(valor)
+            }
+            Self::CustoTentativaFalhaAtacante => {
+                a.trafego.custo_tentativa_falha_atacante_ms = Some(valor)
+            }
+            Self::CustoTentativaFalhaDefensor => {
+                a.trafego.custo_tentativa_falha_defensor_ms = Some(valor)
+            }
         }
         a
     }
 
     /// Todos, na ordem em que entram no relatório.
-    pub fn todos() -> [Knob; 9] {
+    pub fn todos() -> [Knob; 19] {
         [
             Self::RaceVariance,
             Self::RacePaceSpread,
@@ -84,7 +188,26 @@ impl Knob {
             Self::OvertakingDifficulty,
             Self::TrackDifficulty,
             Self::RainSensitivity,
+            Self::JanelaArSujo,
+            Self::PerdaMaximaArSujo,
+            Self::GapMinimoEntreCarros,
+            Self::JanelaDeAtaque,
+            Self::ProbBaseUltrapassagem,
+            Self::DeltaDeRitmoQueSatura,
+            Self::PesoDaHabilidadeNaUltrapassagem,
+            Self::PesoDaAgressividadeNaUltrapassagem,
+            Self::CustoTentativaFalhaAtacante,
+            Self::CustoTentativaFalhaDefensor,
         ]
+    }
+
+    /// Só os de POSIÇÃO NA PISTA. É o recorte que a medição de A1.1 varre: os outros nove já
+    /// têm varredura publicada e rodá-los de novo só gasta CPU.
+    pub fn de_trafego() -> Vec<Knob> {
+        Self::todos()
+            .into_iter()
+            .filter(Knob::e_de_trafego)
+            .collect()
     }
 }
 
@@ -108,6 +231,13 @@ pub enum Saida {
     EmbaralhamentoDoSc,
     /// Abandonos por etapa.
     DnfsPorEtapa,
+    /// **ρ(grid × chegada)** — o quanto largar na frente decide a chegada.
+    ///
+    /// Entrou junto com os knobs de posição na pista, e sem ela a varredura deles seria cega:
+    /// as constantes de ar sujo, trem e ultrapassagem existem exatamente para mover ESTA saída,
+    /// e nenhuma das cinco anteriores a media. Um knob que empurra ρ(grid) de 0,18 para 0,55 e
+    /// deixa ρ(N,N+1) parado sairia como "morto" na tabela antiga.
+    RhoGridChegada,
 }
 
 impl Saida {
@@ -119,6 +249,7 @@ impl Saida {
             Self::FrequenciaDeSc => "SC/etapa",
             Self::EmbaralhamentoDoSc => "ρ(pré-SC)",
             Self::DnfsPorEtapa => "DNF/etapa",
+            Self::RhoGridChegada => "ρ(grid)",
         }
     }
 
@@ -130,6 +261,7 @@ impl Saida {
             Self::FrequenciaDeSc => m.scs_por_etapa,
             Self::EmbaralhamentoDoSc => m.rho_pre_sc_chegada,
             Self::DnfsPorEtapa => m.dnfs_por_etapa,
+            Self::RhoGridChegada => m.spearman_grid_chegada,
         }
     }
 
@@ -137,7 +269,7 @@ impl Saida {
     /// de ρ é invisível, 0,02 de SC/etapa é uma mudança de 8% num valor que vive perto de 0,25.
     pub fn limiar_de_alavanca(&self) -> (f64, f64) {
         match self {
-            Self::RhoConsecutivas | Self::EmbaralhamentoDoSc => (0.02, 0.10),
+            Self::RhoConsecutivas | Self::EmbaralhamentoDoSc | Self::RhoGridChegada => (0.02, 0.10),
             Self::DesvioPosicao => (0.30, 1.00),
             Self::VencedoresDistintos => (0.30, 1.00),
             Self::FrequenciaDeSc => (0.02, 0.10),
@@ -145,7 +277,7 @@ impl Saida {
         }
     }
 
-    pub fn todas() -> [Saida; 6] {
+    pub fn todas() -> [Saida; 7] {
         [
             Self::RhoConsecutivas,
             Self::DesvioPosicao,
@@ -153,6 +285,7 @@ impl Saida {
             Self::FrequenciaDeSc,
             Self::EmbaralhamentoDoSc,
             Self::DnfsPorEtapa,
+            Self::RhoGridChegada,
         ]
     }
 }
@@ -259,6 +392,16 @@ impl Varredura {
 /// hoje. Deliberadamente generosa — se um knob só produz efeito com valor absurdo, isso é um
 /// achado sobre o desenho, não sobre a calibração.
 pub fn faixa_padrao(knob: Knob) -> Vec<f64> {
+    // Knob de tráfego tem UNIDADE (ms, pontos, fração), então a faixa é multiplicativa sobre o
+    // valor de hoje. `0×` é o desligamento total da constante, e ele é o ponto mais informativo
+    // da varredura: se apagar a janela de ar sujo não move nada, a constante é decorativa
+    // independentemente do valor que se escolha para ela.
+    if let Some(hoje) = knob.valor_de_hoje() {
+        return [0.0, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0]
+            .iter()
+            .map(|m| m * hoje)
+            .collect();
+    }
     match knob {
         Knob::RacePaceSpread => vec![0.25, 0.5, 0.85, 1.0, 1.3, 2.0, 3.0, 5.0],
         _ => vec![0.0, 0.25, 0.5, 1.0, 1.4, 2.5, 5.0, 10.0],

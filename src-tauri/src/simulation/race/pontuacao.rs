@@ -1,15 +1,80 @@
 //! Pontuação de segmento e degradação: os pesos por trecho da corrida, o quanto o carro pesa
 //! por categoria e o desgaste de pneu e de físico cobrado ao fim de cada segmento.
 
-use rand::Rng;
-
 use crate::simulation::context::{SimDriver, SimulationContext};
 use crate::simulation::math::{
-    car_weight_scale, category_car_performance, normalize_car_performance, rain_intensity_for,
+    car_weight_scale, category_car_performance, normalize_car_performance,
 };
 use crate::simulation::track_profile::TrackCharacter;
 
 use super::tipos::{RaceSegment, RaceState};
+
+// ── Os números INTERNOS do ritmo ──────────────────────────────────────────────────────────
+//
+// Mesmo movimento que `incidents::risco` já fez com os sorteios, e pela mesma razão: enquanto
+// um coeficiente vive solto no corpo da função, ele está fora do alcance de qualquer varredura
+// — a de `calibracao::varredura` enxerga campo de contexto, e a leitura humana enxerga nome.
+// Um `0.15` no meio de uma expressão de sete fatores não é auditável nem por uma nem por
+// outra.
+//
+// **Nenhum valor mudou ao ganhar nome.** O que muda é que agora dá para vê-los, comparar dois
+// e discutir a razão de cada um ao lado dele.
+//
+// Estado de calibração: **nenhum destes foi medido**. Eles vieram do desenho original do
+// motor de pontos e sobreviveram à troca de moeda sem revisão. Ficam declarados aqui como não
+// medidos em vez de ficarem implícitos — a mesma honestidade do bloco de `race::trafego`.
+
+/// Quanto o pneu no fim da vida custa de ritmo, como fração do score.
+const PESO_DA_PENALIDADE_DE_PNEU: f64 = 0.15;
+/// Quanto o piloto exausto custa de ritmo, como fração do score. Só em `Late` e `Finish`.
+const PESO_DA_PENALIDADE_DE_FADIGA: f64 = 0.10;
+/// Quanto a adaptabilidade rende por ponto de dificuldade acima de 1,0.
+const BONUS_DE_ADAPTABILIDADE_EM_PISTA_DIFICIL: f64 = 0.05;
+/// Idem para a consistência. Menor que o da adaptabilidade de propósito: pista difícil cobra
+/// mais de quem lê a pista do que de quem repete a volta.
+const BONUS_DE_CONSISTENCIA_EM_PISTA_DIFICIL: f64 = 0.03;
+/// Ponto fixo em torno do qual o `race_pace_spread_multiplier` comprime ou abre o campo.
+/// Vive perto do ritmo mediano do grid — mexer nele desloca o pelotão inteiro, não o spread.
+const MEIO_DA_ESCALA_DE_RITMO: f64 = 60.0;
+/// Quantas corridas na categoria até o piloto deixar de pagar pedágio de novato.
+const CORRIDAS_ATE_CONHECER_A_CATEGORIA: i32 = 10;
+/// Fração de ritmo perdida por corrida que falta para [`CORRIDAS_ATE_CONHECER_A_CATEGORIA`].
+const PENALIDADE_POR_CORRIDA_QUE_FALTA: f64 = 0.003;
+/// Piso do ritmo: nem o pior fim de semana anda "para trás".
+const PISO_DO_RITMO: f64 = 5.0;
+
+/// Amplitude do ruído no piloto de consistência ZERO, em pontos. É o topo da escala — a
+/// consistência do piloto desce dali linearmente até 0.
+const AMPLITUDE_MAXIMA_DE_RUIDO_PONTOS: f64 = 5.0;
+
+/// Quanto a `gestao_pneus` chega a segurar a degradação, no máximo.
+const GESTAO_SEGURA_DO_DESGASTE: f64 = 0.50;
+/// Quanto a `smoothness` chega a segurar a degradação, por cima da gestão.
+const SUAVIDADE_SEGURA_DO_DESGASTE: f64 = 0.20;
+/// Quanto o `fitness` chega a segurar o desgaste FÍSICO.
+const FITNESS_SEGURA_DO_DESGASTE: f64 = 0.60;
+/// Duração de referência da corrida, em minutos. A degradação escala pela razão contra ela.
+const DURACAO_DE_REFERENCIA_MIN: f64 = 30.0;
+/// Piso do fator de duração — corrida curta demais ainda desgasta alguma coisa.
+const PISO_DO_FATOR_DE_DURACAO: f64 = 0.25;
+/// Quanto de pneu sobra no pior caso (1,0 = pneu novo).
+const PISO_DO_PNEU: f64 = 0.1;
+/// Quanto de condição física sobra no pior caso.
+const PISO_DA_CONDICAO_FISICA: f64 = 0.2;
+
+/// Ajuste relativo de `skill`, `car_performance` e `adaptabilidade` pelo caráter da pista.
+///
+/// Estava inline no `match` de [`calculate_segment_score`]. Virou tabela para que o desenho
+/// fique legível como desenho: lida em coluna, ela diz que pista de fluxo premia carro e
+/// velocidade e castiga quem depende de se adaptar, e que pista travada faz o oposto.
+fn bias_do_carater(character: TrackCharacter) -> (f64, f64, f64) {
+    match character {
+        TrackCharacter::Flowing => (0.02, 0.02, -0.03),
+        TrackCharacter::Technical => (0.00, 0.00, 0.00),
+        TrackCharacter::Tight => (-0.03, -0.04, 0.05),
+        TrackCharacter::Roval => (0.04, 0.03, -0.05),
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 struct SegmentWeights {
@@ -137,12 +202,12 @@ pub(crate) fn calculate_segment_score(
         + driver.confianca as f64 * weights.confianca;
 
     // Penalidade de pneu
-    let tire_penalty = (1.0 - state.tire_wear) * 0.15;
+    let tire_penalty = (1.0 - state.tire_wear) * PESO_DA_PENALIDADE_DE_PNEU;
     score *= 1.0 - tire_penalty;
 
     // Penalidade de fadiga (apenas Late e Finish)
     if matches!(segment, RaceSegment::Late | RaceSegment::Finish) {
-        let fatigue_penalty = (1.0 - state.physical_condition) * 0.10;
+        let fatigue_penalty = (1.0 - state.physical_condition) * PESO_DA_PENALIDADE_DE_FADIGA;
         score *= 1.0 - fatigue_penalty;
     }
 
@@ -161,34 +226,33 @@ pub(crate) fn calculate_segment_score(
 
     // Bônus contextual em pista difícil: adaptabilidade vale mais
     if ctx.track_difficulty_multiplier > 1.0 {
-        let difficulty_bonus =
-            (driver.adaptabilidade as f64 / 100.0) * (ctx.track_difficulty_multiplier - 1.0) * 0.05;
-        let consistency_bonus =
-            (driver.consistencia as f64 / 100.0) * (ctx.track_difficulty_multiplier - 1.0) * 0.03;
+        let difficulty_bonus = (driver.adaptabilidade as f64 / 100.0)
+            * (ctx.track_difficulty_multiplier - 1.0)
+            * BONUS_DE_ADAPTABILIDADE_EM_PISTA_DIFICIL;
+        let consistency_bonus = (driver.consistencia as f64 / 100.0)
+            * (ctx.track_difficulty_multiplier - 1.0)
+            * BONUS_DE_CONSISTENCIA_EM_PISTA_DIFICIL;
         score += difficulty_bonus + consistency_bonus;
     }
 
     // Bias de caráter de pista: pequenos ajustes relativos de atributos (skill, car, adaptabilidade)
-    let (char_skill_bias, char_car_bias, char_adapt_bias) = match ctx.track_character {
-        TrackCharacter::Flowing => (0.02_f64, 0.02, -0.03),
-        TrackCharacter::Technical => (0.00, 0.00, 0.00),
-        TrackCharacter::Tight => (-0.03, -0.04, 0.05),
-        TrackCharacter::Roval => (0.04, 0.03, -0.05),
-    };
+    let (char_skill_bias, char_car_bias, char_adapt_bias) = bias_do_carater(ctx.track_character);
     score += driver.skill as f64 * char_skill_bias
         + car_norm * char_car_bias * car_scale
         + driver.adaptabilidade as f64 * char_adapt_bias;
 
     // Comprime ou expande spread de habilidade (endurance = campo mais fechado, rookie = mais aberto)
-    let midpoint = 60.0_f64;
-    score = midpoint + (score - midpoint) * ctx.race_pace_spread_multiplier;
+    score = MEIO_DA_ESCALA_DE_RITMO
+        + (score - MEIO_DA_ESCALA_DE_RITMO) * ctx.race_pace_spread_multiplier;
 
-    if driver.corridas_na_categoria < 10 {
-        let inexperience_factor = (10 - driver.corridas_na_categoria).max(0) as f64 * 0.003;
+    if driver.corridas_na_categoria < CORRIDAS_ATE_CONHECER_A_CATEGORIA {
+        let inexperience_factor = (CORRIDAS_ATE_CONHECER_A_CATEGORIA - driver.corridas_na_categoria)
+            .max(0) as f64
+            * PENALIDADE_POR_CORRIDA_QUE_FALTA;
         score *= 1.0 - inexperience_factor;
     }
 
-    score.max(5.0)
+    score.max(PISO_DO_RITMO)
 }
 
 /// Amplitude do ruído de ritmo deste piloto neste trecho, em pontos de ritmo.
@@ -217,7 +281,7 @@ pub(crate) fn amplitude_de_ritmo_com_relancamento(
     segment: RaceSegment,
     relancamento: bool,
 ) -> f64 {
-    let base = (100.0 - driver.consistencia as f64) / 100.0 * 5.0;
+    let base = (100.0 - driver.consistencia as f64) / 100.0 * AMPLITUDE_MAXIMA_DE_RUIDO_PONTOS;
     let escalada = base * ctx.race_variance_multiplier;
 
     // Caos extra na largada — e no relançamento — amplificado por densidade do pelotão.
@@ -238,12 +302,13 @@ pub(crate) fn apply_tire_degradation(
     driver: &SimDriver,
     ctx: &SimulationContext,
 ) {
-    let mgmt_factor = 1.0 - (driver.gestao_pneus as f64 / 100.0 * 0.50);
-    let smoothness_factor = 1.0 - (driver.smoothness as f64 / 100.0 * 0.20);
-    let duration_factor = (ctx.race_duration_minutes as f64 / 30.0).max(0.25);
+    let mgmt_factor = 1.0 - (driver.gestao_pneus as f64 / 100.0 * GESTAO_SEGURA_DO_DESGASTE);
+    let smoothness_factor = 1.0 - (driver.smoothness as f64 / 100.0 * SUAVIDADE_SEGURA_DO_DESGASTE);
+    let duration_factor = (ctx.race_duration_minutes as f64 / DURACAO_DE_REFERENCIA_MIN)
+        .max(PISO_DO_FATOR_DE_DURACAO);
     let actual_degradation =
         ctx.tire_degradation_rate * mgmt_factor * smoothness_factor * duration_factor;
-    state.tire_wear = (state.tire_wear - actual_degradation).max(0.1);
+    state.tire_wear = (state.tire_wear - actual_degradation).max(PISO_DO_PNEU);
 }
 
 pub(crate) fn apply_physical_degradation(
@@ -251,8 +316,10 @@ pub(crate) fn apply_physical_degradation(
     driver: &SimDriver,
     ctx: &SimulationContext,
 ) {
-    let fit_factor = 1.0 - (driver.fitness as f64 / 100.0 * 0.60);
-    let duration_factor = (ctx.race_duration_minutes as f64 / 30.0).max(0.25);
+    let fit_factor = 1.0 - (driver.fitness as f64 / 100.0 * FITNESS_SEGURA_DO_DESGASTE);
+    let duration_factor = (ctx.race_duration_minutes as f64 / DURACAO_DE_REFERENCIA_MIN)
+        .max(PISO_DO_FATOR_DE_DURACAO);
     let actual_degradation = ctx.physical_degradation_rate * fit_factor * duration_factor;
-    state.physical_condition = (state.physical_condition - actual_degradation).max(0.2);
+    state.physical_condition =
+        (state.physical_condition - actual_degradation).max(PISO_DA_CONDICAO_FISICA);
 }

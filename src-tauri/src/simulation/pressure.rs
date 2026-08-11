@@ -10,6 +10,50 @@
 //!   (mais rápido, erra menos). Frágil (mental fraco / jovem) → **choke**.
 //!
 //! Mesma fonte na simulação offline E no export pro iRacing.
+//!
+//! ## MEDIÇÃO — 11/08/2026, e o resultado não é o esperado
+//!
+//! As constantes abaixo (`PACE_K`, `NEUTRAL`, o `×2` do líder, o `×3` da última corrida) foram
+//! fixadas em design porque **não havia como medi-las**: a pressão de campeonato precisa da
+//! classificação para existir, e o harness de calibração rodava temporadas sem realimentar
+//! pontos de uma etapa para a seguinte. Isso mudou — `calibracao::pressao` fecha o ciclo
+//! (etapa → classificação → situação de título → esteira da etapa seguinte) e roda a MESMA
+//! temporada duas vezes, com o mesmo grid e as mesmas sementes, mudando só se a pressão é
+//! aplicada. Tudo que difere entre as duas veio desta camada e de mais nada.
+//!
+//! Vinte e quatro temporadas pareadas, 20 pilotos × 12 etapas, incidentes ligados:
+//!
+//! | métrica | rookie sem → com | gt3 sem → com |
+//! |---|---|---|
+//! | margem do campeão | 0,2554 → 0,2638 (**+0,008**) | 0,1614 → 0,1630 (**+0,002**) |
+//! | trocas de liderança | 1,375 → 1,333 (−0,04) | 2,333 → 2,292 (−0,04) |
+//! | chegada média dos candidatos | 2,921 → 2,986 (**+0,065**) | 3,776 → 3,702 (**−0,074**) |
+//! | incidentes na reta final | 0,318 → 0,326 (+0,008) | 0,357 → 0,349 (−0,007) |
+//!
+//! **A camada mexe, mas mexe pouco — e o sinal não é estável.** Ela não é inerte (o fio chega:
+//! desligá-la muda o resultado, e é isso que o teste assevera). Mas a grandeza é de centésimo
+//! de posição, e o efeito mais direto do clutch/choke — a chegada média de quem está brigando
+//! por título — **troca de sinal entre as duas categorias**: a pressão piora o candidato no
+//! rookie e melhora no gt3. Duas leituras com sinais opostos e magnitude comparável ao acaso é
+//! a assinatura de um efeito dentro do ruído de amostragem, não de um efeito que se inverte por
+//! categoria.
+//!
+//! A explicação mecânica está no próprio desenho, e ela é coerente: `PACE_K = 3.0` é o swing
+//! na intensidade MÁXIMA, que só acontece na última corrida com título aberto; `headroom_pace_mult`
+//! ainda atenua isso perto do teto de skill; e o `SimDriver::skill` é `u8`, então parte do
+//! ajuste morre no arredondamento antes de virar tempo. Três atenuações em série sobre um swing
+//! que já era pequeno.
+//!
+//! **O que isso autoriza e o que não autoriza.** Autoriza dizer que a camada, hoje, não tem
+//! tamanho para produzir a narrativa que ela promete ("o líder sentiu a pressão e entregou o
+//! título"). Não autoriza escolher um `PACE_K` novo: 24 temporadas pareadas separam "mexe" de
+//! "não mexe", não distinguem 3,0 de 4,0. Fechar valor exige subir a amostra e definir o ALVO —
+//! quantas vezes, em quantas temporadas, o líder deve perder o título na última etapa por
+//! pressão. **Esse alvo é decisão de produto e não está tomado**; sem ele não há contra o que
+//! calibrar, e é essa a pendência real, não a medição.
+//!
+//! Rode com:
+//! `cargo test --release --lib calibracao::pressao -- --ignored --nocapture`
 
 use serde::{Deserialize, Serialize};
 

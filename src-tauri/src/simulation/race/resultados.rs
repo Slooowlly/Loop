@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use rand::Rng;
 
 use crate::simulation::context::{SimDriver, SimulationContext};
-use crate::simulation::incidents::{IncidentResult, IncidentSeverity, IncidentType};
+use crate::simulation::incidents::IncidentResult;
 use crate::simulation::qualifying::QualifyingResult;
 
 use super::tipos::{ClassificationStatus, RaceDriverResult, RaceSegment, RaceState};

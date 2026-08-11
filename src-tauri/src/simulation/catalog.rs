@@ -1,3 +1,36 @@
+//! **Catálogo de incidentes** — o texto que dá cara ao que quebrou no carro.
+//!
+//! O texto de um incidente é resolvido POR ID no locale ativo (`breakdown.<id>.{dnf|warn|part}`
+//! em `locales/*.yml`); o que o banco semeia em `dnf_template`/`non_dnf_template`/
+//! `description_short` é só fallback para o id que ainda não tem linha no locale.
+//!
+//! ## O texto CONGELA no idioma em que a corrida foi disputada — e isso é decisão
+//!
+//! O render acontece uma vez, na hora do incidente, e o resultado vai para o save junto com a
+//! corrida. Trocar o idioma do jogo depois **não retraduz o histórico**: as corridas antigas
+//! seguem no idioma em que foram corridas, as novas saem no idioma novo.
+//!
+//! Isto é a **opção A**, a mesma já adotada nas lesões, e está escrito aqui porque sem o
+//! registro o próximo leitor trata como bug. As três razões, na ordem em que pesam:
+//!
+//! 1. **O save guarda prosa, não chave.** O incidente é gravado como texto renderizado, com o
+//!    nome do piloto já substituído. Retraduzir exigiria guardar `(id, parâmetros)` em vez da
+//!    frase e recompor tudo na leitura — mudança de contrato de save, não de texto.
+//! 2. **O histórico é um registro do que aconteceu.** Uma manchete de 2029 lida em 2031 é um
+//!    documento da temporada de 2029; retraduzi-la seria reescrever o passado, não exibi-lo.
+//! 3. **O id sobrevive.** `SelectedEntry::catalog_id` vai junto no save, então **a porta não
+//!    está fechada**: quem um dia quiser retraduzir o histórico tem por onde — a decisão é de
+//!    não fazer agora, não de impedir.
+//!
+//! ## Paridade — conferida em 11/08/2026
+//!
+//! Os 54 ids semeados por `db::migrations::seed_incidentes` existem nos DOIS locales, sem sobra
+//! de nenhum lado. Isso importa mais do que parece por causa do fallback: um id que faltasse no
+//! `en-US` não daria erro nem chave crua — cairia calado no `dnf_template` do banco, que está
+//! **em português**, e o jogador em inglês veria uma frase em português no meio da corrida sem
+//! nada indicar que algo falhou. É a guarda
+//! `todo_id_do_catalogo_tem_texto_nos_dois_locales` que impede isso de voltar.
+
 #![allow(dead_code)]
 
 use rand::Rng;
@@ -341,6 +374,74 @@ mod tests {
         assert_ne!(pt, en);
 
         rust_i18n::set_locale("pt-BR"); // restaura
+    }
+
+    /// **TODO id semeado tem texto nos dois locales.** O teste acima confere UM id; este
+    /// confere os 54, e é o que fecha a decisão de congelamento documentada no topo do módulo.
+    ///
+    /// O modo de falha que ele existe para pegar é silencioso por construção: id sem linha no
+    /// locale não estoura nem devolve a chave crua — cai no `dnf_template` do banco, que está
+    /// em português. O jogador em inglês leria português achando que é o jogo.
+    ///
+    /// A lista de ids sai do próprio seed, lido como TEXTO — a mesma técnica de
+    /// `calibracao::consumo`. Ler o fonte evita acoplar esta guarda ao banco (migração inteira
+    /// só para descobrir 54 strings) e garante que um cenário novo entre na guarda no mesmo
+    /// commit em que entra no seed. `#[serial]` porque o locale é global do processo.
+    #[test]
+    #[serial_test::serial]
+    fn todo_id_do_catalogo_tem_texto_nos_dois_locales() {
+        let fonte = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src/db/migrations/seed_incidentes.rs"),
+        )
+        .expect("fonte do seed do catálogo");
+
+        // Os ids são a PRIMEIRA string de cada tupla e têm forma fixa (`SB_S_MEC_01`,
+        // `RS_COL_03`): duas letras, blocos maiúsculos separados por `_`, número no fim.
+        let mut ids: Vec<String> = fonte
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .filter(|s| {
+                let partes: Vec<&str> = s.split('_').collect();
+                partes.len() >= 3
+                    && partes[0].len() == 2
+                    && partes.iter().all(|p| !p.is_empty())
+                    && partes[..partes.len() - 1]
+                        .iter()
+                        .all(|p| p.chars().all(|c| c.is_ascii_uppercase()))
+                    && partes[partes.len() - 1].chars().all(|c| c.is_ascii_digit())
+            })
+            .map(str::to_string)
+            .collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(
+            ids.len(),
+            54,
+            "o seed mudou de tamanho — confira a guarda antes de mudar o número: {ids:?}"
+        );
+
+        let anterior = rust_i18n::locale().to_string();
+        let mut faltando = Vec::new();
+        for locale in ["pt-BR", "en-US"] {
+            rust_i18n::set_locale(locale);
+            for id in &ids {
+                // `.part` é o único sufixo que TODO cenário tem: `.dnf`/`.warn` dependem do
+                // `severity_context` da entry, e cobrar os três daria falso positivo.
+                let chave = format!("breakdown.{id}.part");
+                if rust_i18n::t!(&chave) == chave {
+                    faltando.push(format!("{locale}: {chave}"));
+                }
+            }
+        }
+        rust_i18n::set_locale(&anterior);
+
+        assert!(
+            faltando.is_empty(),
+            "id do catálogo sem texto no locale (cairia no template PT do banco em silêncio):\n{}",
+            faltando.join("\n")
+        );
     }
 
     fn make_entry(

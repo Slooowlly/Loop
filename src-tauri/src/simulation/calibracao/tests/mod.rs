@@ -2521,6 +2521,63 @@ fn imprime_busca() {
     }
 }
 
+/// **A varredura das constantes de POSIÇÃO NA PISTA (A1.1).**
+///
+/// As oito de `race::trafego` eram `const` e por isso invisíveis para esta máquina: ela varre
+/// campo de contexto, e uma `const` não é campo de nada. Isso deixava a busca fechar os knobs
+/// externos por cima de um conjunto interno que ninguém tinha medido — o erro de baixo ficando
+/// travado embaixo de uma calibração com cara de boa.
+///
+/// A faixa é MULTIPLICATIVA sobre o valor de hoje (0× a 3×), porque estas têm unidade — varrer
+/// `janela_ar_sujo_ms` na lista `[0 … 10]` dos multiplicadores daria uma janela de 10 ms, que é
+/// o mesmo que desligá-la. O ponto `0×` é de propósito o mais informativo: se apagar a constante
+/// não move nada, ela é decorativa independentemente do valor que se escolha.
+///
+/// A saída que interessa aqui é `ρ(grid)` — o quanto largar na frente decide a chegada. Ela
+/// entrou em [`varredura::Saida`] junto com estes knobs; sem ela a tabela seria cega, porque é
+/// exatamente a métrica que estas constantes existem para mover.
+///
+/// Separado de [`imprime_varredura_de_knobs`] de propósito: os nove de contexto já têm varredura
+/// publicada, e rodá-los de novo só gasta CPU.
+#[test]
+#[ignore = "MUITO pesado; varredura das constantes de tráfego (A1.1)"]
+fn varredura_do_trafego_mede_alavanca() {
+    let mut saida = String::from("\n== VARREDURA DAS CONSTANTES DE TRÁFEGO ==\n");
+    for (rotulo, base, semente) in [
+        ("mazda_rookie", ConfigTemporada::rookie(), 4242_u64),
+        ("gt3", ConfigTemporada::gt3(), 4243),
+    ] {
+        let config = ConfigTemporada {
+            etapas: 12,
+            pilotos: 20,
+            ..base
+        }
+        .com_incidentes(true);
+
+        let varreduras: Vec<_> = Knob::de_trafego()
+            .into_iter()
+            .map(|knob| {
+                varredura::varrer(
+                    rotulo,
+                    &config,
+                    knob,
+                    &varredura::faixa_padrao(knob),
+                    6,
+                    semente,
+                )
+            })
+            .collect();
+
+        saida.push_str(&format!("\n## {rotulo}\n"));
+        saida.push_str(&relatorio::matriz_de_alavanca(&varreduras));
+        saida.push_str(&relatorio::tabela_varreduras(&varreduras));
+        for v in &varreduras {
+            saida.push_str(&relatorio::detalhe_varredura(v));
+        }
+    }
+    println!("{saida}");
+}
+
 /// Imprime a varredura de sensibilidade de todos os knobs — a lista de mortos vs com alavanca.
 #[test]
 #[ignore = "MUITO pesado; gerador do relatório de sensibilidade dos knobs"]

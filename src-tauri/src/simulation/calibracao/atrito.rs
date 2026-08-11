@@ -218,7 +218,16 @@ pub fn medir_segmentos(
 
 /// Janela dentro da qual um carro perde apoio atrás do da frente. 1 s é a convenção do
 /// automobilismo e é o que o pacote D vai ter que parametrizar por categoria.
-pub const JANELA_AR_SUJO_MS: f64 = 1_000.0;
+///
+/// **Passou a DERIVAR da simulação, e isso conserta um espelho perigoso.** Ela nasceu como
+/// literal `1_000.0` aqui, igual por coincidência ao `JANELA_AR_SUJO_MS` de `race::trafego`. O
+/// problema não era a duplicação em si — era o que ela faria com a calibração: a partir do
+/// momento em que a janela da simulação virou knob varrível (A1.1), a régua continuaria medindo
+/// "fração do pelotão a menos de 1 s" enquanto a corrida rodava com outra janela. A varredura
+/// mediria a constante contra uma régua que não a acompanha, e o resultado teria cara de
+/// medida.
+pub const JANELA_AR_SUJO_MS: f64 =
+    crate::simulation::race::trafego::ParametrosDeTrafego::PADRAO.janela_ar_sujo_ms;
 
 #[derive(Debug, Clone, Default)]
 pub struct MetricasAtrito {

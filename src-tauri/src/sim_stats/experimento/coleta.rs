@@ -494,6 +494,21 @@ pub(super) fn coletar(runs: usize, seasons: usize, start: Instant, t: &mut Total
             t.retire_rate_samples
                 .push(pct(retired_this_season, active_at_start));
 
+            // ── A MESMA temporada, indexada pelo lugar dela na run ──
+            //
+            // Tudo acima foi para um saco sem índice. Aqui a mesma medida entra com o número da
+            // temporada, que é o que separa "o mundo tem 2% de lesão" de "o mundo COMEÇA em 1,2%
+            // e TERMINA em 2,8%". Ver `TaxasDaTemporada`.
+            let faixa = t.taxas_por_temporada.entry(season).or_default();
+            faixa.lesao.push(pct(injured_this_season, active_at_start));
+            faixa
+                .aposentadoria
+                .push(pct(retired_this_season, active_at_start));
+            faixa.sobe.push(pct(s_sobe, survivors_season));
+            faixa.desce.push(pct(s_desce, survivors_season));
+            faixa.estagna.push(pct(s_estagna, survivors_season));
+            faixa.ativos.push(active_at_start as f64);
+
             // ── Promoções / Rebaixamentos de pilotos ──
             let mut team_dir: HashMap<&str, &MovementType> = HashMap::new();
             for m in &result.promotion_result.movements {

@@ -6,7 +6,6 @@ use crate::models::driver::Driver;
 use crate::models::enums::WeatherCondition;
 use crate::models::team::placeholder_team_from_db;
 use crate::simulation::context::SimulationContext;
-use crate::simulation::track_profile::TrackCharacter;
 
 use super::*;
 use crate::simulation::catalog::IncidentCatalog;

@@ -23,6 +23,8 @@ mod fama;
 mod funil;
 #[path = "experimento/pilotos.rs"]
 mod pilotos;
+#[path = "experimento/tendencia.rs"]
+mod tendencia;
 
 // ── O experimento ─────────────────────────────────────────────────────────────
 
@@ -69,6 +71,9 @@ pub(super) fn monte_carlo() {
     println!("└─────────────────────────────────────────────────────────────┘");
 
     pilotos::imprimir(&t);
+    // Vem logo depois dos agregados de piloto de propósito: ela é a régua deles. Ler a média de
+    // lesão sem ver se a série está subindo é o erro que a seção existe para tornar difícil.
+    tendencia::imprimir(&t);
     fama::imprimir(&t);
     equipes::imprimir(&t);
     carros::imprimir(&t);

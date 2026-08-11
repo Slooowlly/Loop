@@ -23,6 +23,7 @@ use crate::simulation::context::{SimDriver, SimulationContext};
 use crate::simulation::engine::run_full_race_with_breakdowns;
 use crate::simulation::profile::resolve_simulation_profile;
 use crate::simulation::qualifying::{simulate_qualifying, QualifyingResult};
+use crate::simulation::race::trafego::ParametrosDeTrafego;
 use crate::simulation::race::{simulate_race_with_breakdowns, RaceResult};
 use crate::simulation::scoring::{assign_points, determine_fastest_lap};
 
@@ -44,6 +45,51 @@ pub struct AjustesCtx {
     pub overtaking_difficulty_multiplier: Option<f64>,
     pub track_difficulty_multiplier: Option<f64>,
     pub rain_sensitivity: Option<f64>,
+
+    /// As constantes de POSIÇÃO NA PISTA (ar sujo, ultrapassagem, trem).
+    ///
+    /// Estão aqui porque eram `const` e por isso ficavam fora do alcance da varredura: a busca
+    /// fechava os knobs de contexto por cima de um conjunto interno nunca medido. `None` deixa
+    /// o valor de produção — ver [`ParametrosDeTrafego`].
+    pub trafego: AjustesTrafego,
+}
+
+/// Sobrescritas campo a campo de [`ParametrosDeTrafego`]. Um `Option` por constante, e não um
+/// `ParametrosDeTrafego` inteiro, porque a varredura precisa mexer numa de cada vez.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct AjustesTrafego {
+    pub janela_ar_sujo_ms: Option<f64>,
+    pub perda_maxima_ar_sujo_pontos: Option<f64>,
+    pub gap_minimo_entre_carros_ms: Option<f64>,
+    pub janela_de_ataque_ms: Option<f64>,
+    pub prob_base_ultrapassagem: Option<f64>,
+    pub delta_de_ritmo_que_satura: Option<f64>,
+    pub peso_da_habilidade_na_ultrapassagem: Option<f64>,
+    pub peso_da_agressividade_na_ultrapassagem: Option<f64>,
+    pub custo_tentativa_falha_atacante_ms: Option<f64>,
+    pub custo_tentativa_falha_defensor_ms: Option<f64>,
+}
+
+impl AjustesTrafego {
+    fn aplicar(&self, par: &mut ParametrosDeTrafego) {
+        macro_rules! sobrescrever {
+            ($($campo:ident),+ $(,)?) => {
+                $(if let Some(v) = self.$campo { par.$campo = v; })+
+            };
+        }
+        sobrescrever!(
+            janela_ar_sujo_ms,
+            perda_maxima_ar_sujo_pontos,
+            gap_minimo_entre_carros_ms,
+            janela_de_ataque_ms,
+            prob_base_ultrapassagem,
+            delta_de_ritmo_que_satura,
+            peso_da_habilidade_na_ultrapassagem,
+            peso_da_agressividade_na_ultrapassagem,
+            custo_tentativa_falha_atacante_ms,
+            custo_tentativa_falha_defensor_ms,
+        );
+    }
 }
 
 impl AjustesCtx {
@@ -64,6 +110,7 @@ impl AjustesCtx {
             track_difficulty_multiplier,
             rain_sensitivity,
         );
+        self.trafego.aplicar(&mut ctx.trafego);
     }
 }
 
@@ -180,7 +227,7 @@ impl ConfigTemporada {
         self
     }
 
-    fn is_endurance(&self) -> bool {
+    pub(super) fn is_endurance(&self) -> bool {
         self.perfil.category_id.starts_with("endurance")
     }
 }

@@ -267,21 +267,12 @@ fn ajustes_de(ponto: &Ponto) -> AjustesCtx {
     a
 }
 
+/// Antes esta função repetia, por nome, o `match` que `Knob::aplicar` já fazia. A duplicação
+/// tinha um modo de falha silencioso: um knob novo entrava na varredura, não entrava aqui, e a
+/// busca media o MESMO ponto em todo valor daquele eixo — reportando "sem alavanca" por bug.
+/// Delegar mata o modo de falha por construção.
 fn knob_para_ajuste(knob: Knob, valor: f64) -> AjustesCtx {
-    let mut a = AjustesCtx::default();
-    match knob.nome() {
-        "race_variance_multiplier" => a.race_variance_multiplier = Some(valor),
-        "race_pace_spread_multiplier" => a.race_pace_spread_multiplier = Some(valor),
-        "start_chaos_multiplier" => a.start_chaos_multiplier = Some(valor),
-        "qualifying_variance_multiplier" => a.qualifying_variance_multiplier = Some(valor),
-        "pack_density_factor" => a.pack_density_factor = Some(valor),
-        "incident_rate_multiplier" => a.incident_rate_multiplier = Some(valor),
-        "overtaking_difficulty_multiplier" => a.overtaking_difficulty_multiplier = Some(valor),
-        "track_difficulty_multiplier" => a.track_difficulty_multiplier = Some(valor),
-        "rain_sensitivity" => a.rain_sensitivity = Some(valor),
-        _ => {}
-    }
-    a
+    knob.aplicar(valor)
 }
 
 fn mesclar(destino: &mut AjustesCtx, origem: AjustesCtx) {
@@ -300,6 +291,25 @@ fn mesclar(destino: &mut AjustesCtx, origem: AjustesCtx) {
         overtaking_difficulty_multiplier,
         track_difficulty_multiplier,
         rain_sensitivity,
+    );
+    macro_rules! juntar_trafego {
+        ($($campo:ident),+ $(,)?) => {
+            $(if origem.trafego.$campo.is_some() {
+                destino.trafego.$campo = origem.trafego.$campo;
+            })+
+        };
+    }
+    juntar_trafego!(
+        janela_ar_sujo_ms,
+        perda_maxima_ar_sujo_pontos,
+        gap_minimo_entre_carros_ms,
+        janela_de_ataque_ms,
+        prob_base_ultrapassagem,
+        delta_de_ritmo_que_satura,
+        peso_da_habilidade_na_ultrapassagem,
+        peso_da_agressividade_na_ultrapassagem,
+        custo_tentativa_falha_atacante_ms,
+        custo_tentativa_falha_defensor_ms,
     );
 }
 

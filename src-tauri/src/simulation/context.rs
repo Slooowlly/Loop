@@ -12,6 +12,7 @@ use super::car_build::{
 };
 use super::catalog::{vehicle_class_from_category, VehicleClass};
 use super::profile::resolve_simulation_profile;
+use super::race::trafego::ParametrosDeTrafego;
 use super::track_profile::{get_track_simulation_data, pack_density_factor, TrackCharacter};
 use crate::car::sim_bridge::{car_performance_from, car_shape_weights};
 
@@ -46,6 +47,15 @@ pub struct SimulationContext {
     pub pack_density_factor: f64,
     /// Classe de veículo da categoria — determina flavor text do catálogo de incidentes.
     pub vehicle_class: VehicleClass,
+
+    /// As constantes PROVISÓRIAS de posição na pista (ar sujo, ultrapassagem, trem).
+    ///
+    /// Elas moram aqui, e não em `const`, por uma razão só: a máquina de calibração varre
+    /// campos do contexto (`calibracao::varredura::Knob`), então uma `const` é invisível para
+    /// ela. `Default` devolve exatamente os valores de hoje e **é o que todo caminho de jogo
+    /// usa** — o único que sobrescreve é o harness. Ver
+    /// [`crate::simulation::race::trafego::ParametrosDeTrafego`].
+    pub trafego: ParametrosDeTrafego,
 }
 
 impl SimulationContext {
@@ -90,6 +100,7 @@ impl SimulationContext {
                 .map(|t| pack_density_factor(t.comprimento_km))
                 .unwrap_or(1.0),
             vehicle_class: vehicle_class_from_category(&entry.categoria),
+            trafego: ParametrosDeTrafego::PADRAO,
         }
     }
 
@@ -122,6 +133,7 @@ impl SimulationContext {
             track_character: TrackCharacter::Technical,
             pack_density_factor: 1.0,
             vehicle_class: VehicleClass::StreetBased,
+            trafego: ParametrosDeTrafego::PADRAO,
         }
     }
 }

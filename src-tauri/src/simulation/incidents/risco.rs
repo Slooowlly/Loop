@@ -12,6 +12,95 @@ pub(crate) const DRIVER_ERROR_BASE_CHANCE: f64 = 0.017;
 pub(crate) const COLLISION_BASE_CHANCE: f64 = 0.006;
 pub(crate) const SEGMENTS: f64 = 5.0;
 
+// ── Os números INTERNOS dos sorteios ──────────────────────────────────────────
+//
+// Estavam soltos no corpo de `sorteios.rs`, o que os deixava fora do alcance da varredura
+// de knobs de `calibracao::busca`: ela enxerga o que tem nome e mora numa tabela de
+// constantes. O risco não é estético — se a busca fechar os knobs externos com um destes
+// errado por baixo, o erro fica travado embaixo de uma calibração "boa".
+//
+// Nenhum valor mudou ao ganhar nome. O que muda é que agora dá para vê-los.
+
+/// Pivô de confiabilidade do carro: acima dele a pane fica mais rara, abaixo mais comum.
+/// A escala é `(rel − pivô)/ESCALA × PESO`, e o resultado é limitado a `[0,1; 3,0]`.
+pub(crate) const CONFIABILIDADE_PIVO: f64 = 70.0;
+/// Quantos pontos de confiabilidade valem uma unidade inteira do efeito.
+pub(crate) const CONFIABILIDADE_ESCALA: f64 = 25.0;
+/// Quanto do risco a confiabilidade chega a mover, no máximo.
+pub(crate) const CONFIABILIDADE_PESO: f64 = 0.70;
+
+/// Fatia das panes que sai LEVE (perde posições e segue). O resto tira o carro.
+pub(crate) const FRACAO_DE_PANE_LEVE: f64 = 0.15;
+/// Fatia dos erros de pilotagem que sai LEVE (rodada, susto). O resto tira o carro.
+pub(crate) const FRACAO_DE_ERRO_LEVE: f64 = 0.70;
+/// Posições perdidas por um incidente leve, sorteadas nesta faixa (inclusiva).
+pub(crate) const POSICOES_PERDIDAS_NO_LEVE: (i32, i32) = (1, 4);
+
+/// Quanto do castigo da chuva o `fator_chuva` do piloto chega a absorver.
+pub(crate) const ABSORCAO_DE_CHUVA_PELO_PILOTO: f64 = 0.80;
+
+/// Teto do risco de erro de pilotagem por segmento, depois de todos os multiplicadores.
+pub(crate) const TETO_DE_RISCO_DE_ERRO: f64 = 0.25;
+/// Teto do risco de colisão por segmento, depois de todos os multiplicadores.
+pub(crate) const TETO_DE_RISCO_DE_COLISAO: f64 = 0.20;
+
+// ── Segunda leva: o que ainda estava inline em `sorteios.rs` ─────────────────────────────
+//
+// A primeira leva pegou os números que a vistoria citou por nome (pivô de confiabilidade,
+// fração de pane leve, absorção de chuva). Estes são o resto do mesmo problema: cada um deles
+// é um fator de uma multiplicação de oito termos, e num produto assim **nenhum coeficiente é
+// legível sozinho** — só dá para julgar `0.30` sabendo que ele divide espaço com `0.25`, com
+// `0.5` e com `0.4`. Enfileirados aqui, dá.
+//
+// Nenhum valor mudou. Como o resto do bloco, **nenhum foi medido**.
+
+/// Quanto a experiência do piloto chega a reduzir o erro de pilotagem.
+pub(crate) const EXPERIENCIA_REDUZ_O_ERRO: f64 = 0.30;
+/// Quanto a suavidade chega a reduzir o erro de pilotagem, por cima da experiência.
+pub(crate) const SUAVIDADE_REDUZ_O_ERRO: f64 = 0.25;
+/// Divisor da agressividade no núcleo do erro: 200 faz o piloto de agressão máxima errar 1,5×
+/// mais que o de agressão zero.
+pub(crate) const DIVISOR_DA_AGRESSAO_NO_ERRO: f64 = 200.0;
+/// Quanto o pneu no fim da vida chega a somar ao risco de erro.
+pub(crate) const PNEU_GASTO_SOMA_AO_ERRO: f64 = 0.5;
+/// Quanto a exaustão chega a somar ao risco de erro.
+pub(crate) const FADIGA_SOMA_AO_ERRO: f64 = 0.4;
+
+/// Quanto a agressividade chega a somar ao risco de COLISÃO.
+pub(crate) const AGRESSAO_SOMA_A_COLISAO: f64 = 0.60;
+/// Quanto o `racecraft` chega a subtrair do risco de colisão.
+pub(crate) const RACECRAFT_TIRA_DA_COLISAO: f64 = 0.50;
+/// Quanto a agressividade MÉDIA DOS VIZINHOS chega a somar ao risco de colisão. É o termo que
+/// faz correr no meio de um bando agressivo ser perigoso mesmo para quem não é.
+pub(crate) const VIZINHANCA_SOMA_A_COLISAO: f64 = 0.30;
+
+/// Multiplicador de colisão pela FAIXA do pelotão em que o carro está. O meio é o lugar
+/// perigoso: na frente há espaço, no fundo o pelotão já esticou.
+pub(crate) const COLISAO_NA_PONTA: f64 = 0.7;
+pub(crate) const COLISAO_NO_MEIO: f64 = 1.2;
+pub(crate) const COLISAO_NO_FUNDO: f64 = 0.9;
+/// Fronteiras (em fração da posição sobre o grid) das três faixas acima.
+pub(crate) const FRONTEIRA_DA_PONTA: f64 = 0.25;
+pub(crate) const FRONTEIRA_DO_MEIO: f64 = 0.75;
+
+/// Repartição da GRAVIDADE de uma colisão, em fatias acumuladas: abaixo da primeira é leve,
+/// entre as duas é grave, acima é crítica.
+pub(crate) const COLISAO_ATE_AQUI_E_LEVE: f64 = 0.55;
+pub(crate) const COLISAO_ATE_AQUI_E_GRAVE: f64 = 0.95;
+
+/// Repartição da CONSEQUÊNCIA de uma colisão, em fatias acumuladas: abaixo da primeira tira o
+/// carro; entre as duas custa muitas posições; acima custa poucas.
+pub(crate) const COLISAO_ATE_AQUI_TIRA_O_CARRO: f64 = 0.40;
+pub(crate) const COLISAO_ATE_AQUI_CUSTA_CARO: f64 = 0.70;
+/// Posições perdidas na colisão cara e na barata (faixas inclusivas).
+pub(crate) const POSICOES_PERDIDAS_NA_COLISAO_CARA: (i32, i32) = (3, 5);
+pub(crate) const POSICOES_PERDIDAS_NA_COLISAO_BARATA: (i32, i32) = (1, 2);
+
+/// Raio, em posições, da vizinhança que conta para a agressividade média do entorno.
+pub(crate) const RAIO_DA_VIZINHANCA: i32 = 2;
+/// Agressividade suposta quando não há vizinho nenhum — o meio da escala.
+pub(crate) const AGRESSAO_NEUTRA: f64 = 50.0;
+
 pub(crate) fn mechanical_segment_mult(segment: RaceSegment) -> f64 {
     match segment {
         RaceSegment::Start => 0.5,

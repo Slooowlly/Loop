@@ -231,6 +231,12 @@ fn qual_weights(character: TrackCharacter) -> (f64, f64, f64, f64) {
 
 /// A mistura ANTERIOR ao pacote, com `skill` dominando. Preservada só como linha de base
 /// para [`ConfigQuali::legada`] — não é usada pelo jogo.
+///
+/// **Ela DERIVA de [`qual_weights`], e isso é a resposta ao pedido de remoção de 11/08/2026.**
+/// O argumento era "ramo duplicado que precisa de manutenção sincronizada"; não há duplicação —
+/// a legada é a viva com os dois primeiros pesos trocados de lugar, então não pode
+/// dessincronizar. Se a tabela viva mudar, esta muda junto, de graça. A condição de saída está
+/// escrita em [`crate::simulation::race::ModoDoMotor`], que é onde a decisão vale para os dois.
 fn qual_weights_legados(character: TrackCharacter) -> (f64, f64, f64, f64) {
     let (skill, ritmo, car, adapt) = qual_weights(character);
     (ritmo, skill, car, adapt)
