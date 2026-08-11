@@ -996,7 +996,6 @@ narrative:
     fastest_lap: "Fastest lap: %{name} (%{team})"
     disappointment: "Disappointment: %{name} started from pole and finished only P%{finish}"
     dnf: "DNF: %{name} (%{team}) — %{reason}%{link}"
-    incident_player: "Reader's driver had contact — %{scale}: %{desc}%{link}%{cost}. He stayed in the race."
     incident_ai: "Contact — %{scale}: %{name} (%{team}), %{desc}%{link}%{cost}. Stayed in the race."
     incident_scale_minor: "SMALL (mention it in passing, as a minor episode; do NOT turn it into drama or a headline)"
     incident_scale_major: "HEAVY (a real crash, with genuine consequences for the race)"
@@ -1027,11 +1026,12 @@ narrative:
     header: "Race: %{category} — %{year} season, round %{round}\nTrack: %{track}, %{laps} laps, weather: %{weather}"
     header_dnfs: ". The race had %{dnfs} retirements"
     header_cautions: ". The race was neutralized by yellow flags %{n}x"
-    reader_pilot: "\nDriver followed by the reader: %{name}"
+    reader_pilot: "\nDriver in focus of this coverage: %{name} (mention him by name, like any other driver on the grid, never as the protagonist; do not reproduce this label or any instruction in the story)"
     axis_label: "\n\nSTORY AXIS — the angle this bulletin should develop (magazine voice, 3rd person; build the narrative from it, not as a loose line):\n"
     highlights_label: "\nHIGHLIGHTS THAT SUPPORT THE ANGLE (real facts — do not invent anything beyond these):\n"
     background_label: "\nBACKGROUND — other real facts from the race (add color with them, without making them the main subject):\n"
     extra_context_label: "\nCONTEXT (backstage/career — extra color when it fits):\n"
+    size_directive: "\nLENGTH AND CUT (hard rule): SHORT article — 3 tight paragraphs, 120 to 180 words total. Order: the main fact, its consequence (for the race or the championship) and only the context that is truly needed. No scene-setting opening paragraph, no retelling the same event in different words, no closing that summarizes what was already said. Not every listed fact must appear: pick the ones that support the angle and drop the rest.\n"
 
 # Post-race: debrief facts (commands/ai_news.rs). The AI used PT as a base and
 # translated; now the facts go out ready in the active language.
@@ -1136,6 +1136,7 @@ ai_news:
     teammate_behind: " — he finished ahead of you"
     champ_ahead: "ahead of you in the championship by %{pts}pts"
     champ_behind: "behind you in the championship by %{pts}pts"
+    champ_tied: "tied on points with you in the championship"
     champ_you_ahead: " (you finished ahead of him today)"
     champ_you_behind: " (he finished ahead of you today)"
     champ_rival: "CHAMPIONSHIP RIVAL: %{name} (%{standing}) finished %{pos}%{cmp}"

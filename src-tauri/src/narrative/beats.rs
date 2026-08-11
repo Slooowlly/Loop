@@ -249,27 +249,20 @@ pub fn build_beats(result: &RaceResult, incidents: &[IncidentResult]) -> Vec<Bea
         } else {
             String::new()
         };
-        let text = if d.is_jogador {
-            rust_i18n::t!(
-                "narrative.beat.incident_player",
-                scale = scale_label(inc.severity).as_str(),
-                desc = inc.description.as_str(),
-                link = contact_link(rows, inc).as_str(),
-                cost = cost.as_str()
-            )
-            .to_string()
-        } else {
-            rust_i18n::t!(
-                "narrative.beat.incident_ai",
-                scale = scale_label(inc.severity).as_str(),
-                name = d.pilot_name.as_str(),
-                team = d.team_name.as_str(),
-                desc = inc.description.as_str(),
-                link = contact_link(rows, inc).as_str(),
-                cost = cost.as_str()
-            )
-            .to_string()
-        };
+        // O piloto do jogador usa o MESMO texto dos demais (nome + equipe): a identidade
+        // dele já vai na linha rotulada do contexto, e uma redação especial aqui
+        // ("piloto do leitor") acabava copiada pela IA para dentro da matéria. Só o
+        // PESO continua distinguindo (incident_weight).
+        let text = rust_i18n::t!(
+            "narrative.beat.incident_ai",
+            scale = scale_label(inc.severity).as_str(),
+            name = d.pilot_name.as_str(),
+            team = d.team_name.as_str(),
+            desc = inc.description.as_str(),
+            link = contact_link(rows, inc).as_str(),
+            cost = cost.as_str()
+        )
+        .to_string();
         beats.push(Beat {
             kind: BeatKind::Acidente,
             weight: incident_weight(inc, d.is_jogador),

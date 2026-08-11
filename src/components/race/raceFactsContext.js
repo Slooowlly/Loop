@@ -39,6 +39,56 @@ function riskLevelWord(level) {
   return i18n.t("raceContext.breakdownRisk.wordLow");
 }
 
+// Fato do rival direto para a IA. A direção da comparação é SEMPRE explícita e nomeada
+// ("Fulano está à frente de você por N pontos"): frase com sujeito solto ("à frente por
+// N") já fez o modelo inverter quem liderava. Sempre que a tabela oficial estiver
+// disponível, a direção e o gap são recomputados dos pontos dos DOIS lados (nada de
+// confiar num flag pré-digerido) e o empate em pontos vira frase própria, em vez de
+// "à frente por 0 ponto(s)".
+function buildRivalDirectFact({ briefingRival, orderedDrivers, playerStanding }) {
+  if (!briefingRival?.driver_name) {
+    return null;
+  }
+  const rivalStanding = orderedDrivers.find((d) => d.id === briefingRival.driver_id) ?? null;
+  const rivalPointsRaw = rivalStanding?.pontos;
+  const playerPointsRaw = playerStanding?.pontos;
+  if (rivalPointsRaw != null && playerPointsRaw != null) {
+    // Compara os valores JÁ arredondados (os mesmos inteiros que a tabela exibe), para o
+    // gap do texto nunca divergir da tabela que o jogador está vendo.
+    const rivalPts = Math.round(rivalPointsRaw);
+    const playerPts = Math.round(playerPointsRaw);
+    const gap = Math.abs(rivalPts - playerPts);
+    const side =
+      gap === 0
+        ? i18n.t("raceContext.facts.rivalDirectTied", { name: briefingRival.driver_name })
+        : rivalPts > playerPts
+          ? i18n.t("raceContext.facts.rivalDirectAhead", { name: briefingRival.driver_name, gap })
+          : i18n.t("raceContext.facts.rivalDirectBehind", { name: briefingRival.driver_name, gap });
+    return i18n.t("raceContext.facts.rivalDirect", {
+      name: briefingRival.driver_name,
+      pos: ordinal(rivalStanding.posicao_campeonato ?? briefingRival.championship_position),
+      rivalPts,
+      playerPos: ordinal(playerStanding.posicao_campeonato),
+      playerPts,
+      side,
+    });
+  }
+  // Sem a tabela em mãos: usa o resumo do backend (`is_ahead` = o RIVAL está à frente
+  // do jogador), mantendo a mesma frase nomeada e o caso de empate.
+  const gap = briefingRival.gap_points ?? 0;
+  const side =
+    gap === 0
+      ? i18n.t("raceContext.facts.rivalDirectTied", { name: briefingRival.driver_name })
+      : briefingRival.is_ahead
+        ? i18n.t("raceContext.facts.rivalDirectAhead", { name: briefingRival.driver_name, gap })
+        : i18n.t("raceContext.facts.rivalDirectBehind", { name: briefingRival.driver_name, gap });
+  return i18n.t("raceContext.facts.rivalDirectNoTable", {
+    name: briefingRival.driver_name,
+    pos: ordinal(briefingRival.championship_position),
+    side,
+  });
+}
+
 // Ordem estável em que os fatos aparecem dentro de cada camada.
 const FACT_ORDER = [
   "championship_situation",
@@ -321,17 +371,9 @@ export function buildRaceFactsBundle({
       championshipUnderway && gapBehind != null
         ? i18n.t("raceContext.facts.chaser", { gap: gapBehind })
         : null,
-    rival_direct:
-      championshipUnderway && briefingRival?.driver_name
-        ? i18n.t("raceContext.facts.rivalDirect", {
-            name: briefingRival.driver_name,
-            pos: ordinal(briefingRival.championship_position),
-            side: briefingRival.is_ahead
-              ? i18n.t("raceContext.facts.rivalDirectAhead")
-              : i18n.t("raceContext.facts.rivalDirectBehind"),
-            gap: briefingRival.gap_points,
-          })
-        : null,
+    rival_direct: championshipUnderway
+      ? buildRivalDirectFact({ briefingRival, orderedDrivers, playerStanding })
+      : null,
     rivalry_label: briefingRival?.rivalry_label
       ? championshipUnderway
         ? i18n.t("raceContext.facts.rivalryLabel", { label: briefingRival.rivalry_label })

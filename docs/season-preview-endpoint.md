@@ -24,7 +24,7 @@ Enquanto o endpoint não responder, nada quebra: o app cai no **montador determi
   "facts": "TEMPORADA: ...\n\nFAVORITOS (ordem = percepção pública, NÃO ritmo real):\n- ...",
   "lang": "pt-BR",
   "install_id": "<uuid do install>",
-  "target_words": { "min": 700, "max": 900 }
+  "target_words": { "min": 450, "max": 600 }
 }
 ```
 
@@ -34,7 +34,9 @@ Header: `x-app-secret: <APP_SECRET>` (mesmo dos outros endpoints).
   um número sequer, nem nível de carro, nem salário, nem potencial. Formato canônico e
   significado de cada bloco no §6 do design.
 - `target_words` — intervalo de palavras pedido para o corpo. **É a autoridade sobre o
-  comprimento**; o valor atual é 700–900 porque o bundle carrega dez dossiês de piloto.
+  comprimento**; o valor atual é 450–600. Já foi 700–900, mas no playtest a matéria
+  ficou longa demais para ser lida; o intervalo atual ainda cobre os dez dossiês do
+  bundle com tratamento próprio por nome.
 
 Blocos que chegam em `facts`, nesta ordem: `TEMPORADA`, `ABERTURA`, `TÍTULO`, `MATERIAL`,
 `TESE SUGERIDA`, `FAVORITOS` (5 linhas), `PROMESSAS / INCÓGNITAS` (5 linhas), `RELAÇÕES`

@@ -82,9 +82,12 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
     }
 
     let mut facts = header;
-    // Marca, numa linha rotulada, qual piloto é o do leitor (só se ele aparece nos
-    // fatos). O servidor usa isso para citá-lo pelo nome, nunca como protagonista,
-    // e é instruído a NÃO imprimir esta linha.
+    // Marca, numa linha rotulada, qual piloto a cobertura acompanha (só se ele aparece
+    // nos fatos). O servidor usa isso para citá-lo pelo nome, nunca como protagonista.
+    // O rótulo é redigido em linguagem de universo (nada de "leitor"/"jogador"): quando
+    // o modelo copia o rótulo para a matéria — e às vezes copia, apesar da instrução —,
+    // o texto continua lendo como jornalismo, não como instrução interna vazada. A
+    // última linha de defesa é o filtro de meta-linguagem na resposta (client.rs).
     if has_player {
         if let Some(name) = result
             .race_results
@@ -130,6 +133,12 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Race
             facts.push_str(&format!("- {fact}\n"));
         }
     }
+
+    // O comprimento pedido viaja COM os fatos — mesmo canal das demais instruções de
+    // redação (eixo, destaques, pano de fundo); o prompt do servidor (repo
+    // iracer-news-server) define a voz, não o tamanho. Por último de propósito: é a
+    // instrução mais recente que o modelo lê antes de escrever.
+    facts.push_str(&rust_i18n::t!("narrative.context.size_directive").to_string());
 
     RaceContext {
         facts: facts.trim_end().to_string(),

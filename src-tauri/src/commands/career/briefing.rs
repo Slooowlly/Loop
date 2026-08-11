@@ -148,6 +148,7 @@ pub(crate) fn build_primary_rival_summary(
         player_index - 1
     };
     let rival = &drivers[rival_index];
+    // `is_ahead` fala do RIVAL: true = o rival está à frente do jogador na tabela.
     let is_ahead = rival_index < player_index;
     let gap_points = if is_ahead {
         (rival.stats_temporada.pontos - player.stats_temporada.pontos)

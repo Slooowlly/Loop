@@ -59,7 +59,11 @@ pub struct PrimaryRivalSummary {
     pub driver_id: String,
     pub driver_name: String,
     pub championship_position: i32,
+    /// Diferença ABSOLUTA de pontos entre rival e jogador (sempre >= 0).
     pub gap_points: i32,
+    /// Direção da comparação: `true` = o RIVAL está à frente do jogador na tabela.
+    /// Quem consome este flag deve escrever a frase com o referente explícito
+    /// ("Fulano está à sua frente"), nunca um "à frente" solto.
     pub is_ahead: bool,
     pub rivalry_label: Option<String>,
 }

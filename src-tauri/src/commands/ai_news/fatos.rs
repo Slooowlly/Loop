@@ -410,7 +410,11 @@ pub(crate) fn build_post_race_facts(
         if let Ok(Some(rival)) =
             crate::commands::career::build_primary_rival_summary(conn, &player.pilot_id, &categoria)
         {
-            let standing = if rival.is_ahead {
+            // Empate em pontos vira frase própria: "atrás de você por 0pts" mandaria a
+            // IA cravar uma direção que a tabela não sustenta.
+            let standing = if rival.gap_points == 0 {
+                rust_i18n::t!("ai_news.facts.champ_tied").to_string()
+            } else if rival.is_ahead {
                 rust_i18n::t!("ai_news.facts.champ_ahead", pts = rival.gap_points).to_string()
             } else {
                 rust_i18n::t!("ai_news.facts.champ_behind", pts = rival.gap_points).to_string()

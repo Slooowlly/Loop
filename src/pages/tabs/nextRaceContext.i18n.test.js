@@ -96,8 +96,41 @@ describe("nextRaceContext i18n (Fase 4 — fatos da prévia)", () => {
       expect(aiFacts).toContain("WEATHER FACTOR");
       expect(aiFacts).toContain("Teammate: Caio Vaz");
       expect(aiFacts).toContain("PART FAILURE RISK");
+      expect(aiFacts).toContain("Bea Luz is ahead of you by 8 point(s).");
       // Sem sufixo de ordinal quebrado.
       expect(aiFacts).not.toContain("3th");
     });
+  });
+});
+
+// A direção da comparação com o rival direto é nomeada e recomputada da PRÓPRIA
+// tabela: frase ambígua ("à frente por N") já fez a IA inverter quem liderava.
+describe("nextRaceContext — direção do rival direto", () => {
+  it("rival à frente: frase nomeada com os dois totais e as duas posições", () => {
+    const { aiFacts } = buildBriefingContext(fixture());
+    expect(aiFacts).toContain(
+      "Rival direto: Bea Luz é 2º no campeonato com 48 ponto(s); você é 3º com 40 ponto(s). Bea Luz está à frente de você por 8 ponto(s).",
+    );
+  });
+
+  it("jogador à frente: a direção vem da tabela mesmo com o flag do backend defasado", () => {
+    const data = fixture();
+    // Tabela invertida em relação ao resumo do backend (que ainda diz is_ahead=true).
+    data.driverStandings[1].pontos = 40;
+    data.driverStandings[1].posicao_campeonato = 3;
+    data.driverStandings[2].pontos = 48;
+    data.driverStandings[2].posicao_campeonato = 2;
+    const { aiFacts } = buildBriefingContext(data);
+    expect(aiFacts).toContain(
+      "Rival direto: Bea Luz é 3º no campeonato com 40 ponto(s); você é 2º com 48 ponto(s). Bea Luz está atrás de você por 8 ponto(s).",
+    );
+  });
+
+  it("empate em pontos: frase própria, sem 'por 0 ponto(s)'", () => {
+    const data = fixture();
+    data.driverStandings[2].pontos = 48;
+    const { aiFacts } = buildBriefingContext(data);
+    expect(aiFacts).toContain("Bea Luz está empatado em pontos com você.");
+    expect(aiFacts).not.toContain("por 0 ponto(s)");
   });
 });

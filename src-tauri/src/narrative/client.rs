@@ -34,10 +34,12 @@ const WORLD_NOTES_URL: &str =
 const SEASON_PREVIEW_URL: &str =
     "https://iracer-news-124606451488.southamerica-east1.run.app/season-preview";
 /// Comprimento-alvo da prévia, em palavras. Vai no payload (`target_words`) porque a
-/// matéria é a peça principal da aba e o bundle hoje carrega uns dez dossiês — cobrir
-/// todos com 400 palavras dá uma frase por piloto, que é o que fazia a matéria soar
-/// rasa. O servidor manda no texto final; isto é o pedido do cliente.
-const SEASON_PREVIEW_TARGET_WORDS: (u32, u32) = (700, 900);
+/// matéria é a peça principal da aba e o bundle hoje carrega uns dez dossiês. Já foi
+/// 700–900, e no playtest ninguém terminava de ler; 450–600 ainda dá tratamento próprio
+/// a cada favorito (1–2 frases) e uma frase por promessa — abaixo de ~400 vira legenda
+/// de foto, que é o que fazia a matéria soar rasa. O servidor manda no texto final;
+/// isto é o pedido do cliente.
+const SEASON_PREVIEW_TARGET_WORDS: (u32, u32) = (450, 600);
 /// `pub(crate)` porque a telemetria de produto (`crate::telemetry`) entra pela
 /// MESMA porta do servidor — um segredo só, um lugar só pra trocar.
 pub(crate) const APP_SECRET: &str =
@@ -140,6 +142,101 @@ pub(crate) fn aparar_frase_incompleta(texto: &str) -> String {
     }
 }
 
+/// Expressões de quarta parede que os fatos usavam para marcar o piloto do jogador e
+/// que o modelo, de tempos em tempos, copiava para dentro da matéria ("Para Fulano,
+/// piloto acompanhado pelo leitor, ..."). A origem foi corrigida na redação dos fatos
+/// (rótulos em linguagem de universo — ver `narrative.context` nos locales), mas os
+/// fatos ficam PERSISTIDOS no save: um save antigo continua enviando a redação velha.
+/// Cada entrada é (frase, substituto neutro). Ordem: da mais longa pra mais curta,
+/// senão a curta come um pedaço da longa e deixa palavra pendurada.
+const FRASES_META: [(&str, &str); 9] = [
+    ("piloto acompanhado pelo leitor", "piloto"),
+    ("piloto acompanhada pelo leitor", "piloto"),
+    ("acompanhado pelo leitor", ""),
+    ("acompanhada pelo leitor", ""),
+    ("piloto do leitor", "piloto"),
+    ("driver followed by the reader", "driver"),
+    ("followed by the reader", ""),
+    ("the reader's driver", "the driver"),
+    ("reader's driver", "driver"),
+];
+
+/// Busca ASCII case-insensitive. As frases são 100% ASCII, então comparar bytes é
+/// seguro: byte ASCII nunca aparece no meio de um caractere multibyte de UTF-8, logo
+/// todo match cai em fronteira de caractere.
+fn achar_ascii_ci(texto: &str, frase: &str, a_partir_de: usize) -> Option<usize> {
+    let t = texto.as_bytes();
+    let f = frase.as_bytes();
+    if f.is_empty() || t.len() < f.len() || a_partir_de > t.len() - f.len() {
+        return None;
+    }
+    (a_partir_de..=t.len() - f.len()).find(|&i| t[i..i + f.len()].eq_ignore_ascii_case(f))
+}
+
+/// Última linha de defesa contra vazamento de meta-linguagem: remove do texto que
+/// VOLTA do servidor a família de expressões que quebram a quarta parede. Mora aqui,
+/// na saída única de rede, pelo mesmo motivo do guard de testes: endpoint novo já
+/// nasce coberto. Quando a frase é um aposto (", piloto acompanhado pelo leitor,"),
+/// cai o aposto inteiro; solta no meio da frase, entra o substituto neutro.
+pub(crate) fn remover_vazamento_meta(texto: &str) -> String {
+    let mut t = texto.to_string();
+    for (frase, neutro) in FRASES_META {
+        let mut de = 0;
+        while let Some(i) = achar_ascii_ci(&t, frase, de) {
+            let j = i + frase.len();
+            let antes = t[..i].trim_end();
+            let abre_virgula = antes.ends_with(',');
+            let abre_parentese = antes.ends_with('(');
+            // Byte onde começa a remoção de um aposto/parentético: a vírgula ou o
+            // '(' que o abre (ambos ASCII, 1 byte).
+            let corte = antes.len().saturating_sub(1);
+            let depois = t[j..].trim_start();
+            let proximo = depois.chars().next();
+            let fim_sem_espaco = t.len() - depois.len();
+            if abre_virgula
+                && matches!(proximo, Some(',' | '.' | ';' | ':' | ')' | '!' | '?') | None)
+            {
+                // Aposto entre vírgulas: some com a vírgula de abertura e a frase,
+                // a pontuação seguinte fecha a oração anterior.
+                t.replace_range(corte..fim_sem_espaco, "");
+                de = corte;
+            } else if abre_parentese && proximo == Some(')') {
+                // Parentético: "(piloto acompanhado pelo leitor)" cai inteiro.
+                let fim = fim_sem_espaco + ')'.len_utf8();
+                t.replace_range(corte..fim, "");
+                de = corte;
+            } else {
+                t.replace_range(i..j, neutro);
+                de = i + neutro.len();
+            }
+        }
+    }
+    // Cicatrizes da remoção: espaço duplo e espaço antes de pontuação.
+    while t.contains("  ") {
+        t = t.replace("  ", " ");
+    }
+    t.replace(" ,", ",").replace(" .", ".").trim().to_string()
+}
+
+/// A suíte de testes NÃO fala com o servidor de IA. Nunca.
+///
+/// Medido em 10/08/2026, no painel de custo do servidor: 1.275 "usuários" em julho e
+/// 2.731 nos dez primeiros dias de agosto, quase todos com **uma única chamada**. Não
+/// eram pessoas. `simulate_race_weekend_in_base_dir` dispara o pré-aquecimento do
+/// boletim (`spawn_prewarm_boletim`), e nos testes o `base_dir` é uma pasta temporária
+/// nova a cada execução — logo, um `config.json` novo, logo um `install_id` novo. Cada
+/// `cargo test` virava um punhado de "instalações" no Firestore, com custo de verdade
+/// nos dois provedores.
+///
+/// O guard fica AQUI, na saída de rede, e não em cada chamador: assim um caminho novo
+/// para o servidor já nasce coberto, sem depender de alguém lembrar.
+///
+/// `cfg!(test)` cobre a suíte do crate. `LOOP_SEM_IA=1` cobre o resto (um binário de
+/// benchmark, um harness de simulação, um agente rodando o app em lote).
+fn rede_de_ia_bloqueada() -> bool {
+    cfg!(test) || std::env::var("LOOP_SEM_IA").is_ok()
+}
+
 /// Envia os fatos curados ao servidor e devolve o boletim redigido no idioma
 /// pedido. Em QUALQUER erro, o chamador deve cair no template (notícia genérica)
 /// — o boletim de IA nunca pode quebrar a tela.
@@ -149,6 +246,11 @@ pub fn fetch_story(
     install_id: &str,
     reading_seconds: Option<f64>,
 ) -> Result<String, StoryError> {
+    // Ver `rede_de_ia_bloqueada`: a suite de testes nao gasta chamada de verdade.
+    if rede_de_ia_bloqueada() {
+        return Err(StoryError::Network("rede de IA bloqueada (teste)".to_string()));
+    }
+
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .build()
@@ -179,7 +281,7 @@ pub fn fetch_story(
 
     let parsed: StoryResponse = resp.json().map_err(|e| StoryError::Server(e.to_string()))?;
 
-    let story = aparar_frase_incompleta(&parsed.story);
+    let story = aparar_frase_incompleta(&remover_vazamento_meta(&parsed.story));
     if story.is_empty() {
         return Err(StoryError::Empty);
     }
@@ -208,6 +310,11 @@ pub fn fetch_pre_race_briefing(
     install_id: &str,
     force: bool,
 ) -> Result<PreRaceBriefing, StoryError> {
+    // Ver `rede_de_ia_bloqueada`: a suite de testes nao gasta chamada de verdade.
+    if rede_de_ia_bloqueada() {
+        return Err(StoryError::Network("rede de IA bloqueada (teste)".to_string()));
+    }
+
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .build()
@@ -239,9 +346,9 @@ pub fn fetch_pre_race_briefing(
 
     let parsed: PreRaceResponse = resp.json().map_err(|e| StoryError::Server(e.to_string()))?;
 
-    let headline = parsed.headline.trim().to_string();
-    let body = aparar_frase_incompleta(&parsed.body);
-    let team_voice = parsed.team_voice.trim().to_string();
+    let headline = remover_vazamento_meta(&parsed.headline);
+    let body = aparar_frase_incompleta(&remover_vazamento_meta(&parsed.body));
+    let team_voice = remover_vazamento_meta(&parsed.team_voice);
     if headline.is_empty() || body.is_empty() || team_voice.is_empty() {
         return Err(StoryError::Empty);
     }
@@ -272,6 +379,11 @@ pub fn fetch_post_race_debrief(
     install_id: &str,
     force: bool,
 ) -> Result<PostRaceDebrief, StoryError> {
+    // Ver `rede_de_ia_bloqueada`: a suite de testes nao gasta chamada de verdade.
+    if rede_de_ia_bloqueada() {
+        return Err(StoryError::Network("rede de IA bloqueada (teste)".to_string()));
+    }
+
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .build()
@@ -302,8 +414,8 @@ pub fn fetch_post_race_debrief(
 
     let parsed: PostRaceResponse = resp.json().map_err(|e| StoryError::Server(e.to_string()))?;
 
-    let headline = parsed.headline.trim().to_string();
-    let body = aparar_frase_incompleta(&parsed.body);
+    let headline = remover_vazamento_meta(&parsed.headline);
+    let body = aparar_frase_incompleta(&remover_vazamento_meta(&parsed.body));
     if headline.is_empty() || body.is_empty() {
         return Err(StoryError::Empty);
     }
@@ -332,6 +444,11 @@ pub fn fetch_season_preview(
     lang: &str,
     install_id: &str,
 ) -> Result<SeasonPreview, StoryError> {
+    // Ver `rede_de_ia_bloqueada`: a suite de testes nao gasta chamada de verdade.
+    if rede_de_ia_bloqueada() {
+        return Err(StoryError::Network("rede de IA bloqueada (teste)".to_string()));
+    }
+
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .build()
@@ -363,10 +480,10 @@ pub fn fetch_season_preview(
     let parsed: SeasonPreviewResponse =
         resp.json().map_err(|e| StoryError::Server(e.to_string()))?;
 
-    let headline = parsed.headline.trim().to_string();
-    let standfirst = parsed.standfirst.trim().to_string();
+    let headline = remover_vazamento_meta(&parsed.headline);
+    let standfirst = remover_vazamento_meta(&parsed.standfirst);
     // O corpo é o que não pode faltar; manchete/linha-fina vazias o front tolera.
-    let body = aparar_frase_incompleta(&parsed.body);
+    let body = aparar_frase_incompleta(&remover_vazamento_meta(&parsed.body));
     if body.is_empty() {
         return Err(StoryError::Empty);
     }
@@ -392,6 +509,11 @@ pub fn fetch_world_notes(
     lang: &str,
     install_id: &str,
 ) -> Result<Vec<String>, StoryError> {
+    // Ver `rede_de_ia_bloqueada`: a suite de testes nao gasta chamada de verdade.
+    if rede_de_ia_bloqueada() {
+        return Err(StoryError::Network("rede de IA bloqueada (teste)".to_string()));
+    }
+
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .build()
@@ -424,10 +546,85 @@ pub fn fetch_world_notes(
     let notes: Vec<String> = parsed
         .notes
         .into_iter()
-        .map(|s| s.trim().to_string())
+        .map(|s| remover_vazamento_meta(&s))
         .collect();
     if notes.is_empty() || notes.iter().any(|s| s.is_empty()) {
         return Err(StoryError::Empty);
     }
     Ok(notes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// O guard que impede a suíte de gastar dinheiro de verdade. Este teste é a única
+    /// coisa entre o `cargo test` e 2.700 "usuários" no painel de custo do servidor —
+    /// ver o doc de [`rede_de_ia_bloqueada`].
+    ///
+    /// Ele é a prova pelo caminho REAL: chama as cinco funções de geração e exige que
+    /// nenhuma passe do gate. Se alguém remover o guard de uma delas, a chamada vai à
+    /// rede e o teste falha (offline) ou passa devagar gastando cota — os dois modos de
+    /// falha são visíveis, que é o que se quer aqui.
+    #[test]
+    fn nenhuma_geracao_de_ia_sai_do_teste() {
+        assert!(rede_de_ia_bloqueada(), "a suíte tem de nascer bloqueada");
+
+        // Função genérica, e não closure: cada `fetch_*` devolve um tipo de sucesso
+        // diferente, e uma closure fixa o primeiro que receber.
+        fn bloqueado<T>(r: &Result<T, StoryError>) -> bool {
+            matches!(r, Err(StoryError::Network(m)) if m.contains("bloqueada"))
+        }
+
+        assert!(bloqueado(&fetch_story("fatos", "pt-BR", "id", None)));
+        assert!(bloqueado(&fetch_pre_race_briefing("fatos", "pt-BR", "id", false)));
+        assert!(bloqueado(&fetch_post_race_debrief("fatos", "pt-BR", "id", false)));
+        assert!(bloqueado(&fetch_season_preview("fatos", "pt-BR", "id")));
+        assert!(bloqueado(&fetch_world_notes("fatos", "pt-BR", "id")));
+    }
+
+    /// O caso real que motivou o filtro: o modelo colou o rótulo interno como aposto.
+    #[test]
+    fn vazamento_em_aposto_cai_com_o_aposto_inteiro() {
+        assert_eq!(
+            remover_vazamento_meta(
+                "Para Carlos Magno, piloto acompanhado pelo leitor, a etapa terminou em P8."
+            ),
+            "Para Carlos Magno, a etapa terminou em P8."
+        );
+    }
+
+    #[test]
+    fn vazamento_no_meio_da_frase_vira_termo_neutro() {
+        assert_eq!(
+            remover_vazamento_meta("O piloto acompanhado pelo leitor cruzou em oitavo."),
+            "O piloto cruzou em oitavo."
+        );
+        assert_eq!(
+            remover_vazamento_meta("A batida do piloto do leitor custou posições."),
+            "A batida do piloto custou posições."
+        );
+    }
+
+    #[test]
+    fn vazamento_entre_parenteses_cai_com_os_parenteses() {
+        assert_eq!(
+            remover_vazamento_meta("Carlos Magno (piloto acompanhado pelo leitor) venceu."),
+            "Carlos Magno venceu."
+        );
+    }
+
+    #[test]
+    fn vazamento_em_ingles_tambem_cai() {
+        let limpo =
+            remover_vazamento_meta("For Carlos Magno, the driver followed by the reader, it ended early.");
+        assert!(!limpo.to_lowercase().contains("reader"), "{limpo}");
+    }
+
+    /// Texto limpo (com acento e pontuação normais) atravessa o filtro intacto.
+    #[test]
+    fn texto_sem_meta_passa_intacto() {
+        let texto = "Miguel Sanz venceu em Interlagos com autoridade, e o pelotão sentiu.";
+        assert_eq!(remover_vazamento_meta(texto), texto);
+    }
 }

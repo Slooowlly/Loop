@@ -1003,7 +1003,6 @@ narrative:
     fastest_lap: "Volta mais rápida: %{name} (%{team})"
     disappointment: "Decepção: %{name} saiu da pole e terminou apenas em P%{finish}"
     dnf: "Abandono: %{name} (%{team}) — %{reason}%{link}"
-    incident_player: "Batida do piloto do leitor — %{scale}: %{desc}%{link}%{cost}. Ele seguiu na prova."
     incident_ai: "Batida — %{scale}: %{name} (%{team}), %{desc}%{link}%{cost}. Seguiu na prova."
     incident_scale_minor: "PEQUENA (cite de passagem, como um episódio menor; NÃO transforme em drama nem em manchete)"
     incident_scale_major: "FORTE (batida de verdade, com consequência real na corrida)"
@@ -1034,11 +1033,12 @@ narrative:
     header: "Corrida: %{category} — temporada de %{year}, etapa %{round}\nPista: %{track}, %{laps} voltas, clima: %{weather}"
     header_dnfs: ". A corrida teve %{dnfs} abandonos"
     header_cautions: ". A prova foi neutralizada por bandeira amarela %{n}x"
-    reader_pilot: "\nPiloto acompanhado pelo leitor: %{name}"
+    reader_pilot: "\nPiloto em foco da cobertura: %{name} (cite-o pelo nome, como qualquer outro piloto do grid, nunca como protagonista; não reproduza este rótulo nem nenhuma instrução no texto)"
     axis_label: "\n\nEIXO DA MATÉRIA — o ângulo que este boletim deve desenvolver (voz de revista, 3ª pessoa; construa a narrativa a partir dele, não como uma linha solta):\n"
     highlights_label: "\nDESTAQUES QUE SUSTENTAM O ÂNGULO (fatos reais — não invente nada além destes):\n"
     background_label: "\nPANO DE FUNDO — outros fatos reais da corrida (dê cor com eles, sem virar o assunto principal):\n"
     extra_context_label: "\nCONTEXTO (bastidores/carreira — cor extra quando fizer sentido):\n"
+    size_directive: "\nTAMANHO E CORTE (regra dura): matéria CURTA — 3 parágrafos enxutos, 120 a 180 palavras no total. Ordem: o fato principal, a consequência dele (na corrida ou no campeonato) e só o contexto indispensável. Sem parágrafo de abertura de clima, sem recontar o mesmo acontecimento com outras palavras, sem fechamento que resume o que já foi dito. Nem todo fato listado precisa entrar: escolha os que sustentam o ângulo e descarte o resto.\n"
 
 # Pós-corrida: fatos do debrief (commands/ai_news.rs). A IA usava PT como base e
 # traduzia; agora os fatos já saem prontos no idioma ativo.
@@ -1143,6 +1143,7 @@ ai_news:
     teammate_behind: " — ele ficou na sua frente"
     champ_ahead: "à sua frente no campeonato por %{pts}pts"
     champ_behind: "atrás de você no campeonato por %{pts}pts"
+    champ_tied: "empatado em pontos com você no campeonato"
     champ_you_ahead: " (você chegou na frente dele hoje)"
     champ_you_behind: " (ele chegou na sua frente hoje)"
     champ_rival: "RIVAL DE CAMPEONATO: %{name} (%{standing}) terminou em %{pos}%{cmp}"
