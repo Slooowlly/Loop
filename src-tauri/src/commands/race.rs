@@ -355,6 +355,17 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
         }),
     );
 
+    // Telemetria de produto: a etapa foi simulada, e não corrida. É o único evento
+    // que sai de quem nunca abre o iRacing — ver `telemetry::race_simulated`.
+    crate::telemetry::race_simulated();
+    // Fecha o bloco de leitura da rodada anterior e abre o desta. Depois do evento da
+    // corrida, porque o bloco é sobre a leitura em volta dela, não sobre ela.
+    crate::telemetry::uso_virar_rodada(
+        active_season.numero as i32,
+        race_entry.rodada as i32,
+        &race_entry.categoria,
+    );
+
     Ok(RaceWeekendResult {
         player_race,
         other_categories,

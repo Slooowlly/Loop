@@ -109,6 +109,21 @@ pub fn iracing_auto_import_if_ready(
         crate::diagnostico::linha("adaptativo", &format!("Sem ajuste: {e}"));
     }
 
+    // Telemetria de produto: fecha o bloco de leitura da rodada anterior e abre o
+    // desta. O `race_end` desta corrida já saiu lá do `race_monitor`, na bandeirada;
+    // aqui é só a janela de leitura em volta dela. Best-effort como o resto do bloco.
+    if let Ok(Some(entry)) =
+        crate::db::queries::calendar::get_calendar_entry_by_id(&db.conn, &summary.race_id)
+    {
+        if let Ok(Some(temporada)) = crate::db::queries::seasons::get_active_season(&db.conn) {
+            crate::telemetry::uso_virar_rodada(
+                temporada.numero as i32,
+                entry.rodada as i32,
+                &entry.categoria,
+            );
+        }
+    }
+
     let evaluation = crate::commands::race::compute_race_evaluation(&db.conn, &race_result);
 
     // Persiste a tela completa (resultado + avaliação + telemetria/gráficos) para

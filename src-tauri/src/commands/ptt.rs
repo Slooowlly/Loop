@@ -102,6 +102,12 @@ fn garantir_vigia() {
                 if let Some(h) = app().get() {
                     let _ = h.emit(if agora { "ptt-apertou" } else { "ptt-soltou" }, ());
                 }
+                // Telemetria de produto: o aperto é contado AQUI, na borda física, e a
+                // pergunta que de fato foi ao servidor é contada em `ptt_voz`. A
+                // diferença entre os dois é o aperto que não custou nada.
+                if agora {
+                    crate::telemetry::uso_ptt_aperto();
+                }
                 antes = agora;
             }
             std::thread::sleep(std::time::Duration::from_millis(VIGIA_MS));

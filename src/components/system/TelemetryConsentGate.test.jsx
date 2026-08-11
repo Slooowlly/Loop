@@ -15,7 +15,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 // Store fatiado como o componente consome (selector puro), no mesmo molde do
 // Dashboard.test.jsx. Trocar o objeto + rerender simula a corrida terminando.
-let storeState = { showResult: false, lastRaceFromIracing: false };
+let storeState = { showResult: false, lastRaceOrigem: null };
 vi.mock("../../stores/useCareerStore", () => ({
   default: (selector) => selector(storeState),
 }));
@@ -40,8 +40,8 @@ function renderGate() {
   const view = render(<TelemetryConsentGate />);
   return {
     ...view,
-    async openResult({ fromIracing }) {
-      storeState = { showResult: true, lastRaceFromIracing: fromIracing };
+    async openResult(origem) {
+      storeState = { showResult: true, lastRaceOrigem: origem };
       view.rerender(<TelemetryConsentGate />);
       await settle(0);
     },
@@ -55,13 +55,20 @@ function renderGate() {
 
 // Correu de verdade: resultado importado do iRacing e a tela fechada.
 async function raceInIracing(gate) {
-  await gate.openResult({ fromIracing: true });
+  await gate.openResult("iracing");
   await gate.closeResult();
 }
 
-// Só simulou (ou reabriu uma corrida antiga pela Home): mesma tela, outro caminho.
+// Simulou o fim de semana dentro do app: mesma tela, outro caminho. Também gera
+// evento de produto (`race_sim`), então também vale a pergunta.
 async function simulateRace(gate) {
-  await gate.openResult({ fromIracing: false });
+  await gate.openResult("simulada");
+  await gate.closeResult();
+}
+
+// Reabriu uma corrida antiga pela Home. Não gera evento nenhum.
+async function reopenOldRace(gate) {
+  await gate.openResult("reaberta");
   await gate.closeResult();
 }
 
@@ -72,7 +79,7 @@ const lastUpdate = () =>
 beforeEach(() => {
   vi.useFakeTimers();
   mockInvoke.mockReset();
-  storeState = { showResult: false, lastRaceFromIracing: false };
+  storeState = { showResult: false, lastRaceOrigem: null };
 });
 
 afterEach(() => {
@@ -92,7 +99,7 @@ it("não pergunta na abertura do app", async () => {
 it("não pergunta com a tela de resultado ainda aberta", async () => {
   mockConfig(null);
   const gate = renderGate();
-  await gate.openResult({ fromIracing: true });
+  await gate.openResult("iracing");
   await settle(5000);
   expect(asked()).toBe(false);
 });
@@ -104,21 +111,30 @@ it("pergunta ao fechar o resultado da primeira corrida DIRIGIDA no iRacing", asy
   expect(asked()).toBe(true);
 });
 
-// Quem só simula nunca gera evento de telemetria — perguntar a ele é interromper por
-// nada. Vale também pra reabertura de corrida antiga pela Home (mesmo caminho no store).
-it("não pergunta a quem só simulou a corrida", async () => {
+// O simulado passou a contar quando o `race_sim` nasceu: quem joga só simulando é
+// justamente a população que a telemetria não enxergava, e sem a pergunta ela
+// continuaria invisível por mais que o evento exista.
+it("pergunta ao fechar o resultado de uma corrida SIMULADA", async () => {
   mockConfig(null);
   const gate = renderGate();
   await simulateRace(gate);
-  await simulateRace(gate);
+  expect(asked()).toBe(true);
+});
+
+// Reabertura não gera evento nenhum — perguntar ali é interromper por nada.
+it("não pergunta a quem só reabriu uma corrida antiga", async () => {
+  mockConfig(null);
+  const gate = renderGate();
+  await reopenOldRace(gate);
+  await reopenOldRace(gate);
   expect(asked()).toBe(false);
   expect(mockInvoke).not.toHaveBeenCalled();
 });
 
-it("pergunta quando o jogador finalmente corre depois de simular", async () => {
+it("pergunta quando o jogador corre depois de só reabrir corridas antigas", async () => {
   mockConfig(null);
   const gate = renderGate();
-  await simulateRace(gate);
+  await reopenOldRace(gate);
   expect(asked()).toBe(false);
 
   await raceInIracing(gate);

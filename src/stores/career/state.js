@@ -69,10 +69,15 @@ export const initialState = {
   // reabertura de corrida antiga pela Home (false)? Só a fresca aciona a lógica
   // de aba pós-corrida.
   resultIsFresh: false,
-  // O resultado na tela veio de uma corrida DIRIGIDA no iRacing (true) ou de uma
-  // simulação/reabertura (false)? Marcado explicitamente por quem abre a tela: dá
-  // pra tentar inferir pela telemetria, mas ela pode vir vazia numa corrida real.
-  lastRaceFromIracing: false,
+  // De onde veio o resultado na tela: "iracing" (dirigida de verdade), "simulada"
+  // (fim de semana simulado dentro do app) ou "reaberta" (corrida antiga aberta pela
+  // Home). Marcado explicitamente por quem abre a tela: dá pra tentar inferir pela
+  // telemetria, mas ela pode vir vazia numa corrida real.
+  //
+  // Três valores, e não um booleano, porque o aviso de telemetria trata os três de
+  // forma diferente: dirigida e simulada geram evento (e portanto vale perguntar),
+  // reabertura não gera nada.
+  lastRaceOrigem: null,
   // Conserto do carro a mostrar no pop-up ao abrir o resultado (import do iRacing).
   iracingRepair: null,
   // Trava p/ o poller do iRacing não importar a mesma corrida duas vezes em voo.

@@ -26,7 +26,7 @@ export function applyCareerData(data) {
     showResult: false,
     showRaceBriefing: false,
     lastRaceResult: null,
-    lastRaceFromIracing: false,
+    lastRaceOrigem: null,
     otherCategoriesResult: null,
   };
 }

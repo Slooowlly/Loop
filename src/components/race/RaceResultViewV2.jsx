@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import useTempoDeTela from "../../hooks/useTempoDeTela";
 import useCareerStore from "../../stores/useCareerStore";
 import FlagIcon from "../ui/FlagIcon";
 import Tooltip from "../ui/Tooltip";
@@ -102,6 +103,10 @@ function formatGap(entry) {
 
 function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercussion, onDismiss }) {
   const { t } = useTranslation();
+  // Telemetria de produto: o debrief do engenheiro é gerado por IA a cada corrida, e
+  // esta é a tela mais longa do jogo. Se ela é fechada em três segundos, a geração
+  // está pagando por um texto que ninguém lê.
+  useTempoDeTela("debriefing");
   const careerId = useCareerStore((state) => state.careerId);
   const playerTeam = useCareerStore((state) => state.playerTeam);
   const season = useCareerStore((state) => state.season);

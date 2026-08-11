@@ -7,12 +7,17 @@
  *
  * Três escolhas deliberadas:
  *
- * 1. **Pergunta depois da primeira corrida DIRIGIDA no iRacing**, não na primeira
- *    abertura. No dia 1 o jogador não sabe o que é o Loop; a pergunta chega a um
- *    desconhecido e a resposta é chute. Corrida simulada não conta, nem reabertura de
- *    corrida antiga pela Home: quem nunca pisou na pista não gera evento nenhum, então
- *    perguntar a ele é interromper por nada. Quem separa os três casos é o
- *    `lastRaceFromIracing`, marcado no store por quem abre a tela de resultado.
+ * 1. **Pergunta depois da primeira corrida**, dirigida no iRacing OU simulada dentro
+ *    do app, e não na primeira abertura. No dia 1 o jogador não sabe o que é o Loop; a
+ *    pergunta chega a um desconhecido e a resposta é chute. Reabertura de corrida
+ *    antiga pela Home não conta: ela não gera evento nenhum, então perguntar ali é
+ *    interromper por nada. Quem separa os três casos é o `lastRaceOrigem`, marcado no
+ *    store por quem abre a tela de resultado.
+ *
+ *    A corrida simulada entrou nesta lista quando o `race_sim` passou a existir. Antes
+ *    dela, quem jogava só simulando não produzia evento algum, e perguntar a ele era
+ *    interromper por nada — era também o motivo de uma temporada inteira simulada ser
+ *    invisível do lado do servidor. Ver `docs/telemetry-endpoint.md`.
  * 2. **Abre quando ele FECHA a tela de resultado**, não quando ela aparece. O
  *    resultado é a recompensa da corrida; cobrir isso com uma caixa de diálogo seria
  *    pior do que ter perguntado no boot.
@@ -38,7 +43,7 @@ const ENTRY_DELAY_MS = 600;
 export default function TelemetryConsentGate() {
   const { t } = useTranslation();
   const showResult = useCareerStore((state) => state.showResult);
-  const fromIracing = useCareerStore((state) => state.lastRaceFromIracing);
+  const origem = useCareerStore((state) => state.lastRaceOrigem);
   const wasShowingResult = useRef(showResult);
   const [config, setConfig] = useState(null);
   const [open, setOpen] = useState(false);
@@ -46,17 +51,18 @@ export default function TelemetryConsentGate() {
 
   // Espelho em ref, lido dentro do efeito. Não pode entrar nas dependências: logo
   // depois de fechar o resultado, o `dismissResult` recarrega a carreira e zera o
-  // flag — se o efeito re-rodasse por causa disso, o cleanup cancelaria o timer e a
+  // campo — se o efeito re-rodasse por causa disso, o cleanup cancelaria o timer e a
   // pergunta nunca apareceria. O que vale é o valor no instante em que a tela fechou.
-  const fromIracingNow = useRef(fromIracing);
-  fromIracingNow.current = fromIracing;
+  const origemAgora = useRef(origem);
+  origemAgora.current = origem;
 
   useEffect(() => {
     const justClosedResult = wasShowingResult.current && !showResult;
     wasShowingResult.current = showResult;
-    // Só corrida dirigida no iRacing: simulada e reabertura de corrida antiga não
-    // geram evento nenhum, então perguntar a quem só fez isso é interromper por nada.
-    if (!justClosedResult || !fromIracingNow.current) return undefined;
+    // Corrida que GEROU evento, dirigida ou simulada. Reabertura de corrida antiga
+    // não gera nada, então perguntar a quem só fez isso é interromper por nada.
+    const gerouEvento = ["iracing", "simulada"].includes(origemAgora.current);
+    if (!justClosedResult || !gerouEvento) return undefined;
 
     let alive = true;
     let timer;

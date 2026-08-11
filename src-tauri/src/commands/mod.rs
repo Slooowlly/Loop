@@ -22,6 +22,7 @@ pub mod race;
 pub mod race_history;
 pub mod save;
 pub mod season_preview;
+pub mod telemetria;
 pub mod transfer_market;
 pub mod tts_poc;
 pub mod volante;

@@ -86,6 +86,11 @@ pub async fn ptt_transcrever(
     audio_b64: String,
     mime: String,
 ) -> Result<String, String> {
+    // Telemetria de produto: é AQUI que o aperto vira dinheiro. O áudio subindo é o
+    // primeiro custo (transcrição), e o `ptt_responder` que vem depois é o segundo.
+    // Contar na borda do botão contaria também o toque acidental, que não custa nada.
+    crate::telemetry::uso_ptt_pergunta();
+
     tauri::async_runtime::spawn_blocking(move || {
         let (install_id, lang) = identidade(&app);
         let corpo = serde_json::json!({

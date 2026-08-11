@@ -13,6 +13,7 @@ import {
   useTeamsStandings,
   useWorldNotes,
 } from "../../components/news/useMagazineData";
+import useTempoDeTela from "../../hooks/useTempoDeTela";
 import useCareerStore from "../../stores/useCareerStore";
 import { categoryLabel } from "../../utils/formatters";
 
@@ -26,6 +27,10 @@ import "./NewsMagazineTab.css";
 
 function NewsMagazineTab() {
   const { t } = useTranslation();
+  // Telemetria de produto: a revista é a tela mais cara do Loop (matéria de corrida,
+  // prévia de temporada, rodapé do mundo, tudo gerado por IA). Quanto tempo ela fica
+  // aberta é o que diz se essa geração está sendo lida.
+  useTempoDeTela("noticias");
   const careerId = useCareerStore((s) => s.careerId);
   const playerTeam = useCareerStore((s) => s.playerTeam);
   const season = useCareerStore((s) => s.season);

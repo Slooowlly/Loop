@@ -173,8 +173,11 @@ pub(crate) fn load_career_in_base_dir(
     // A dificuldade viaja em TODO evento (não só no fim de corrida) porque é o eixo pelo
     // qual o desfecho é lido: posição e ritmo só calibram a curva se você souber em que
     // nível aquela corrida foi disputada.
+    // `numero` e não `ano`: o que interessa é o ANO DA CARREIRA (1, 2, 3…). O ano do
+    // calendário não diz onde a pessoa está na progressão, e duas carreiras começadas
+    // em anos diferentes ficariam incomparáveis por nada.
     crate::telemetry::set_career_context(
-        active_season.ano,
+        active_season.numero as i32,
         player_team
             .as_ref()
             .map(|t| t.categoria.clone())

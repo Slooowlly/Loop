@@ -320,7 +320,22 @@ pub fn run() {
             // `None` (nunca perguntado) = DESLIGADO: não falamos nada até o
             // jogador consentir de forma explícita.
             let install_id = config.get_or_create_install_id();
-            telemetry::init(install_id, config.telemetry_enabled.unwrap_or(false));
+            telemetry::init(
+                &base_dir,
+                install_id,
+                config.telemetry_enabled.unwrap_or(false),
+            );
+            // Uma abertura do app = um `app_start`. É daqui que sai a contagem de
+            // sessões, e o `session_id` que ele carrega amarra as corridas desta vez
+            // que o jogador abriu o Loop.
+            telemetry::app_start();
+            // O que não entrou na sessão anterior (Cloud Run frio, PC sem rede) sai
+            // agora, numa thread própria. No-op quando a fila está vazia, que é o
+            // caso comum.
+            telemetry::drenar_fila();
+            // O bloco de leitura que ficou aberto quando o app fechou (quem lê o
+            // debriefing e sai não pode levar esse tempo embora).
+            telemetry::uso_enviar_pendente();
 
             // Chaves de overlay no espelho volátil, pra os escritores do front já
             // nascerem parados quando o jogador não está em VR.
@@ -528,6 +543,7 @@ pub fn run() {
             commands::ptt::ptt_set_gatilho,
             commands::ptt::ptt_gatilho_atual,
             commands::ptt::ptt_esta_apertado,
+            commands::telemetria::telemetria_tela,
             commands::ptt_voz::ptt_transcrever,
             commands::ptt_voz::ptt_responder,
             commands::ptt_voz::ptt_aquecer,

@@ -29,7 +29,7 @@ export const createRaceSlice = (set, get) => ({
         lastRaceId: nextRace.id,
         lastRaceEvaluation: result.evaluation ?? null, // mesmo cérebro do import iRacing
         lastRaceTelemetry: null, // sim offline não tem telemetria ao vivo (sem gráficos)
-        lastRaceFromIracing: false, // simulou: não pisou na pista
+        lastRaceOrigem: "simulada", // não pisou na pista, mas gerou evento de produto
         lastRaceMaintenance: result.maintenance ?? null,
         lastRaceRepercussion: result.event_repercussion ?? null,
         lastRaceWasFinale: isFinaleSlot(nextRace.thematic_slot),
@@ -64,7 +64,7 @@ export const createRaceSlice = (set, get) => ({
           lastRaceId: payload.summary?.race_id ?? null,
           lastRaceEvaluation: payload.evaluation ?? null,
           lastRaceTelemetry: payload.telemetry ?? null,
-          lastRaceFromIracing: true, // correu de verdade: resultado importado do sim
+          lastRaceOrigem: "iracing", // correu de verdade: resultado importado do sim
           lastRaceMaintenance: payload.summary?.maintenance ?? null,
           lastRaceRepercussion: payload.summary?.event_repercussion ?? null,
           lastRaceWasFinale: isFinaleSlot(nextRace?.thematic_slot),
@@ -97,7 +97,7 @@ export const createRaceSlice = (set, get) => ({
           lastRaceId: screen.race_id ?? null,
           lastRaceEvaluation: screen.evaluation ?? null,
           lastRaceTelemetry: screen.telemetry ?? null,
-          lastRaceFromIracing: false, // reabertura de corrida antiga, não é evento novo
+          lastRaceOrigem: "reaberta", // corrida antiga, não é evento novo
           lastRaceMaintenance: screen.maintenance ?? null,
           lastRaceRepercussion: screen.event_repercussion ?? null,
           iracingRepair: null,
