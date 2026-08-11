@@ -4304,6 +4304,26 @@
     "texto": "Meridian,"
   },
   {
+    "chave": "meu_quali_grave",
+    "texto": "Não dá para continuar a classificação com o carro assim. Vamos direto para a corrida, largando lá de trás."
+  },
+  {
+    "chave": "meu_quali_destruido",
+    "texto": "O carro não tem conserto a tempo da corrida. Nosso fim de semana acabou aqui."
+  },
+  {
+    "chave": "meu_quali_catastrofico",
+    "texto": "Você está inteiro? O carro ficou na parede. Hoje a gente não corre."
+  },
+  {
+    "chave": "meu_quali_eol",
+    "texto": "Remendamos o que deu. Você larga lá de trás."
+  },
+  {
+    "chave": "meu_quali_dq",
+    "texto": "O carro não tem conserto a tempo. Você não larga hoje."
+  },
+  {
     "chave": "meu_engine_0",
     "texto": "Estou ouvindo algo estranho no seu motor."
   },

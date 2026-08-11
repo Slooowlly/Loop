@@ -103,15 +103,33 @@ export const OVERLAY_MOCK = {
   ],
 };
 
+// "01:42.198" -> 102198 ms. Ao vivo o `bestMs` vem pronto do backend (é a MESMA melhor
+// volta do `fastest`); aqui ele é derivado do texto pra não duplicar cada carro do mock.
+function lapToMs(fastest) {
+  const m = /^(\d+):(\d+)\.(\d+)$/.exec(String(fastest ?? ""));
+  if (!m) return 0;
+  return Number(m[1]) * 60_000 + Number(m[2]) * 1000 + Number(m[3]);
+}
+
+const withBestMs = (data) => ({
+  ...data,
+  classes: data.classes.map((cls) => ({
+    ...cls,
+    cars: cls.cars.map((car) => ({ ...car, bestMs: lapToMs(car.fastest) })),
+  })),
+});
+
 // Mesmo grid, mas em CLASSIFICAÇÃO: o header troca a volta pelo relógio da sessão
-// (TIME 3:12/8:00). Serve ao preview do navegador — sem isso não dá pra inspecionar
-// o modo quali, que é o único lugar onde o contador de tempo aparece.
-export const OVERLAY_MOCK_QUALY = {
+// (TIME 3:12/8:00) e a coluna do meio troca as posições ganhas pelo intervalo até a
+// pole (GAP +0.243). Serve ao preview do navegador — sem isso não dá pra inspecionar
+// o modo quali, que é o único lugar onde essas duas leituras aparecem.
+export const OVERLAY_MOCK_QUALY = withBestMs({
   ...OVERLAY_MOCK,
   session: {
     ...OVERLAY_MOCK.session,
     type: "Q",
     elapsedS: 192,
     durationS: 480,
+    remainingS: 288,
   },
-};
+});

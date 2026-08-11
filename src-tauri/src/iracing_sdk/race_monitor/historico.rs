@@ -263,14 +263,22 @@ impl RaceMonitor {
             self.history.subsession_id = self.session_subsession_id;
             self.hist_session_num = t.session_num;
             self.hist_leader_lap = 0;
-            self.hist_player_lap = 0;
-            self.hist_car_lap_completed = [0; 64];
+            // O ciclo de volta recomeça do zero. Sem isto, a volta que estava aberta na sessão
+            // anterior fecharia dentro da corrida nova: era assim que "volta 6 = 97,581 s", uma
+            // volta do TREINO, aparecia como a primeira volta da corrida.
+            self.voltas_jogador.reiniciar();
+            for coletor in self.voltas_carro.iter_mut() {
+                coletor.reiniciar();
+            }
             self.hist_car_last_pos = [0; 64];
             self.hist_trace_pos = [0; 64];
             self.hist_last_trace_event_time = 0.0;
             self.hist_last_neighbor_time = 0.0;
             // A quali precede a corrida → carrega as voltas dela no histórico (uma vez).
+            // As cruas alimentam o escudo anti-trânsito; o melhor VÁLIDO por carro é o
+            // que monta o grid, e por isso viaja junto.
             self.history.qualy_laps = self.qualy_laps.clone();
+            self.history.qualy_best_valid = self.qualy_best_valid_snapshot();
             // Reseta o detector de pit / clima / setor para a tentativa nova.
             self.pit_in_stall = [false; 64];
             self.pit_left_stall = [false; 64];
@@ -464,58 +472,72 @@ impl RaceMonitor {
             }
         }
 
-        // Pit do jogador: acumula se passou pelo pit road na volta em andamento.
-        if t.player_on_pit_road {
-            self.player_pit_seen = true;
-        }
-
-        // Jogador completou uma volta nova → registra o tempo dela.
-        if t.lap_completed > self.hist_player_lap {
-            self.hist_player_lap = t.lap_completed;
-            if t.last_lap_time > 0.0 {
-                self.history.player_laps.push(PlayerLap {
-                    lap: t.lap_completed,
-                    time: t.last_lap_time,
-                    // Combustível restante ao fechar a volta (litros); consumo/volta
-                    // sai da diferença entre voltas. <0 no SDK = ignora.
-                    fuel_remaining: if t.fuel_level >= 0.0 {
-                        t.fuel_level
-                    } else {
-                        -1.0
-                    },
-                });
-                if self.history.player_laps.len() > MAX_HISTORY_LAPS {
-                    self.history.player_laps.remove(0);
-                }
+        // Volta do jogador. Quem decide QUANDO ela abre, QUANDO fecha e com que tempo entra
+        // é o `ColetorDeVoltas` — ver `voltas.rs`. O que este bloco fazia antes (ler
+        // `lap_completed` e `last_lap_time` no mesmo tique) gravava cada volta com o tempo da
+        // ANTERIOR, porque o canal do tempo só é publicado alguns décimos depois da virada.
+        let fechada = self.voltas_jogador.tique(voltas::Tique {
+            agora: now,
+            contagem: t.lap_completed,
+            ultimo_tempo_sdk: t.last_lap_time,
+            // Só o jogador tem este canal, e no tique da virada ele ainda marca a volta que
+            // fechou — é a rede quando não vimos a abertura dela.
+            cronometro_do_sim: Some(t.lap_current_time),
+            // Combustível restante ao fechar a volta (litros); consumo/volta sai da diferença
+            // entre voltas. <0 no SDK = ignora.
+            combustivel_l: if t.fuel_level >= 0.0 {
+                t.fuel_level
+            } else {
+                -1.0
+            },
+            no_box: t.player_on_pit_road,
+        });
+        if let Some(v) = fechada {
+            self.history.player_laps.push(PlayerLap {
+                lap: v.volta,
+                time: v.tempo_s,
+                fuel_remaining: v.combustivel_l,
+            });
+            if self.history.player_laps.len() > MAX_HISTORY_LAPS {
+                self.history.player_laps.remove(0);
             }
-            // A volta recém-completada teve pit? Marca e zera para a próxima.
-            if self.player_pit_seen {
-                self.player_pit_laps.push(t.lap_completed);
+            // A marca do box viaja junto com a volta que fechou, e não num acumulador à parte:
+            // era ele que fazia a parada de uma volta reaparecer na seguinte.
+            if v.passou_no_box {
+                self.player_pit_laps.push(v.volta);
                 if self.player_pit_laps.len() > MAX_HISTORY_LAPS {
                     self.player_pit_laps.remove(0);
                 }
             }
-            self.player_pit_seen = false;
         }
 
         // Cada carro (jogador + IA) completou uma volta → registra o tempo dela.
         // Base da adaptação (ritmo da frente da classe). Evento por carro, barato.
+        //
+        // Mesmo coletor, mesmo motivo: o `CarIdxLastLapTime` tem o mesmo atraso do canal do
+        // jogador (0,067 s a 0,433 s medidos), e o campo era lido no tique da virada. Sem
+        // `CarIdxLapCurrentTime` no SDK, aqui a duração sai do cronômetro entre as viradas.
         for car in &t.cars {
             let i = car.idx;
             if i < 0 || i as usize >= 64 || self.car_is_pace[i as usize] {
                 continue;
             }
-            if car.lap_completed > self.hist_car_lap_completed[i as usize] {
-                self.hist_car_lap_completed[i as usize] = car.lap_completed;
-                if car.last_lap_time > 0.0 && car.lap_completed >= 1 {
-                    self.history.car_laps.push(CarLap {
-                        car_idx: i,
-                        lap: car.lap_completed,
-                        time: car.last_lap_time,
-                    });
-                    if self.history.car_laps.len() > MAX_CAR_LAPS {
-                        self.history.car_laps.remove(0);
-                    }
+            let fechada = self.voltas_carro[i as usize].tique(voltas::Tique {
+                agora: now,
+                contagem: car.lap_completed,
+                ultimo_tempo_sdk: car.last_lap_time,
+                cronometro_do_sim: None,
+                combustivel_l: -1.0,
+                no_box: car.on_pit_road,
+            });
+            if let Some(v) = fechada {
+                self.history.car_laps.push(CarLap {
+                    car_idx: i,
+                    lap: v.volta,
+                    time: v.tempo_s,
+                });
+                if self.history.car_laps.len() > MAX_CAR_LAPS {
+                    self.history.car_laps.remove(0);
                 }
             }
         }

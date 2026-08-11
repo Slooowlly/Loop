@@ -825,6 +825,20 @@ impl LiveBreakdown {
         self.out
     }
 
+    /// TROCA A SORTE deste carro, sem tocar no desgaste nem no que já quebrou.
+    ///
+    /// Existe para o REINÍCIO de sessão: a tentativa nova devolve o carro ao desgaste de
+    /// entrada, mas com a mesma semente ele quebraria a mesma peça na mesma volta, e a corrida
+    /// refeita viraria a repetição exata da anterior. Com um `salt` novo por tentativa, o carro
+    /// volta a ter a MESMA chance de quebrar e um desfecho próprio. `salt = 0` não mexe em nada
+    /// (a primeira tentativa mantém a sorte com que o diretor foi instalado).
+    pub fn reroll_luck(&mut self, salt: u64) {
+        if salt == 0 {
+            return;
+        }
+        self.seed = splitmix64(self.seed ^ splitmix64(salt));
+    }
+
     /// Peças ATUALMENTE na janela de risco: desgaste em [`RISK_OPEN`, `HARD_WALL`), não
     /// quebradas — já têm chance de falhar a cada volta. Devolve `(índice em PartType::ALL,
     /// peça, desgaste)`. É a base do AVISO pessoal ao jogador quando uma peça cruza o limiar.
@@ -863,6 +877,26 @@ impl LiveBreakdown {
         weather: Weather,
         progress: f64,
     ) -> Vec<BreakdownEvent> {
+        self.advance_lap_at_cfg(lap, weather, progress, true)
+    }
+
+    /// Igual a [`LiveBreakdown::advance_lap_at`], mas com o interruptor da FALHA.
+    ///
+    /// `allow_break = false` é a volta em que a quebra **não pode existir** — a classificatória
+    /// (onde uma penalidade de tempo não tem o que punir) e a carência do início da corrida. O
+    /// desgaste da volta continua sendo acumulado igual: o que fica de fora é só o SORTEIO da
+    /// falha (e a parede, que é a mesma falha sem sorte). A peça segue envelhecendo e volta a
+    /// correr risco assim que o interruptor abre — a restrição é do evento, não do desgaste.
+    ///
+    /// Pular o sorteio não desloca a sorte das voltas seguintes: cada rolagem é um hash puro de
+    /// `(semente, peça, volta, canal)`, não um gerador com estado.
+    pub fn advance_lap_at_cfg(
+        &mut self,
+        lap: u32,
+        weather: Weather,
+        progress: f64,
+        allow_break: bool,
+    ) -> Vec<BreakdownEvent> {
         let mut out = Vec::new();
         if self.out {
             return out;
@@ -889,7 +923,9 @@ impl LiveBreakdown {
                 * ramp
                 / life;
 
-            let (failed, forced) = if self.wear[i] >= HARD_WALL {
+            let (failed, forced) = if !allow_break {
+                (false, false)
+            } else if self.wear[i] >= HARD_WALL {
                 (true, true)
             } else if self.wear[i] >= RISK_OPEN
                 && roll(self.seed, i, lap, CH_HAZARD) < per_lap_hazard(pt, self.wear[i])
@@ -1118,12 +1154,15 @@ pub fn forecast_breakdown_risk(
 /// testável; a fiação viva (verde→montar a grade; volta→`on_lap`→`send_chat_text`) fica no
 /// `race_monitor`. Idempotente por volta: só avança pra frente (reprocessar a mesma volta
 /// não dispara de novo).
-#[derive(Debug, Default)]
+/// `Clone` porque o monitor guarda uma cópia PRISTINA do diretor no instante da instalação: ao
+/// reiniciar a corrida, o estado de desgaste que as voltas da tentativa abandonada consumiram
+/// tem de ser jogado fora, e a única forma honesta de fazer isso é voltar ao que foi montado.
+#[derive(Debug, Default, Clone)]
 pub struct BreakdownDirector {
     cars: std::collections::HashMap<u32, DirectorCar>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct DirectorCar {
     live: LiveBreakdown,
     /// Última volta já processada deste carro (dedupe).
@@ -1153,6 +1192,15 @@ impl BreakdownDirector {
                 service_laps,
             },
         );
+    }
+
+    /// Troca a sorte de TODOS os carros montados (ver [`LiveBreakdown::reroll_luck`]). O monitor
+    /// chama isto ao restaurar o diretor num reinício de sessão, pra a corrida refeita não ser a
+    /// repetição peça-por-peça, volta-por-volta da que o jogador jogou fora.
+    pub fn reroll_luck(&mut self, salt: u64) {
+        for car in self.cars.values_mut() {
+            car.live.reroll_luck(salt);
+        }
     }
 
     /// Peças de `car_number` atualmente na janela de risco (ver [`LiveBreakdown::parts_in_danger`]).
@@ -1190,6 +1238,21 @@ impl BreakdownDirector {
         weather: Weather,
         progress: f64,
     ) -> Vec<BreakdownEvent> {
+        self.on_lap_at_cfg(car_number, lap, weather, progress, true)
+    }
+
+    /// Igual a [`BreakdownDirector::on_lap_at`], com o interruptor da FALHA (ver
+    /// [`LiveBreakdown::advance_lap_at_cfg`]). O monitor passa `allow_break = false` na
+    /// classificatória e na carência de largada: as voltas são avançadas (o carro gasta), mas
+    /// nenhuma peça larga.
+    pub fn on_lap_at_cfg(
+        &mut self,
+        car_number: u32,
+        lap: u32,
+        weather: Weather,
+        progress: f64,
+        allow_break: bool,
+    ) -> Vec<BreakdownEvent> {
         let mut out = Vec::new();
         if let Some(car) = self.cars.get_mut(&car_number) {
             while car.last_lap < lap && !car.live.is_out() {
@@ -1197,7 +1260,12 @@ impl BreakdownDirector {
                 if car.service_laps.contains(&car.last_lap) {
                     car.live.service_pit();
                 }
-                out.extend(car.live.advance_lap_at(car.last_lap, weather, progress));
+                out.extend(car.live.advance_lap_at_cfg(
+                    car.last_lap,
+                    weather,
+                    progress,
+                    allow_break,
+                ));
             }
         }
         out

@@ -272,7 +272,8 @@ impl RaceMonitor {
     pub(super) fn reset_qualy_state(&mut self) {
         self.prev_in_qualy = false;
         self.qualy_laps.clear();
-        self.qualy_car_lap_completed = [0; 64];
+        self.voltas_quali = [voltas::ColetorDeVoltas::DEFAULT; 64];
+        self.qualy_best_valid = [0.0; 64];
     }
 
     pub(super) fn set_session_subsession_id(&mut self, id: i64) {
@@ -281,6 +282,10 @@ impl RaceMonitor {
         }
         if self.session_subsession_id != id {
             self.reset_qualy_state();
+            // Fim de semana novo, contagem nova. Sem isto, o jogador que corre duas
+            // etapas sem fechar o Loop levaria os reinícios da primeira para a segunda.
+            self.restarts_corrida = 0;
+            self.restarts_quali = 0;
             self.session_subsession_id = id;
         }
     }
@@ -329,17 +334,35 @@ impl RaceMonitor {
             if i < 0 || i as usize >= 64 || self.car_is_pace[i as usize] {
                 continue;
             }
-            if car.lap_completed > self.qualy_car_lap_completed[i as usize] {
-                self.qualy_car_lap_completed[i as usize] = car.lap_completed;
-                if car.last_lap_time > 0.0 && car.lap_completed >= 1 {
-                    self.qualy_laps.push(CarLap {
-                        car_idx: i,
-                        lap: car.lap_completed,
-                        time: car.last_lap_time,
-                    });
-                    if self.qualy_laps.len() > MAX_CAR_LAPS {
-                        self.qualy_laps.remove(0);
-                    }
+            // Trava da melhor volta VÁLIDA. Vale por si, fora do gate de volta nova: o
+            // `CarIdxBestLapTime` já é o melhor acumulado do carro e o que interessa é
+            // ter o último valor visto antes de o carro sumir de `cars` (garagem).
+            // Guarda o MENOR positivo em vez do último por precaução contra sentinela:
+            // o canal só melhora, então na prática é o mesmo valor.
+            if car.best_lap_time > 0.0 {
+                let atual = self.qualy_best_valid[i as usize];
+                if atual <= 0.0 || car.best_lap_time < atual {
+                    self.qualy_best_valid[i as usize] = car.best_lap_time;
+                }
+            }
+            // Mesmo ciclo de volta da corrida, e pelo mesmo motivo: o `CarIdxLastLapTime` no
+            // tique da virada ainda é o tempo da volta anterior. Ver `voltas.rs`.
+            let fechada = self.voltas_quali[i as usize].tique(voltas::Tique {
+                agora: t.session_time,
+                contagem: car.lap_completed,
+                ultimo_tempo_sdk: car.last_lap_time,
+                cronometro_do_sim: None,
+                combustivel_l: -1.0,
+                no_box: car.on_pit_road,
+            });
+            if let Some(v) = fechada {
+                self.qualy_laps.push(CarLap {
+                    car_idx: i,
+                    lap: v.volta,
+                    time: v.tempo_s,
+                });
+                if self.qualy_laps.len() > MAX_CAR_LAPS {
+                    self.qualy_laps.remove(0);
                 }
             }
         }
@@ -347,5 +370,16 @@ impl RaceMonitor {
 
     pub(super) fn qualy_laps_snapshot(&self) -> Vec<CarLap> {
         self.qualy_laps.clone()
+    }
+
+    /// Melhor volta VÁLIDA da quali por carro, em segundos: `(car_idx, tempo)`. Só os
+    /// carros que chegaram a marcar tempo entram.
+    pub(super) fn qualy_best_valid_snapshot(&self) -> Vec<(i32, f64)> {
+        self.qualy_best_valid
+            .iter()
+            .enumerate()
+            .filter(|(_, secs)| **secs > 0.0)
+            .map(|(idx, secs)| (idx as i32, *secs))
+            .collect()
     }
 }

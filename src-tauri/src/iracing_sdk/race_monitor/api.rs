@@ -176,9 +176,48 @@ pub fn get_player_incidents() -> Vec<PlayerIncidentMark> {
 }
 
 /// Lê as voltas de qualify capturadas ao vivo, sem misturá-las ao histórico da corrida.
+///
+/// São voltas CRUAS (`CarIdxLastLapTime`): uma volta anulada por limite de pista está
+/// aqui com o tempo que ela marcou. Para o melhor tempo da classificatória use
+/// [`get_qualy_best_valid`].
 pub fn get_qualy_laps() -> Vec<CarLap> {
     start_sampler();
     lock().qualy_laps_snapshot()
+}
+
+/// Melhor volta VÁLIDA da quali por carro, `(car_idx, segundos)`, travada do
+/// `CarIdxBestLapTime` ao vivo — volta anulada fica de fora, e o valor sobrevive ao
+/// carro sair do mundo (garagem).
+pub fn get_qualy_best_valid() -> Vec<(i32, f64)> {
+    start_sampler();
+    lock().qualy_best_valid_snapshot()
+}
+
+/// Voltas completas do líder no instante da bandeirada. 0 = a corrida ainda não acabou,
+/// ou o monitor só entrou em cena depois dela.
+///
+/// O consumidor é o cabeçalho da torre: `CarIdxLapCompleted` continua subindo no cool
+/// down, e sem este congelamento a volta exibida passa do fim da prova.
+pub fn get_final_lead_lap() -> i32 {
+    start_sampler();
+    lock().volta_final_lider
+}
+
+/// Quantas falas de rádio já foram descartadas por reinícios anteriores. Os feeds do overlay
+/// somam isto ao índice para formar o `id` — sem ela, o log esvaziado devolve ids repetidos e
+/// o overlay, que só mostra id NOVO, emudece para o resto da sessão. Ver `radio_epoch`.
+pub fn radio_epoch() -> usize {
+    lock().radio_epoch
+}
+
+/// Número da tentativa que cobriu a CLASSIFICAÇÃO deste fim de semana; 0 se não houve.
+///
+/// Existe para o import cobrar o conserto da batida da quali com a MESMA régua da corrida:
+/// o chamador passa este número a `player_worst_severity`. Sem ele, destruir o carro na
+/// classificação saía de graça — o import só olha a tentativa da corrida.
+pub fn quali_attempt_number() -> i32 {
+    start_sampler();
+    lock().quali_attempt_number
 }
 
 /// Lê a identidade única do evento atualmente observado pelo monitor.

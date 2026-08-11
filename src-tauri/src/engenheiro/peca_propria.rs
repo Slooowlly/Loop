@@ -151,9 +151,54 @@ pub fn poupar_frase(variante: usize) -> (&'static str, &'static str) {
     ][variante % 3]
 }
 
+/// O CARRO DESTRUÍDO NA CLASSIFICAÇÃO: as cinco falas do castigo, por chave do card.
+///
+/// Família fixa e minúscula, sem variação: cada uma sai no máximo UMA vez por fim de semana,
+/// e num momento em que o jogador não está pilotando (o carro já está parado no muro ou na
+/// pré-largada). Sortear redação aqui só multiplicaria gravação sem ninguém perceber.
+///
+/// Duas frases nas do lockout, como no [`poupar_frase`], e pelo mesmo motivo: elas têm
+/// diagnóstico e consequência, e a pausa entre frases é o respiro certo. O gerador vai
+/// acusar silêncio interno; aqui ele é intencional.
+///
+/// As chaves espelham a `severidade` do [`crate::iracing_sdk::race_monitor::PlayerWarning`],
+/// para o card e o áudio nunca divergirem: quem muda uma muda a outra.
+pub fn quali_frase(chave: &str) -> Option<&'static str> {
+    Some(match chave {
+        // Dentro da quali, no instante da batida — o fim de semana mudou agora.
+        "meu_quali_grave" => {
+            "Não dá para continuar a classificação com o carro assim. Vamos direto para a corrida, largando lá de trás."
+        }
+        "meu_quali_destruido" => {
+            "O carro não tem conserto a tempo da corrida. Nosso fim de semana acabou aqui."
+        }
+        "meu_quali_catastrofico" => {
+            "Você está inteiro? O carro ficou na parede. Hoje a gente não corre."
+        }
+        // Na largada, reafirmando a consequência.
+        "meu_quali_eol" => "Remendamos o que deu. Você larga lá de trás.",
+        "meu_quali_dq" => "O carro não tem conserto a tempo. Você não larga hoje.",
+        _ => return None,
+    })
+}
+
+/// As cinco chaves da família da classificação, na ordem do catálogo.
+pub const QUALI_CHAVES: [&str; 5] = [
+    "meu_quali_grave",
+    "meu_quali_destruido",
+    "meu_quali_catastrofico",
+    "meu_quali_eol",
+    "meu_quali_dq",
+];
+
 /// TODA peça que esta família pode emitir, com o texto exato a gravar.
 pub fn familia_peca_propria() -> Vec<(String, String)> {
     let mut v: Vec<(String, String)> = Vec::new();
+    for chave in QUALI_CHAVES {
+        if let Some(texto) = quali_frase(chave) {
+            v.push((chave.to_string(), texto.to_string()));
+        }
+    }
     for peca in PECAS {
         for i in 0..3 {
             v.push((chave_aviso(peca, i), format!("{}.", aviso_frase(peca, i))));
@@ -181,10 +226,34 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
+    /// As cinco falas do castigo da quali têm de existir no catálogo (senão o card pede um
+    /// `.opus` que ninguém gerou e o engenheiro fica mudo), e o TEXTO do card sai daqui —
+    /// uma redação só, gravada e escrita.
+    #[test]
+    fn a_familia_da_quali_esta_no_catalogo_e_tem_texto() {
+        let chaves: HashSet<String> = familia_peca_propria().into_iter().map(|(k, _)| k).collect();
+        for chave in QUALI_CHAVES {
+            assert!(chaves.contains(chave), "falta {chave} no catálogo");
+            let texto = quali_frase(chave).expect("toda chave tem redação");
+            assert!(!texto.is_empty());
+            // A voz da EQUIPE: "você" ou o nós que inclui o piloto ("vamos", "a gente",
+            // "nosso"). O defeito que esta família combate é falar do jogador como de um
+            // estranho, e qualquer uma dessas marcas prova que não é o caso.
+            let baixo = texto.to_lowercase();
+            assert!(
+                ["você", "vamos", "a gente", "nosso"]
+                    .iter()
+                    .any(|m| baixo.contains(m)),
+                "{chave} tem de falar COM o piloto, não sobre ele: {texto}"
+            );
+        }
+        assert_eq!(quali_frase("meu_quali_inexistente"), None);
+    }
+
     #[test]
     fn o_catalogo_cobre_toda_peca_e_variacao() {
         let v = familia_peca_propria();
-        assert_eq!(v.len(), 12 * 3 + 12 * 3 * 3 + 3);
+        assert_eq!(v.len(), QUALI_CHAVES.len() + 12 * 3 + 12 * 3 * 3 + 3);
         let chaves: HashSet<&String> = v.iter().map(|(k, _)| k).collect();
         assert_eq!(chaves.len(), v.len(), "chave repetida");
         for peca in PECAS {

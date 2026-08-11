@@ -68,6 +68,30 @@ pub(crate) fn severity_rank(severity: &str) -> usize {
         .unwrap_or(0)
 }
 
+/// Pior batida BRUTA de uma tentativa (sem rebaixamento): a maior entre o pico ao vivo e as
+/// batidas já fechadas. Só entra impacto confirmado; perda de controle não é dano.
+///
+/// Os dois caminhos existem porque nenhum sozinho serve. O PICO pega a batida que nunca
+/// "fecha" (o jogador bate e segue), mas é sempre um piso: a velocidade PERDIDA na pancada,
+/// que é o componente que separa o encostão da destruição e vale até 160 pontos, só é
+/// calculada quando a batida fecha. Ler só o pico dizia "leve" para um carro que virou
+/// sucata no muro. A batida FECHADA tem a conta inteira; o `max` fica com quem viu mais.
+pub(crate) fn worst_raw_severity(attempt: &Attempt) -> &str {
+    let pico = severity_label(attempt.peak_crash_score);
+    let fechada = attempt
+        .crashes
+        .iter()
+        .filter(|c| c.had_impact)
+        .max_by_key(|c| severity_rank(&c.impact_severity))
+        .map(|c| c.impact_severity.as_str())
+        .unwrap_or("nenhum");
+    if severity_rank(pico) >= severity_rank(fechada) {
+        pico
+    } else {
+        fechada
+    }
+}
+
 pub(crate) fn status_pt(status: &str) -> &'static str {
     match status {
         "active" => "Ativa",

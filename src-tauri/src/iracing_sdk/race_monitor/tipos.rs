@@ -14,6 +14,13 @@ pub struct CrashEvent {
     pub severity: String,
     /// Severidade do impacto bruto, antes de qualquer rebaixamento.
     pub impact_severity: String,
+    /// Houve IMPACTO de verdade nesta batida (pancada de G ou o incidente 4x de
+    /// contato do próprio iRacing), e não só perda de controle. Uma rodada limpa
+    /// pontua alto pelo conjunto (incidente + guinada + rotação + fora da pista)
+    /// sem o carro ter tocado em nada — e sem esta marca ela virava conserto no
+    /// import. É o gate do dano; o evento em si continua registrado para a narrativa.
+    #[serde(default)]
+    pub had_impact: bool,
     pub factors: Vec<String>,
 }
 
@@ -28,6 +35,12 @@ pub struct AttemptEvidence {
     pub garage: bool,
     pub black_flag: bool,
     pub disqualified: bool,
+    /// O sim mostrou o MEATBALL (`FLAG_REPAIR`): reparo obrigatório declarado pelo próprio
+    /// iRacing, ao vivo. É o sinal de "carro quebrado de verdade" que os canais
+    /// `PitRepairLeft` não dão fora do box — e o que o score de batida subestima em pista
+    /// molhada/velocidade baixa (o G subamostra picos a 60 Hz).
+    #[serde(default)]
+    pub meatball: bool,
     pub incident_points: i32,
 }
 
@@ -38,7 +51,7 @@ pub struct Attempt {
     pub status: String, // active | finished | dnf | not_started
     pub started_at_session_time: f64,
     pub laps_completed: i32,
-    pub ended_by: Option<String>, // restart | sim_closed | checkered
+    pub ended_by: Option<String>, // restart | session_change | sim_closed | checkered
     pub reason: Option<String>,
     pub worst_crash: Option<String>,
     pub evidence: AttemptEvidence,
@@ -58,6 +71,23 @@ pub struct Attempt {
     /// dominante do G-force. Base do dano por peça na batida (`car::crash`).
     #[serde(default)]
     pub peak_impact_dir: Option<String>,
+    /// Maior tempo de reparo (obrigatório + opcional, em segundos) que o SIM reportou
+    /// nesta tentativa. É o próprio iRacing dizendo que o carro precisa de conserto, e
+    /// quando aparece costuma ser dano grave.
+    ///
+    /// Serve de SEGUNDA confirmação, e é assimétrico de propósito: presente, sustenta a
+    /// severidade da batida; ausente, não conclui nada — o sim só popula esses canais em
+    /// dano relevante, e carro amassado sem reparo pendente existe. Nunca cancela dano.
+    #[serde(default)]
+    pub sim_repair_needed_s: f64,
+    /// Só a parte OBRIGATÓRIA daquele reparo (`PitRepairLeft`), em segundos: o que o carro
+    /// não anda sem consertar (o opcional sobe com amassado de carroceria).
+    ///
+    /// ATENÇÃO (medido em 2026-08-10): o canal só conta o SERVIÇO em andamento na caixa.
+    /// Carro destruído rodando, rebocado ou no grid lê 0.0 — com meatball na tela. Por isso
+    /// ele é corroboração do castigo da quali, nunca a régua: quem decide é a severidade.
+    #[serde(default)]
+    pub sim_repair_required_s: f64,
     /// Estilo de pilotagem do JOGADOR acumulado ao longo da tentativa (inputs do SDK tick a
     /// tick). Vira fator de desgaste por peça (economizar → desconto; abusar → espiral). Só o
     /// jogador acumula; a IA fica no default neutro.
@@ -289,8 +319,18 @@ pub struct RaceHistory {
     pub subsession_id: i64,
     /// Voltas da QUALI (capturadas na sessão de qualify que precede a corrida) —
     /// reforço do escudo anti-trânsito na adaptação. Vazio se não houve quali.
+    ///
+    /// São voltas CRUAS (`CarIdxLastLapTime`): a volta anulada por limite de pista
+    /// está aqui com o tempo que ela marcou. Para o tempo que VALE na classificatória
+    /// use `qualy_best_valid`.
     #[serde(default)]
     pub qualy_laps: Vec<CarLap>,
+    /// Melhor volta VÁLIDA da quali por carro, `(car_idx, segundos)`, travada do
+    /// `CarIdxBestLapTime`. É a fonte do grid: a classificatória só conhece volta que
+    /// valeu. Vazio em save gravado antes deste campo existir — aí o grid cai nas
+    /// voltas cruas de `qualy_laps`.
+    #[serde(default)]
+    pub qualy_best_valid: Vec<(i32, f64)>,
     /// Paradas de box detectadas (todos os carros) — base da inferência de pneu.
     #[serde(default)]
     pub pit_stops: Vec<crate::iracing_sdk::tire_strategy::PitStop>,
@@ -328,6 +368,7 @@ impl RaceHistory {
             track_id: 0,
             subsession_id: 0,
             qualy_laps: Vec::new(),
+            qualy_best_valid: Vec::new(),
             pit_stops: Vec::new(),
             weather: crate::iracing_sdk::tire_strategy::RaceWeatherContext::DRY,
             player_sectors: Vec::new(),
@@ -405,6 +446,15 @@ pub enum TipoAvisoProprio {
     /// sairia em 3ª pessoa ("o piloto um da tal equipe abandonou"), que é o jogador ouvindo
     /// falarem dele como de um estranho. Ver [`crate::engenheiro::peca_propria::desfecho_frase`].
     Quebra,
+    /// O carro voltou destruído da CLASSIFICAÇÃO: o motivo do castigo, dito no instante em
+    /// que o fim de semana muda — não num rodapé da largada. `severidade` gradua o card:
+    /// `"quali_grave"` (a quali travou; corrida do fundo), `"quali_destruido"` /
+    /// `"quali_catastrofico"` (não corre; o catastrófico só muda a fala), e na largada
+    /// `"eol"` / `"dq"` reafirmam a consequência.
+    ///
+    /// Card sem áudio (`pecas` vazio): é a única fala do rádio que nasce fora da corrida, e o
+    /// acervo de voz do engenheiro não tem peça para ela.
+    QualiDestruida,
 }
 
 /// Aviso pessoal ao jogador: uma peça DELE entrou na janela de risco (já pode falhar).

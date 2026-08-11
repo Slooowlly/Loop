@@ -1,5 +1,6 @@
 use super::formato::{
-    best_positive_lap, history_matches_subsession, name_key, roster_with_telemetry,
+    best_positive_lap, contagem_de_voltas, history_matches_subsession, name_key,
+    parse_session_times, parse_session_types, roster_with_telemetry, session_kind, ContagemVoltas,
 };
 use super::ordem::{modo_da_sessao, ordem_pre_sessao, ordenar, OrderInput, OrderMode, PreSinal};
 use crate::iracing_sdk::{race_monitor::YamlCarMeta, CarSnapshot};
@@ -66,6 +67,109 @@ fn best_positive_lap_returns_zero_without_a_positive_time() {
     assert_eq!(best_positive_lap(Some(0.0), Some(0.0)), 0.0);
 }
 
+/// Sentinela de "ilimitado" que o iRacing manda nos canais de voltas em prova por tempo.
+const ILIMITADO: i32 = 32_767;
+
+/// Prova por VOLTAS: o pior instante é o líder cruzando a linha final. `lap_completed`
+/// vira 8 e as voltas restantes zeram — era aí que o cabeçalho anunciava a volta 9 numa
+/// prova de 8, e ainda perdia o "/8".
+#[test]
+fn prova_por_voltas_nao_passa_do_total_na_bandeirada() {
+    // Última volta em curso: líder completou 7, falta 1.
+    assert_eq!(
+        contagem_de_voltas(7, true, 8, 1, false, None),
+        ContagemVoltas { lap: 8, total: 8 }
+    );
+    // Líder cruzou a linha final: completou 8, restantes = 0, bandeirada caiu.
+    assert_eq!(
+        contagem_de_voltas(8, true, 8, 0, true, None),
+        ContagemVoltas { lap: 8, total: 8 }
+    );
+    // O mesmo instante com a bandeirada ainda não refletida no estado da sessão: o teto
+    // do total segura o número sozinho.
+    assert_eq!(
+        contagem_de_voltas(8, true, 8, 0, false, None),
+        ContagemVoltas { lap: 8, total: 8 }
+    );
+    // Cool down com o pelotão ainda rodando: o iRacing continua contando voltas de quem
+    // está na pista, e o cabeçalho não pode subir junto.
+    assert_eq!(
+        contagem_de_voltas(9, true, 8, 0, true, None),
+        ContagemVoltas { lap: 8, total: 8 }
+    );
+}
+
+/// Sem o canal do total, as voltas restantes ainda dão o número — e o teto continua de pé.
+#[test]
+fn prova_por_voltas_cai_para_as_restantes_sem_o_total() {
+    assert_eq!(
+        contagem_de_voltas(7, true, 0, 1, false, None),
+        ContagemVoltas { lap: 8, total: 8 }
+    );
+    // Restantes zeradas E sem total declarado: sobra a volta em curso, travada pela
+    // bandeirada em vez de virar 9.
+    assert_eq!(
+        contagem_de_voltas(8, true, 0, 0, true, None),
+        ContagemVoltas { lap: 8, total: 0 }
+    );
+}
+
+/// Prova por TEMPO: os dois canais de volta vêm sentinelados e o total é estimativa.
+#[test]
+fn prova_por_tempo_estima_o_total_e_para_na_bandeirada() {
+    // Meio de prova: 12 completas, cabem mais 8.
+    assert_eq!(
+        contagem_de_voltas(12, false, ILIMITADO, ILIMITADO, false, Some(8)),
+        ContagemVoltas { lap: 13, total: 20 }
+    );
+    // Reta final: a estimativa colapsa a zero e não pode ficar atrás da volta em curso,
+    // senão o "/total" some do cabeçalho.
+    assert_eq!(
+        contagem_de_voltas(19, false, ILIMITADO, ILIMITADO, false, Some(0)),
+        ContagemVoltas { lap: 20, total: 20 }
+    );
+    // Bandeirada: a volta em curso é a que o líder completou, sem inventar a seguinte.
+    assert_eq!(
+        contagem_de_voltas(20, false, ILIMITADO, ILIMITADO, true, Some(0)),
+        ContagemVoltas { lap: 20, total: 20 }
+    );
+    // Cool down: a torre entrega aqui o retrato congelado pelo monitor (20), e não o
+    // `lap_completed` ao vivo, que já subiu para 21 com o pelotão girando. Sem esse
+    // congelamento a prova por tempo não teria teto nenhum, porque o total é estimativa.
+    assert_eq!(
+        contagem_de_voltas(20, false, ILIMITADO, ILIMITADO, true, None),
+        ContagemVoltas { lap: 20, total: 0 }
+    );
+}
+
+/// Prova por tempo com um total de voltas declarado junto (o caso híbrido dos enduros)
+/// continua no regime de tempo: quem manda no fim é o relógio, e o teto vem da bandeirada.
+#[test]
+fn prova_por_tempo_ignora_o_total_declarado() {
+    assert_eq!(
+        contagem_de_voltas(12, false, 40, 28, false, Some(8)),
+        ContagemVoltas { lap: 13, total: 20 }
+    );
+}
+
+/// Antes da largada e em bandeirada precoce: nada de "Volta 0".
+#[test]
+fn contagem_tem_piso_de_uma_volta() {
+    assert_eq!(
+        contagem_de_voltas(0, true, 8, 8, false, None),
+        ContagemVoltas { lap: 1, total: 8 }
+    );
+    assert_eq!(
+        contagem_de_voltas(0, true, 8, 8, true, None),
+        ContagemVoltas { lap: 1, total: 8 }
+    );
+    // Grid vazio: `lap_completed` vem -1 e não pode virar volta 0.
+    assert_eq!(
+        contagem_de_voltas(-1, true, 0, 0, false, None),
+        ContagemVoltas { lap: 1, total: 0 }
+    );
+}
+
 #[test]
 fn history_match_exige_ids_iguais_online_e_offline() {
     // Online: ids iguais e positivos casam; diferentes não.
@@ -125,6 +229,77 @@ fn name_key_matches_sdk_username_against_roster_name() {
     // pode depender disso.
     assert_eq!(name_key("  Ana Ribeiro "), name_key("ana ribeiro"));
     assert_ne!(name_key("Ana Ribeiro"), name_key("Ana Ribeira"));
+}
+
+/// Recorte com a indentação REAL do dump do iRacing: `Sessions:` é uma lista, então a
+/// primeira chave de cada item vem com "- " na frente.
+const SESSIONS_YAML_REAL: &str = "\
+SessionInfo:
+ Sessions:
+ - SessionNum: 0
+   SessionType: Practice
+   SessionName: PRACTICE
+ - SessionNum: 1
+   SessionType: Open Qualify
+   SessionName: QUALIFY
+ - SessionNum: 2
+   SessionType: Race
+   SessionName: RACE
+";
+
+/// O parser tem de aguentar o traço da lista. Sem isso o `SessionNum` nunca casava, o
+/// mapa saía vazio, TODA sessão virava "R" e a torre da classificatória ordenava por
+/// progresso na pista em vez de por tempo de volta.
+#[test]
+fn tipo_de_sessao_sai_do_yaml_com_o_traco_da_lista() {
+    let tipos = parse_session_types(SESSIONS_YAML_REAL);
+
+    assert_eq!(tipos.get(&0).map(String::as_str), Some("Practice"));
+    assert_eq!(tipos.get(&1).map(String::as_str), Some("Open Qualify"));
+    assert_eq!(tipos.get(&2).map(String::as_str), Some("Race"));
+
+    assert_eq!(session_kind(&tipos, 0), "P");
+    assert_eq!(session_kind(&tipos, 1), "Q");
+    assert_eq!(session_kind(&tipos, 2), "R");
+}
+
+const SESSIONS_YAML_COM_TEMPO: &str = "\
+SessionInfo:
+ Sessions:
+ - SessionNum: 0
+   SessionLaps: unlimited
+   SessionTime: unlimited
+   SessionType: Practice
+ - SessionNum: 1
+   SessionLaps: unlimited
+   SessionTime: 480.0000 sec
+   SessionType: Open Qualify
+ - SessionNum: 2
+   SessionLaps: 25
+   SessionTime: unlimited
+   SessionType: Race
+";
+
+/// A duração declarada no YAML é a reserva do relógio do cabeçalho: quando o canal ao
+/// vivo vem sentinelado, é ela que impede a classificatória de cair na contagem de voltas.
+/// Sessão `unlimited` fica de fora do mapa — não existe relógio para mostrar ali.
+#[test]
+fn duracao_da_sessao_sai_do_yaml_e_ignora_ilimitado() {
+    let tempos = parse_session_times(SESSIONS_YAML_COM_TEMPO);
+
+    assert_eq!(tempos.get(&1).copied(), Some(480.0));
+    assert_eq!(tempos.get(&0), None); // treino sem relógio
+    assert_eq!(tempos.get(&2), None); // corrida por voltas
+}
+
+/// O elo completo: com a classificatória rolando (`SessionState = Racing`, o mesmo
+/// estado da corrida no verde), o critério da torre tem de ser o TEMPO.
+#[test]
+fn classificatoria_rolando_ordena_por_tempo_e_nao_por_progresso() {
+    let tipos = parse_session_types(SESSIONS_YAML_REAL);
+    let kind = session_kind(&tipos, 1);
+
+    assert_eq!(modo_da_sessao(kind, 4), OrderMode::Tempo);
 }
 
 #[test]

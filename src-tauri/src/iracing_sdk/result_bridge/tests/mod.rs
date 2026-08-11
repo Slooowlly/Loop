@@ -7,7 +7,7 @@ use crate::iracing_sdk::race_monitor::{
 };
 use crate::simulation::race::RaceResult;
 
-use super::{build_race_result_from_aiseason, build_race_result_from_session};
+use super::{build_race_result_from_aiseason, build_race_result_from_session, player_worst_severity};
 
 fn meta(idx: i32, car_number: i32, class_position: i32, class_id: i64) -> CarMeta {
     CarMeta {
@@ -63,6 +63,7 @@ fn history() -> RaceHistory {
         track_id: 1,
         subsession_id: 0,
         qualy_laps: vec![],
+        qualy_best_valid: vec![],
         pit_stops: vec![],
         weather: Default::default(),
         player_sectors: vec![],
@@ -86,6 +87,41 @@ fn history() -> RaceHistory {
         });
     }
     h
+}
+
+/// O grid gravado na carreira sai da classificatória, e a classificatória só conhece
+/// volta que valeu. Aqui o idx2 marcou 85 s numa volta anulada por limite de pista: ela
+/// está nas voltas cruas, mas o melhor VÁLIDO dele continua sendo 91 s. Sem a regra, ele
+/// largaria em primeiro no registro da corrida.
+#[test]
+fn grid_ignora_a_volta_anulada_da_quali() {
+    let mut h = history();
+    h.qualy_laps.push(CarLap {
+        car_idx: 2,
+        lap: 2,
+        time: 85.0,
+    });
+    h.qualy_best_valid = vec![(0, 89.0), (1, 90.0), (2, 91.0)];
+
+    let grid = super::agregacao::grid_by_car(&h);
+
+    assert_eq!(grid.get(&0), Some(&1), "o jogador fez a pole com 89 s");
+    assert_eq!(grid.get(&1), Some(&2));
+    assert_eq!(grid.get(&2), Some(&3), "a volta anulada não adianta ninguém");
+}
+
+/// Save gravado antes de o melhor válido existir: sem ele, o grid continua saindo das
+/// voltas cruas em vez de sumir.
+#[test]
+fn grid_de_save_antigo_cai_nas_voltas_cruas() {
+    let mut h = history();
+    h.qualy_best_valid = vec![];
+
+    let grid = super::agregacao::grid_by_car(&h);
+
+    assert_eq!(grid.get(&0), Some(&1));
+    assert_eq!(grid.get(&1), Some(&2));
+    assert_eq!(grid.get(&2), Some(&3));
 }
 
 fn empty_status() -> RaceStatus {
@@ -418,4 +454,107 @@ fn aiseason_links_player_to_who_hit_them() {
             .and_then(|i| i.linked_pilot_id.clone()),
         Some(player.pilot_id.clone())
     );
+}
+
+// ── Conserto do carro: o que conta como batida ───────────────────────────────
+use crate::iracing_sdk::race_monitor::{Attempt, AttemptEvidence, CrashEvent};
+
+fn tentativa_com_reparo(
+    peak: f64,
+    checkered: bool,
+    crashes: Vec<CrashEvent>,
+    reparo_s: f64,
+) -> Attempt {
+    Attempt {
+        sim_repair_needed_s: reparo_s,
+        ..tentativa(peak, checkered, crashes)
+    }
+}
+
+fn tentativa(peak: f64, checkered: bool, crashes: Vec<CrashEvent>) -> Attempt {
+    Attempt {
+        number: 1,
+        status: "active".to_string(),
+        started_at_session_time: 0.0,
+        laps_completed: 10,
+        ended_by: None,
+        reason: None,
+        worst_crash: None,
+        evidence: AttemptEvidence {
+            raced: true,
+            reached_checkered: checkered,
+            ..Default::default()
+        },
+        crashes,
+        peak_crash_score: peak,
+        collided_with_car_number: None,
+        peak_impact_dir: None,
+        sim_repair_needed_s: 0.0,
+        sim_repair_required_s: 0.0,
+        style: crate::car::driving_style::StyleAccumulator::new(),
+    }
+}
+
+fn batida(score: f64, severity: &str, had_impact: bool) -> CrashEvent {
+    CrashEvent {
+        session_time: 100.0,
+        lap: 4,
+        score,
+        severity: severity.to_string(),
+        impact_severity: severity.to_string(),
+        had_impact,
+        factors: vec![],
+    }
+}
+
+fn severidade(attempt: Attempt) -> String {
+    let mut status = empty_status();
+    status.attempts = vec![attempt];
+    player_worst_severity(&status, 1)
+}
+
+/// Uma RODADA limpa pontua alto no scorer (incidente + guinada + rotação + fora da
+/// pista) sem o carro ter tocado em nada. Sem o gate de impacto, essa corrida chegava
+/// ao import como "moderado" e cobrava conserto de um fim de semana sem batida.
+#[test]
+fn perda_de_controle_sem_impacto_nao_e_batida() {
+    let a = tentativa(0.0, true, vec![batida(61.0, "moderado", false)]);
+    assert_eq!(severidade(a), "nenhum");
+}
+
+/// A regra do desfecho ("cruzou a bandeirada ⇒ não foi perda total") valia só para as
+/// batidas fechadas; o pico bruto passava por cima dela no `max` e o custo de conserto
+/// — que assume a severidade já rebaixada — cobrava um nível acima do devido.
+#[test]
+fn batida_de_quem_terminou_a_corrida_chega_rebaixada() {
+    // Pico "grave" (≥110) numa corrida terminada → chega como "moderado".
+    assert_eq!(severidade(tentativa(120.0, true, vec![])), "moderado");
+    // O mesmo pico sem cruzar a bandeirada (abandonou) NÃO é rebaixado.
+    assert_eq!(severidade(tentativa(120.0, false, vec![])), "grave");
+    // Toque leve de quem terminou continua "leve" — que não cobra nada.
+    assert_eq!(severidade(tentativa(20.0, true, vec![])), "leve");
+}
+
+/// A batida fechada COM impacto continua contando (o gate é sobre a evidência, não
+/// sobre o caminho): quem bateu de verdade segue pagando.
+#[test]
+fn batida_com_impacto_continua_contando() {
+    let a = tentativa(0.0, false, vec![batida(120.0, "grave", true)]);
+    assert_eq!(severidade(a), "grave");
+}
+
+/// Dupla confirmação: o rebaixamento é uma presunção ("terminou, logo não foi terminal"),
+/// e o sim tem a última palavra sobre ela. Pediu reparo ⇒ o carro quebrou de verdade e a
+/// severidade fica de pé. O silêncio dos canais não conclui nada e não interfere.
+#[test]
+fn reparo_pedido_pelo_sim_sustenta_a_severidade() {
+    // Mesmo pico "grave" e mesma bandeirada; só muda o que o sim reportou.
+    let confirmado = tentativa_com_reparo(120.0, true, vec![], 42.0);
+    assert_eq!(severidade(confirmado), "grave");
+    let sem_sinal = tentativa_com_reparo(120.0, true, vec![], 0.0);
+    assert_eq!(severidade(sem_sinal), "moderado");
+
+    // E não cria dano onde não houve batida: sem impacto, o reparo sozinho não cobra.
+    let so_reparo = tentativa_com_reparo(0.0, true, vec![batida(61.0, "moderado", false)], 42.0);
+    assert_eq!(severidade(so_reparo), "nenhum");
 }

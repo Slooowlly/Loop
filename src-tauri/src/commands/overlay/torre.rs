@@ -5,9 +5,10 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use super::formato::{
-    best_positive_lap, compound_str, dbg_state, fmt_lap, history_matches_subsession, name_key,
-    parse_session_types, roster_with_telemetry, session_kind, wetness_to_condition,
-    NEUTRAL_TEAM_COLOR,
+    best_positive_lap, compound_str, contagem_de_voltas, dbg_state, fmt_lap,
+    history_matches_subsession, name_key, parse_session_times, parse_session_types,
+    roster_with_telemetry, session_kind, tempo_util, wetness_to_condition, ContagemVoltas,
+    NEUTRAL_TEAM_COLOR, SENTINELA_TEMPO_S,
 };
 use super::ordem::{modo_da_sessao, ordem_pre_sessao, ordenar, OrderInput, PreSinal};
 use crate::config::app_config::AppConfig;
@@ -40,6 +41,11 @@ pub struct OverlaySession {
     /// Duração total da sessão em segundos (quali costuma ser 480 = 8 min). None quando
     /// a sessão é por voltas — aí o header mostra a volta, não o relógio.
     duration_s: Option<i32>,
+    /// Segundos que ainda faltam para a sessão acabar. None quando o iRacing manda o
+    /// sentinela de "ilimitado". É o que segura o relógio da classificatória quando a
+    /// DURAÇÃO não é conhecida: sem total não dá para mostrar "3:12/8:00", mas "faltam
+    /// 5:12" continua sendo a informação que importa ali.
+    remaining_s: Option<i32>,
     flag: String,     // "green" | "yellow" | "checkered"
     category: String, // id da categoria do evento (ex.: "gt3", "endurance")
     weather: OverlayWeather,
@@ -63,6 +69,11 @@ pub struct OverlayCar {
     points: i32,
     gain: i32, // pontos que ganharia terminando na posição atual
     fastest: String,
+    /// A MESMA melhor volta de `fastest`, em milissegundos (0 = ainda não marcou). O
+    /// texto já formatado não serve para conta: é dele que a torre tira o INTERVALO para
+    /// o melhor tempo da classe, que é o que a classificação mostra no lugar das posições
+    /// ganhas/perdidas da corrida.
+    best_ms: i64,
     fol: bool, // volta mais rápida da classe
     pit: bool,
     flag: Option<String>, // "black" = DNF (!dq); só do jogador ao vivo, IA vem do motor de quebra
@@ -144,7 +155,11 @@ pub fn get_overlay_data(
     let eligible_meta_count = roster_cars.len();
 
     let history = race_monitor::get_history();
-    let qualy_laps = race_monitor::get_qualy_laps();
+    // Melhor volta VÁLIDA da classificatória por carro, travada do `CarIdxBestLapTime`.
+    // É a única fonte de tempo da quali: volta anulada por limite de pista não entra, e
+    // o valor sobrevive ao carro voltar pra garagem (onde ele sai de `tele.cars`).
+    let qualy_best_valid: HashMap<i32, f64> =
+        race_monitor::get_qualy_best_valid().into_iter().collect();
     let current_subsession_id = race_monitor::get_subsession_id();
     let history_is_current =
         history_matches_subsession(history.subsession_id, current_subsession_id);
@@ -157,6 +172,9 @@ pub fn get_overlay_data(
         .unwrap_or_default();
     let kind = session_kind(&parse_session_types(&yaml), tele.session_num);
     let is_race = kind == "R";
+    // Duração declarada de cada sessão do fim de semana — reserva do relógio do cabeçalho
+    // (ver onde `duration_s` é montado, no fim).
+    let session_times = parse_session_times(&yaml);
 
     // Posição no grid (delta desde a largada) vem do histórico, quando já existe.
     let grid_by_idx: HashMap<i32, i32> = if history_is_current {
@@ -289,36 +307,40 @@ pub fn get_overlay_data(
             .any(|m| m.idx == cam_idx && !m.is_pace);
     let focus_idx = if cam_is_valid { cam_idx } else { player_idx };
 
-    // Melhor volta registrada da sessão atual: quali alimenta apenas Q, histórico
-    // da corrida alimenta apenas R. Treino não reutiliza dados potencialmente stale.
-    let recorded_laps = match kind {
-        "Q" => qualy_laps.as_slice(),
-        "R" if history_is_current => history.car_laps.as_slice(),
-        _ => &[],
-    };
+    // Melhor volta registrada da sessão atual, e a regra muda com a sessão:
+    //
+    //   • CLASSIFICATÓRIA: só volta VÁLIDA. A classificatória é o tempo que vale, então
+    //     volta anulada por limite de pista não pode ordenar nem aparecer. As voltas
+    //     cruas de `get_qualy_laps` (o `CarIdxLastLapTime`) registram a volta cortada
+    //     com o tempo que ela marcou, e por isso não servem aqui.
+    //   • CORRIDA: as voltas do histórico, cruas mesmo. Na corrida a melhor volta é
+    //     informação de ritmo e vale ser mostrada ainda que anulada.
+    //   • TREINO: nada — não reutiliza dado potencialmente stale.
     let mut recorded_best_lap: HashMap<i32, f64> = HashMap::new();
-    for lap in recorded_laps {
-        if lap.time > 0.0 {
-            recorded_best_lap
-                .entry(lap.car_idx)
-                .and_modify(|secs| *secs = secs.min(lap.time))
-                .or_insert(lap.time);
+    match kind {
+        "Q" => recorded_best_lap = qualy_best_valid.clone(),
+        "R" if history_is_current => {
+            for lap in &history.car_laps {
+                if lap.time > 0.0 {
+                    recorded_best_lap
+                        .entry(lap.car_idx)
+                        .and_modify(|secs| *secs = secs.min(lap.time))
+                        .or_insert(lap.time);
+                }
+            }
         }
+        _ => {}
     }
 
     // Melhor volta da QUALI por carro (ms) = grid pra ordenar quem ainda não tem
-    // posição oficial. Em treino: vazio → a ordenação cai direto no nº do carro.
+    // posição oficial. Mesma régua da linha de cima: o grid sai da classificatória,
+    // então ele também só conhece volta válida. Em treino: vazio → a ordenação cai
+    // direto no nº do carro.
     let qualy_best_ms: HashMap<i32, i64> = if kind != "P" {
-        let mut best: HashMap<i32, i64> = HashMap::new();
-        for lap in &qualy_laps {
-            if lap.time > 0.0 {
-                let ms = (lap.time * 1000.0).round() as i64;
-                best.entry(lap.car_idx)
-                    .and_modify(|v| *v = (*v).min(ms))
-                    .or_insert(ms);
-            }
-        }
-        best
+        qualy_best_valid
+            .iter()
+            .map(|(idx, secs)| (*idx, (secs * 1000.0).round() as i64))
+            .collect()
     } else {
         HashMap::new()
     };
@@ -546,6 +568,11 @@ pub fn get_overlay_data(
                 points: info.pontos,
                 gain: 0,
                 fastest: fmt_lap(best_lap),
+                best_ms: if best_lap > 0.0 {
+                    (best_lap * 1000.0).round() as i64
+                } else {
+                    0
+                },
                 fol: false, // definido após agrupar
                 pit: car.map(|snapshot| snapshot.on_pit_road).unwrap_or(false),
                 // DNF (quebra) → bandeira preta pra grade toda; senão, black flag viva do jogador.
@@ -638,17 +665,46 @@ pub fn get_overlay_data(
         });
     }
 
-    // Volta do líder = maior volta completa + 1.
+    // Estado 5 (Checkered) e 6 (CoolDown): a bandeirada caiu. O mesmo corte que
+    // `modo_da_sessao` usa para passar a torre à ordem oficial.
+    let encerrada = tele.session_state >= 5;
+
+    // Depois da bandeirada o `lap_completed` da grade CONTINUA subindo: quem segue
+    // girando na volta de desaceleração fecha mais uma volta. Por isso a contagem passa
+    // a usar o retrato que o monitor congelou no instante em que a corrida acabou. Sem
+    // retrato (app aberto já com a prova encerrada) sobra o valor ao vivo, e o teto fica
+    // por conta do total da prova.
+    let volta_final = race_monitor::get_final_lead_lap();
     let max_completed = tele.cars.iter().map(|c| c.lap_completed).max().unwrap_or(0);
-    let lead_lap = max_completed + 1;
+    let max_completed = if encerrada && volta_final > 0 {
+        volta_final
+    } else {
+        max_completed
+    };
 
     // Sessão por TEMPO (o caso normal no Loop: quali de 8 min, corrida de X min) versus
     // por VOLTAS. O iRacing manda valores-sentinela de "ilimitado" — 604800 s e 32767
     // voltas —, então os dois lados precisam de teto pra não virarem número de verdade.
-    let timed = tele.session_time_total > 0.0 && tele.session_time_total < 86_400.0;
-    let duration_s = timed.then(|| tele.session_time_total.round() as i32);
-    let elapsed_s =
-        duration_s.map(|total| (total - tele.session_time_remain.round() as i32).clamp(0, total));
+    let timed = tempo_util(tele.session_time_total);
+    // Duração da sessão: o canal ao vivo primeiro e, quando ele vem sentinelado, a que o
+    // YAML DECLARA para esta sessão (`SessionTime: 480.0000 sec`). A classificatória é
+    // justamente onde o canal ao vivo costuma faltar, e sem essa reserva o cabeçalho
+    // ficava sem relógio nenhum — era o buraco por onde a quali caía na apresentação de
+    // voltas da corrida. A contagem de VOLTAS abaixo continua olhando só o canal ao vivo:
+    // quem decide se a prova é por tempo ou por voltas é o `timed`, e ele não muda aqui.
+    let duration_s = timed
+        .then_some(tele.session_time_total)
+        .or_else(|| session_times.get(&tele.session_num).copied())
+        .map(|secs| secs.round() as i32);
+    // Zero é restante VÁLIDO (a sessão acabou de fechar), então aqui o piso é o zero e não
+    // o `tempo_util` — o que se quer cortar é só o sentinela de "ilimitado".
+    let remaining_s = (tele.session_time_remain >= 0.0
+        && tele.session_time_remain < SENTINELA_TEMPO_S)
+        .then(|| tele.session_time_remain.round() as i32);
+    let elapsed_s = match (duration_s, remaining_s) {
+        (Some(total), Some(restante)) => Some((total - restante).clamp(0, total)),
+        _ => None,
+    };
 
     // Ritmo de referência pra estimar quantas voltas ainda cabem: a melhor volta de
     // quem está na pista.
@@ -659,29 +715,26 @@ pub fn get_overlay_data(
         .filter(|t| *t > 0.0)
         .fold(f64::INFINITY, f64::min);
 
-    // Total de voltas. Prova por voltas: o iRacing sabe o número exato (em prova por
-    // TEMPO ele manda o sentinela 32767, por isso o `!timed`). Prova por TEMPO: não
-    // existe total fixo, então estimamos pelo tempo restante dividido pelo ritmo de
-    // referência e arredondamos AO MAIS PRÓXIMO. Nada de arredondar pra cima: a melhor
-    // volta já é mais rápida que o ritmo real de corrida (tráfego, combustível, pneu),
-    // então a divisão por ela JÁ superestima quantas voltas cabem — o `ceil` empilharia
-    // viés em cima de viés. O total é estimativa e pode mexer ±1 durante a prova.
-    let total_laps =
-        if !timed && tele.session_laps_remain_ex > 0 && tele.session_laps_remain_ex < 10_000 {
-            max_completed + tele.session_laps_remain_ex
-        } else if timed && kind == "R" && ref_lap.is_finite() {
-            max_completed + (tele.session_time_remain.max(0.0) / ref_lap).round() as i32
-        } else {
-            0
-        };
-    // O total nunca pode ficar ATRÁS da volta atual: no fim da prova o tempo restante
-    // zera, a estimativa colapsaria pra baixo e o "/total" sumiria do header justo na
-    // bandeirada.
-    let total_laps = if total_laps > 0 {
-        total_laps.max(lead_lap)
-    } else {
-        0
-    };
+    // Em prova por TEMPO não existe total fixo, então estimamos quantas voltas ainda
+    // cabem pelo tempo restante dividido pelo ritmo de referência, arredondando AO MAIS
+    // PRÓXIMO. Nada de arredondar pra cima: a melhor volta já é mais rápida que o ritmo
+    // real de corrida (tráfego, combustível, pneu), então a divisão por ela JÁ
+    // superestima quantas voltas cabem — o `ceil` empilharia viés em cima de viés. O
+    // total é estimativa e pode mexer ±1 durante a prova.
+    let estimativa_restantes = (timed && kind == "R" && ref_lap.is_finite())
+        .then(|| (tele.session_time_remain.max(0.0) / ref_lap).round() as i32);
+
+    let ContagemVoltas {
+        lap: lead_lap,
+        total: total_laps,
+    } = contagem_de_voltas(
+        max_completed,
+        !timed,
+        tele.session_laps_total,
+        tele.session_laps_remain_ex,
+        encerrada,
+        estimativa_restantes,
+    );
 
     // Reta final da corrida: aquece o servidor de IA. Quando a bandeirada cair, o debrief
     // do engenheiro e o boletim da revista são pedidos quase juntos, e a PRIMEIRA dessas
@@ -716,6 +769,7 @@ pub fn get_overlay_data(
         total_laps,
         elapsed_s,
         duration_s,
+        remaining_s,
         flag: flag.to_string(),
         category,
         weather: OverlayWeather {

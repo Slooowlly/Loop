@@ -79,6 +79,10 @@ pub(crate) fn import_iracing_race_result(
     // Desfechos de quebra da corrida (Peça 3), já resolvidos para driver_id. Vazio numa corrida
     // sem quebra. Persistidos na `race_breakdowns` (debrief/notícia).
     breakdowns: Vec<crate::db::queries::race_breakdowns::RaceBreakdownRow>,
+    // A batida do jogador na CLASSIFICAÇÃO: severidade pela mesma régua da corrida e direção
+    // do impacto. O carro é o MESMO, então o conserto dela é cobrado junto com o da corrida.
+    // Severidade "nenhum" quando ele não bateu na quali.
+    player_quali_crash: (&str, &str),
 ) -> Result<(ImportedRaceSummary, RaceResult), String> {
     let active_season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
@@ -402,31 +406,49 @@ pub(crate) fn import_iracing_race_result(
     // danificado PERSISTE — e como `persist_race_result_tx` (que já rodou acima) mantém o
     // carro antes, aplicamos o dano por CIMA; o cérebro de manutenção responde na PRÓXIMA
     // corrida (trocar/degradar conforme o caixa). Só há dano se houve batida (≠ "nenhum").
-    if !player_team_id.is_empty() && !player_crash_severity.eq_ignore_ascii_case("nenhum") {
+    //
+    // As batidas do fim de semana entram na ORDEM em que aconteceram, no MESMO carro: a da
+    // classificação primeiro, a da corrida depois. Cobrar as duas é o que impede o carro
+    // destruído na quali de sair de graça, e aplicá-las em ordem faz a peça já castigada na
+    // quali chegar mais perto do fim quando a corrida bate de novo.
+    let (quali_severity, quali_dir) = player_quali_crash;
+    let batidas: Vec<(&str, &str)> = [
+        (quali_severity, quali_dir),
+        (player_crash_severity, player_impact_dir),
+    ]
+    .into_iter()
+    .filter(|(sev, _)| !sev.eq_ignore_ascii_case("nenhum"))
+    .collect();
+    // A severidade que a fatura e o pop-up citam é a PIOR do fim de semana.
+    let pior_severity = batidas
+        .iter()
+        .max_by_key(|(sev, _)| crate::iracing_sdk::race_monitor::severity_rank(sev))
+        .map(|(sev, _)| *sev)
+        .unwrap_or("nenhum");
+    if !player_team_id.is_empty() && !batidas.is_empty() {
         if let Ok(Some(mut team)) = team_queries::get_team_by_id(&db.conn, &player_team_id) {
             use crate::car::crash::{apply_crash_damage, CrashSeverity, ImpactDirection};
             use crate::db::queries::team_car;
-            let severity = CrashSeverity::from_label(player_crash_severity);
-            let direction = ImpactDirection::from_str(player_impact_dir);
             let mut car = team_car::get_team_car(&db.conn, &player_team_id)
                 .ok()
                 .flatten()
                 .unwrap_or_else(|| crate::car::seed::seed_car(&team.categoria, 0.5));
-            let damage = apply_crash_damage(&mut car, &team.categoria, severity, direction);
+            let mut total = 0.0;
+            for (sev, dir) in &batidas {
+                let severity = CrashSeverity::from_label(sev);
+                let direction = ImpactDirection::from_str(dir);
+                total += apply_crash_damage(&mut car, &team.categoria, severity, direction).cost;
+            }
             let _ = team_car::upsert_team_car(&db.conn, &player_team_id, &car);
-            let cost = damage.cost.round();
+            let cost = total.round();
             if cost > 0.0 {
                 team.cash_balance -= cost;
                 team.last_round_expenses += cost;
                 let _ = team_queries::update_team(&db.conn, &team);
                 repair_cost = cost;
                 repair_count = bump_repair_count(career_dir, active_season.numero);
-                repair_message = pick_repair_message(
-                    &mut rng,
-                    player_crash_severity,
-                    &format_brl(cost),
-                    repair_count,
-                );
+                repair_message =
+                    pick_repair_message(&mut rng, pior_severity, &format_brl(cost), repair_count);
             }
         }
     }
@@ -448,7 +470,7 @@ pub(crate) fn import_iracing_race_result(
                     .unwrap_or(12.0),
                 global_economic_health_for_season(active_season.numero as i32),
                 repair_cost,
-                player_crash_severity,
+                pior_severity,
                 active_season.numero as i32,
                 race_entry.rodada,
             )
@@ -467,7 +489,7 @@ pub(crate) fn import_iracing_race_result(
         player_is_dnf: player.map(|r| r.is_dnf).unwrap_or(false),
         winner_name,
         repair_cost,
-        repair_severity: player_crash_severity.to_string(),
+        repair_severity: pior_severity.to_string(),
         repair_count,
         repair_message,
         maintenance,

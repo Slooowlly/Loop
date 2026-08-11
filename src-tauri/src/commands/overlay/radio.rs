@@ -125,7 +125,7 @@ pub fn get_pace_feed(
                 }
             };
             BreakdownMessage {
-                id: i,
+                id: race_monitor::radio_epoch() + i,
                 severity: "pace".to_string(),
                 text,
                 detail: String::new(),
@@ -271,7 +271,7 @@ pub fn get_breakdown_feed(
             None => {
                 let fala = quebra::montar(&contextos[i]);
                 out.push(BreakdownMessage {
-                    id: i,
+                    id: race_monitor::radio_epoch() + i,
                     severity: log[i].severity.clone(),
                     text: fala.texto,
                     detail: log[i].label.clone(),

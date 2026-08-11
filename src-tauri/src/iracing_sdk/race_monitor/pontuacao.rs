@@ -227,13 +227,39 @@ impl RaceMonitor {
             })
     }
 
+    /// Pontos da VELOCIDADE PERDIDA na batida em curso, como ela está AGORA. Só conta com
+    /// impacto (rodada/freada sem bater não).
+    ///
+    /// É o componente que separa o encostão da destruição — vale até
+    /// [`SPEED_LOST_CAP`] pontos, mais que todos os outros somados. Vive à parte porque só o
+    /// fechamento da batida o gravava, e quem precisa julgar o estrago NA HORA (o castigo da
+    /// classificação) não pode esperar dez segundos de silêncio que podem nunca vir.
+    pub(super) fn pontos_de_velocidade_perdida(&self) -> f64 {
+        if !self.crash_had_impact {
+            return 0.0;
+        }
+        let perdida = (self.crash_entry_speed_ms - self.crash_min_speed_ms).max(0.0);
+        if perdida <= SPEED_LOST_THRESHOLD {
+            return 0.0;
+        }
+        ((perdida - SPEED_LOST_THRESHOLD) * SPEED_LOST_RATE).min(SPEED_LOST_CAP)
+    }
+
+    /// O score da batida EM CURSO com a conta inteira (componentes + velocidade já perdida),
+    /// sem esperar ela fechar. 0 quando não há batida aberta ou não houve impacto.
+    pub(super) fn score_da_batida_em_curso(&self) -> f64 {
+        if !self.in_crash || !self.crash_had_impact {
+            return 0.0;
+        }
+        self.crash_components.total() + self.pontos_de_velocidade_perdida()
+    }
+
     /// Fecha a batida em andamento e a anexa à tentativa atual.
     pub(super) fn close_crash(&mut self) {
-        // Velocidade perdida só conta com impacto (rodada/freada sem bater não).
         let speed_lost = (self.crash_entry_speed_ms - self.crash_min_speed_ms).max(0.0);
-        if self.crash_had_impact && speed_lost > SPEED_LOST_THRESHOLD {
-            self.crash_components.speed =
-                ((speed_lost - SPEED_LOST_THRESHOLD) * SPEED_LOST_RATE).min(SPEED_LOST_CAP);
+        let pontos = self.pontos_de_velocidade_perdida();
+        if pontos > 0.0 {
+            self.crash_components.speed = pontos;
             self.crash_factors
                 .push(format!("perdeu {:.0} km/h", speed_lost * 3.6));
         }
@@ -247,6 +273,7 @@ impl RaceMonitor {
             score,
             severity: sev.clone(),
             impact_severity: sev.clone(),
+            had_impact: self.crash_had_impact,
             factors: std::mem::take(&mut self.crash_factors),
         };
         if let Some(attempt) = self.attempts.last_mut() {

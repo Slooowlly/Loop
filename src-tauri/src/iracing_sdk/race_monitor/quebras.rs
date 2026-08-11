@@ -3,7 +3,44 @@
 
 use super::*;
 
+/// CARÊNCIA DE LARGADA: nenhuma peça larga nos primeiros minutos de corrida. A primeira volta
+/// é o momento mais movimentado da prova, e um `!black`/`!dq` ali chega no meio de uma disputa
+/// que o jogador ainda está tentando entender — quebra de peça é história de corrida rodada,
+/// não de largada. O desgaste corre normalmente durante a carência; só a falha fica trancada.
+pub(super) const BREAKDOWN_GRACE_SECS: f64 = 180.0;
+
 impl RaceMonitor {
+    /// A sessão AO VIVO é aquela em que a quebra pode existir?
+    ///
+    /// Só a CORRIDA. Treino e classificatória também passam por `SessionState = Racing`, então o
+    /// estado sozinho nunca serviu de régua — era por isso que uma peça largava na quali e o
+    /// carro levava penalidade de tempo numa sessão em que não há tempo a perder. Sem sessão de
+    /// corrida no YAML (`-1`) a resposta é `false`: melhor não quebrar nada do que quebrar na
+    /// sessão errada. O arme de DEBUG passa por cima (é ferramenta de teste na pista).
+    pub(super) fn breakdown_session_ok(&self, t: &IracingTelemetry) -> bool {
+        self.breakdown_debug || self.in_race_session(t)
+    }
+
+    /// A quebra está LIBERADA neste tick? Exige a sessão de corrida e a [`BREAKDOWN_GRACE_SECS`]
+    /// já cumprida desde o verde. Marca o verde na primeira passagem (e o remarca se o tempo de
+    /// sessão andar pra trás, o que acontece num restart).
+    pub(super) fn breakdown_allowed(&mut self, t: &IracingTelemetry) -> bool {
+        if self.breakdown_debug {
+            return true;
+        }
+        if !self.in_race_session(t) {
+            return false;
+        }
+        let green = match self.breakdown_green_at {
+            Some(g) if t.session_time >= g => g,
+            _ => {
+                self.breakdown_green_at = Some(t.session_time);
+                t.session_time
+            }
+        };
+        t.session_time - green >= BREAKDOWN_GRACE_SECS
+    }
+
     /// PRODUÇÃO: instala o diretor de quebra montado com o DESGASTE REAL de cada time (vem do
     /// export, que tem DB + o grid + os números). O `player_live` guarda o estado do JOGADOR
     /// (número dele só é conhecido ao vivo → vinculado no verde). O clima da corrida (fixo, do
@@ -15,17 +52,25 @@ impl RaceMonitor {
         weather: crate::car::breakdown::Weather,
         showcase: bool,
     ) {
+        // Guarda o estado de INSTALAÇÃO antes de qualquer volta correr: é ele que a tentativa
+        // reiniciada recebe de volta (ver `restaurar_diretor_de_quebra`).
+        self.breakdown_base = Some(dir.clone());
+        self.breakdown_player_base = player_live.clone();
+        self.showcase_armed = showcase;
         self.breakdown = Some(dir);
         self.showcase_pending = showcase; // 1ª corrida do save → vitrine garantida da quebra
         self.pending_player_live = player_live;
         self.breakdown_weather = weather;
         self.breakdown_needs_prime = true;
         self.arm_grid_pending = false; // produção sobrepõe o arme debug da grade
+        self.breakdown_debug = false; // …e o gate de sessão volta a valer
+        self.breakdown_green_at = None; // corrida nova → a carência de largada recomeça
         self.breakdown_alert = [None; 64]; // corrida nova → zera os alertas do overlay
         self.breakdown_prev_on_pit = [false; 64];
         self.breakdown_repair_laps.clear();
         self.breakdown_flash_at = [0.0; 64];
         self.breakdown_progress = 0.0;
+        self.avancar_radio_epoch(); // ids do rádio seguem em frente (ver `radio_epoch`)
         self.breakdown_log.clear(); // corrida nova → zera o log de desfechos (Peça 3)
         self.player_risk_warned = [false; 11]; // corrida nova → rearma os avisos pessoais
         self.player_warning_log.clear();
@@ -34,6 +79,44 @@ impl RaceMonitor {
         self.ritmo_log.clear();
         self.ritmo_ultima_volta = -1;
         self.chat_send_warned = false; // corrida nova → rearma o aviso de comando não-entregue
+    }
+
+    /// Devolve o diretor de quebra ao estado em que ele foi INSTALADO, e rearma o que a
+    /// instalação arma. Chamado ao abrir uma tentativa nova: o desgaste que as voltas da
+    /// tentativa abandonada consumiram e as peças que largaram nela não podem seguir valendo,
+    /// porque aquela corrida não aconteceu — e desgaste e quebra são consequência de carreira
+    /// (custo de conserto, abandono, notícia).
+    ///
+    /// O jogador volta a ficar PENDENTE de vínculo (o número dele só existe ao vivo) e o
+    /// `prime_lap` é refeito no primeiro tick verde, senão o diretor seguiria preso na contagem
+    /// de voltas da tentativa que morreu.
+    ///
+    /// Sem diretor de PRODUÇÃO instalado (arme de debug, ou nada) não há a que voltar, e o
+    /// estado fica como está — a ferramenta de teste na pista continua valendo depois do
+    /// reinício, que é o que quem está testando espera.
+    pub(super) fn restaurar_diretor_de_quebra(&mut self) {
+        let Some(base) = self.breakdown_base.as_ref() else {
+            return;
+        };
+        self.breakdown = Some(base.clone());
+        self.pending_player_live = self.breakdown_player_base.clone();
+        self.breakdown_needs_prime = true;
+        self.showcase_pending = self.showcase_armed;
+        // Voltando ao diretor de PRODUÇÃO, o gate de sessão e a carência voltam a valer: o arme
+        // de debug que estava por cima acabou de ser descartado junto com o resto.
+        self.breakdown_debug = false;
+        // SORTE NOVA por tentativa. O estado restaurado é o da instalação, semente inclusive —
+        // e com a mesma semente os mesmos carros quebrariam as mesmas peças nas mesmas voltas,
+        // toda vez. A corrida refeita tem que ter a mesma CHANCE de quebra, não o mesmo roteiro:
+        // quem largou antes pode chegar inteiro agora, e quem sobreviveu pode largar. A primeira
+        // tentativa (salt 0) mantém a sorte instalada no export.
+        let salt = self.current_attempt.max(1) as u64 - 1;
+        if let Some(dir) = self.breakdown.as_mut() {
+            dir.reroll_luck(salt);
+        }
+        if let Some(live) = self.pending_player_live.as_mut() {
+            live.reroll_luck(salt);
+        }
     }
 
     /// Registra que um comando de quebra NÃO chegou ao iRacing (latch por corrida). O disparo
@@ -63,6 +146,7 @@ impl RaceMonitor {
         // Começa da volta atual → dispara na PRÓXIMA cruzada, não retroage.
         dir.prime_lap(car_num, self.live_lap.max(0) as u32);
         self.breakdown = Some(dir);
+        self.breakdown_debug = true; // teste na pista: sem gate de sessão nem carência
         true
     }
 
@@ -72,6 +156,11 @@ impl RaceMonitor {
         if self.breakdown.is_none() {
             return;
         }
+        // A quebra é da CORRIDA: na quali o diretor nem avança (ver `breakdown_session_ok`).
+        if !self.breakdown_session_ok(t) {
+            return;
+        }
+        let allow_break = self.breakdown_allowed(t);
         let Some(car_num) = self.player_car_number() else {
             return;
         };
@@ -94,7 +183,7 @@ impl RaceMonitor {
         let Some(dir) = self.breakdown.as_mut() else {
             return;
         };
-        let evs = dir.on_lap_at(car_num, lap, weather, progress);
+        let evs = dir.on_lap_at_cfg(car_num, lap, weather, progress, allow_break);
         for ev in evs {
             self.pending_breakdown_cmds.push(ev.command(car_num));
             self.breakdown_log
@@ -227,6 +316,7 @@ impl RaceMonitor {
     /// DEBUG: pede armar a GRADE TODA (montada no próximo tick com `t.cars`).
     pub(super) fn request_arm_grid(&mut self) {
         self.arm_grid_pending = true;
+        self.breakdown_debug = true; // teste na pista: sem gate de sessão nem carência
     }
 
     /// Avalia a quebra de TODOS os carros da sessão nesta volta (usa a volta de cada carro do
@@ -262,6 +352,13 @@ impl RaceMonitor {
         if self.breakdown.is_none() || !racing {
             return;
         }
+        // A quebra é da CORRIDA. Fora dela o diretor não avança volta nenhuma — nem para
+        // quebrar, nem para prender os carros: o `prime_lap` feito na quali travava o diretor
+        // numa contagem de voltas que a corrida ia levar meia prova pra alcançar.
+        if !self.breakdown_session_ok(t) {
+            return;
+        }
+        let allow_break = self.breakdown_allowed(t);
         // PRODUÇÃO: no primeiro tick verde após instalar o diretor real, prende cada carro na
         // volta atual (não retroage) e VINCULA o jogador (número só conhecido agora, ao vivo).
         if self.breakdown_needs_prime {
@@ -308,7 +405,7 @@ impl RaceMonitor {
             let Some(dir) = self.breakdown.as_mut() else {
                 break;
             };
-            let evs = dir.on_lap_at(car_num, lap, weather, progress);
+            let evs = dir.on_lap_at_cfg(car_num, lap, weather, progress, allow_break);
             for ev in evs {
                 self.pending_breakdown_cmds.push(ev.command(car_num));
                 self.breakdown_log
@@ -358,6 +455,11 @@ impl RaceMonitor {
         // Só correndo, e depois de o jogador dar 2 voltas (grade espalhada + ele já engajado).
         const SHOWCASE_TRIGGER_LAP: i32 = 2;
         if t.session_state != STATE_RACING || t.lap_completed < SHOWCASE_TRIGGER_LAP {
+            return;
+        }
+        // A vitrine é uma quebra: obedece às mesmas regras (só na corrida, só depois da
+        // carência). Injetada à mão, ela não passa pelo diretor — o gate precisa vir aqui.
+        if !self.breakdown_session_ok(t) || !self.breakdown_allowed(t) {
             return;
         }
         // Acha os DOIS últimos colocados (posição > 0), guardando se cada um é o jogador. O pace

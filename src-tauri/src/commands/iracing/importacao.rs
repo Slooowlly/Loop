@@ -41,9 +41,18 @@ pub fn iracing_auto_import_if_ready(
         by_number,
         player_impact_dir,
         player_style,
+        player_quali_crash,
     ) = match build_session_race_result(&app, &career_id) {
         Ok(v) => v,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            // O poller engole este Err de propósito (ainda-não-pronto não é erro),
+            // mas "corrida terminou e nada aconteceu" era invisível: o motivo real
+            // (post-it do export sumiu, resultado ainda não gravado, pista não bate)
+            // morria aqui. `linha_unica` registra só a TRANSIÇÃO de motivo — uma
+            // linha por estado, não uma por tick de poll.
+            crate::diagnostico::linha_unica("import", &format!("aguardando: {e}"));
+            return Ok(None);
+        }
     };
     // Peça 3: drena os desfechos de quebra (one-shot, só aqui) e resolve para driver_id.
     let breakdowns = resolve_breakdown_rows(&db.conn, &history, &by_number);
@@ -59,7 +68,16 @@ pub fn iracing_auto_import_if_ready(
         // Estilo neutro (sem sinal capturado) → None, pra não pagar a query de time à toa.
         (!player_style.is_neutral()).then_some(player_style),
         breakdowns,
+        (&player_quali_crash.severidade, &player_quali_crash.direcao),
     )?;
+    // Fecha o par com o "aguardando" acima: import concluído fica registrado com a
+    // corrida e a pista, e é a linha que antecede o rastro do adaptativo logo abaixo.
+    // Pelo MESMO canal do "aguardando" (linha_unica) de propósito: é o que renova a
+    // memória da categoria e deixa o próximo "aguardando" idêntico ser logado de novo.
+    crate::diagnostico::linha_unica(
+        "import",
+        &format!("Corrida importada: {} (pista {track_id})", summary.race_id),
+    );
 
     // Ponte de rivalidade de pista: aplica no motor as rivalidades percebidas do SDK
     // nesta corrida (só o jogador). Atrás da flag IRACER_TRACK_RIVALRY e best-effort —

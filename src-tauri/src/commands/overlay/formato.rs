@@ -64,16 +64,55 @@ pub(crate) fn compound_str(c: tire_strategy::Compound) -> &'static str {
 
 /// Mapa `SessionNum -> SessionType` (ex.: "Race", "Open Qualify", "Practice") do
 /// YAML. Em cada bloco de sessão o `SessionNum` vem antes do `SessionType`.
+///
+/// `SessionInfo:Sessions` é uma LISTA, então a primeira chave de cada item vem com
+/// "- " na frente (`- SessionNum: 0`). Sem tirar o traço o número nunca casa, o mapa
+/// sai VAZIO e [`session_kind`] cai no `_ => "R"`: toda sessão vira corrida. O efeito
+/// visível era na torre da classificatória, que passava a ordenar por progresso na
+/// pista (`OrderMode::Progresso`) em vez de por tempo de volta. É o mesmo tropeço que
+/// os parsers de `race_monitor::sessao` já pagaram uma vez.
 pub(crate) fn parse_session_types(yaml: &str) -> HashMap<i32, String> {
     let mut map = HashMap::new();
     let mut cur: Option<i32> = None;
     for line in yaml.lines() {
         let l = line.trim();
+        let l = l.strip_prefix("- ").unwrap_or(l);
         if let Some(v) = l.strip_prefix("SessionNum:") {
             cur = v.trim().parse::<i32>().ok();
         } else if let Some(v) = l.strip_prefix("SessionType:") {
             if let Some(n) = cur {
                 map.insert(n, v.trim().to_string());
+            }
+        }
+    }
+    map
+}
+
+/// Duração DECLARADA de cada sessão no YAML (`SessionTime: 480.0000 sec`), em segundos.
+///
+/// É a fonte de tempo que sobrevive quando o canal de telemetria não ajuda: sessão sem
+/// relógio traz `unlimited`, que não faz número e fica de fora do mapa, e o mesmo vale
+/// para o sentinela de "ilimitado". O bloco é o MESMO que [`parse_session_types`]
+/// percorre — em cada item da lista o `SessionNum` vem antes, e o "- " do primeiro campo
+/// precisa cair fora para o número casar.
+pub(crate) fn parse_session_times(yaml: &str) -> HashMap<i32, f64> {
+    let mut map = HashMap::new();
+    let mut cur: Option<i32> = None;
+    for line in yaml.lines() {
+        let l = line.trim();
+        let l = l.strip_prefix("- ").unwrap_or(l);
+        if let Some(v) = l.strip_prefix("SessionNum:") {
+            cur = v.trim().parse::<i32>().ok();
+        } else if let Some(v) = l.strip_prefix("SessionTime:") {
+            let secs = v
+                .trim()
+                .trim_end_matches("sec")
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .filter(|s| tempo_util(*s));
+            if let (Some(n), Some(s)) = (cur, secs) {
+                map.insert(n, s);
             }
         }
     }
@@ -114,6 +153,94 @@ pub(crate) fn best_positive_lap(live: Option<f64>, recorded: Option<f64>) -> f64
 /// é seguro contra dados de uma corrida anterior.
 pub(crate) fn history_matches_subsession(history_id: i64, current_id: i64) -> bool {
     history_id == current_id
+}
+
+/// Acima disto, o número de voltas que o iRacing manda é o sentinela de "ilimitado"
+/// (`SessionLapsTotal`/`SessionLapsRemainEx` valem 32767 em prova por TEMPO), e não uma
+/// contagem. Ver `docs/iracing-dados-disponiveis.md`.
+pub(crate) const SENTINELA_VOLTAS: i32 = 10_000;
+
+/// Acima disto, o tempo que o iRacing manda é o sentinela de "ilimitado" (`SessionTimeTotal`
+/// vale 604800 s — uma semana — em sessão sem relógio), e não uma duração. Um dia de sessão
+/// já é mais do que qualquer prova do Loop, então o corte serve para os dois canais de tempo.
+pub(crate) const SENTINELA_TEMPO_S: f64 = 86_400.0;
+
+/// O valor de tempo é uma duração de verdade, e não o sentinela de "ilimitado"?
+pub(crate) fn tempo_util(secs: f64) -> bool {
+    secs > 0.0 && secs < SENTINELA_TEMPO_S
+}
+
+/// O par volta/total do cabeçalho da torre.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ContagemVoltas {
+    /// Volta em curso do líder. Nunca passa do total quando o total é conhecido.
+    pub lap: i32,
+    /// Total da prova. 0 = desconhecido (o front esconde o "/total").
+    pub total: i32,
+}
+
+/// Volta em curso e total da prova, a partir do que o SDK entrega.
+///
+/// A conta ingênua — "volta em curso = maior volta completa + 1" — inventa uma volta a
+/// mais no instante em que o líder cruza a linha final: numa prova de 8, ele completa a
+/// oitava, `lap_completed` vira 8 e o cabeçalho anuncia a volta 9, que ninguém vai correr.
+/// Duas regras tiram isso da raiz.
+///
+/// A primeira é o TOTAL não sair das voltas restantes. `SessionLapsRemainEx` chega a zero
+/// quando o líder termina, então derivar o total dele fazia o "/8" desaparecer do
+/// cabeçalho na bandeirada, justo quando ele seria o teto. `SessionLapsTotal` é fixo pela
+/// prova inteira e por isso vem primeiro; as restantes ficam como reserva para quando o
+/// canal do total não chega.
+///
+/// A segunda é que cruzar a linha sob a quadriculada NÃO abre volta nova. Depois da
+/// bandeirada (`encerrada`) o líder já completou a última e o resto do pelotão está
+/// terminando essa mesma volta, então a volta em curso é a que ele completou. Isso é o
+/// que segura o número em prova por TEMPO, onde não existe total previsto para servir de
+/// teto — e no cool down, em que o iRacing continua contando voltas de quem segue na
+/// pista.
+///
+/// `por_voltas` distingue os dois regimes: só numa prova por VOLTAS os canais de
+/// contagem do iRacing valem, e é só nela que existe um total previsto para servir de
+/// teto. `estimativa_restantes` é o palpite de voltas que ainda cabem em prova por tempo
+/// (`None` em prova por voltas ou quando não há ritmo de referência).
+pub(crate) fn contagem_de_voltas(
+    max_completed: i32,
+    por_voltas: bool,
+    laps_total: i32,
+    laps_remain_ex: i32,
+    encerrada: bool,
+    estimativa_restantes: Option<i32>,
+) -> ContagemVoltas {
+    let max_completed = max_completed.max(0);
+
+    // Depois da bandeirada a volta em curso é a última COMPLETA, não a seguinte. O piso
+    // de 1 evita "Volta 0" numa bandeirada disparada antes de qualquer volta fechar.
+    let lap = if encerrada {
+        max_completed.max(1)
+    } else {
+        max_completed + 1
+    };
+
+    let declarado =
+        (por_voltas && laps_total > 0 && laps_total < SENTINELA_VOLTAS).then_some(laps_total);
+    let por_restantes = (por_voltas && laps_remain_ex > 0 && laps_remain_ex < SENTINELA_VOLTAS)
+        .then(|| max_completed + laps_remain_ex);
+
+    match declarado.or(por_restantes) {
+        // Prova por VOLTAS: o total é a autoridade e a volta em curso não passa dele.
+        Some(total) => ContagemVoltas {
+            lap: lap.min(total),
+            total,
+        },
+        // Prova por TEMPO: não há total fixo, só estimativa — e ela nunca pode ficar
+        // atrás da volta em curso, senão o "/total" some do cabeçalho na reta final.
+        None => ContagemVoltas {
+            lap,
+            total: estimativa_restantes
+                .map(|restantes| (max_completed + restantes.max(0)).max(lap))
+                .unwrap_or(0),
+        },
+    }
 }
 
 /// Cor usada quando o time do piloto não foi resolvido (sem contrato / sem carreira).

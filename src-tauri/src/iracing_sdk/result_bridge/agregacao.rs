@@ -35,22 +35,33 @@ pub(super) fn laps_completed_by_car(history: &RaceHistory) -> HashMap<i32, i32> 
 
 /// Grid (posição de largada) por carro, RELATIVO À CLASSE — coerente com o
 /// `class_position` de chegada que o iRacing reporta. Deriva da melhor volta da
-/// quali (`qualy_laps`); carros sem volta de quali vão ao fundo do grid da classe.
-/// Sem nenhuma quali capturada, devolve vazio (o chamador usa grid = chegada).
+/// quali; carros sem volta de quali vão ao fundo do grid da classe. Sem nenhuma quali
+/// capturada, devolve vazio (o chamador usa grid = chegada).
+///
+/// A fonte é `qualy_best_valid`: a classificatória só conhece volta que valeu, e uma
+/// volta anulada por limite de pista não pode adiantar ninguém no grid gravado na
+/// carreira. `qualy_laps` (voltas cruas) fica de reserva para save gravado antes de o
+/// campo válido existir.
 pub(super) fn grid_by_car(history: &RaceHistory) -> HashMap<i32, i32> {
-    if history.qualy_laps.is_empty() {
-        return HashMap::new();
-    }
-
     // Melhor volta de quali por carro.
-    let mut quali_best: HashMap<i32, f64> = HashMap::new();
-    for lap in &history.qualy_laps {
-        if lap.time > 0.0 {
-            quali_best
-                .entry(lap.car_idx)
-                .and_modify(|t| *t = t.min(lap.time))
-                .or_insert(lap.time);
+    let mut quali_best: HashMap<i32, f64> = history
+        .qualy_best_valid
+        .iter()
+        .filter(|(_, secs)| *secs > 0.0)
+        .map(|(idx, secs)| (*idx, *secs))
+        .collect();
+    if quali_best.is_empty() {
+        for lap in &history.qualy_laps {
+            if lap.time > 0.0 {
+                quali_best
+                    .entry(lap.car_idx)
+                    .and_modify(|t| *t = t.min(lap.time))
+                    .or_insert(lap.time);
+            }
         }
+    }
+    if quali_best.is_empty() {
+        return HashMap::new();
     }
 
     // Classe de cada carro (para rankear o grid dentro da classe).
@@ -118,24 +129,37 @@ pub(super) fn ai_worst_incident(events: &[RaceEvent]) -> HashMap<i32, (String, S
 /// tentativa (`peak_crash_score`) — atualizado ao vivo todo tick — em vez de
 /// `crashes`, que só registra quando a batida "fecha" (e some se o jogador bate e
 /// sai). Cruza com `crashes` por garantia (pega o que for maior). Base do conserto.
+///
+/// Só entram batidas com IMPACTO confirmado: o pico já nasce filtrado no monitor e as
+/// fechadas são peneiradas por `had_impact` aqui. Perda de controle sem tocar em nada
+/// (rodada, excursão, pontos de incidente) não é dano.
+///
+/// E o rebaixamento de "cruzou a bandeirada ⇒ não foi perda total" vale para os DOIS
+/// caminhos. Ele existia só no `crashes` (aplicado no `finalize_attempt`), então o `max`
+/// com o pico bruto o anulava na prática — e o custo de conserto, que assume a severidade
+/// JÁ rebaixada, cobrava um nível acima do devido em toda corrida terminada. Por isso a
+/// comparação aqui é entre os valores BRUTOS (`impact_severity`), com um único
+/// rebaixamento no fim.
+///
+/// O rebaixamento é uma PRESUNÇÃO ("terminou, logo o estrago não era terminal"), e o sim
+/// tem a última palavra sobre ela: se o iRacing chegou a pedir reparo nesta tentativa
+/// (`sim_repair_needed_s`), o carro quebrou de verdade e a severidade fica de pé. O
+/// silêncio desses canais não conclui nada e não interfere.
 pub fn player_worst_severity(status: &RaceStatus, attempt_number: i32) -> String {
-    use crate::iracing_sdk::race_monitor::severity_label;
+    use crate::iracing_sdk::race_monitor::{downgrade, worst_raw_severity};
     let Some(attempt) = player_attempt(status, attempt_number) else {
         return "nenhum".to_string();
     };
-    // Severidade do pico ao vivo.
-    let peak_sev = severity_label(attempt.peak_crash_score);
-    // Maior severidade entre as batidas já fechadas (defensivo).
-    let closed_sev = attempt
-        .crashes
-        .iter()
-        .max_by_key(|c| severity_rank(&c.severity))
-        .map(|c| c.severity.as_str())
-        .unwrap_or("nenhum");
-    if severity_rank(peak_sev) >= severity_rank(closed_sev) {
-        peak_sev.to_string()
+    // O bruto (pico × batidas fechadas, só com impacto) mora no monitor: o castigo do carro
+    // destruído na classificação lê a MESMA conta, e duas redações dela divergiriam.
+    let bruto = worst_raw_severity(attempt);
+    if bruto == "nenhum" {
+        return bruto.to_string();
+    }
+    if attempt.evidence.reached_checkered && attempt.sim_repair_needed_s <= 0.0 {
+        downgrade(bruto).to_string()
     } else {
-        closed_sev.to_string()
+        bruto.to_string()
     }
 }
 

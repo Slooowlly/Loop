@@ -38,6 +38,7 @@ mod resultado;
 mod sessao;
 mod tentativas;
 mod tipos;
+mod voltas;
 
 pub use amostrador::*;
 pub use api::*;
@@ -181,6 +182,41 @@ const ROT_CAP: f64 = 15.0;
 const TOW_PTS: f64 = 25.0;
 const OFFTRACK_PTS: f64 = 8.0;
 
+/// Aumento (s) em `PitRepairLeft + PitOptRepairLeft` que conta como dano NOVO. Só
+/// separa ruído de ponto flutuante do que o sim de fato acrescentou.
+const REPAIR_JUMP_SECS: f64 = 0.05;
+
+// ─── Carro destruído na CLASSIFICAÇÃO ────────────────────────────────────────
+// O iRacing devolve o carro inteiro para a corrida; a consequência é regra NOSSA, imposta
+// por comando de admin, como já é o Sistema de Quebra.
+//
+// O castigo age em DOIS momentos. NA QUALI, ao vivo: batida "grave"+ manda `!dq` na hora —
+// o jogador fica impedido de seguir classificando, e o rádio diz o porquê no instante em
+// que o fim de semana dele muda. NA CORRIDA: "grave" vira largada do fundo (`!clear` +
+// `!eol`, medido funcionando em 2026-08-10); "destruído"+ vira DQ reafirmado (`!dq`) — o
+// carro não corre. "Catastrófico" só muda a fala do rádio ("você está inteiro?").
+//
+// A SEVERIDADE da batida gradua (G + velocidade perdida, impacto confirmado). O MEATBALL
+// (`FLAG_REPAIR`) é piso de "grave": é o sim declarando reparo obrigatório, e cobre o
+// score ficar curto em pista molhada/G subamostrado. Os canais `PitRepairLeft` são MUDOS
+// fora do box (medido: carro destruído, meatball na tela, 0.0 em todos os frames — e na
+// quali o botão de box conserta o carro, então eles nunca falam lá); quando falarem,
+// também são piso. Rodada sem impacto não castiga nunca.
+/// Severidade a partir da qual a quali TRAVA e a corrida sai do fundo.
+const QUALI_WRECK_PENALTY_SEV: &str = "grave";
+/// Severidade a partir da qual o carro não corre (DQ na quali E na corrida).
+const QUALI_WRECK_DQ_SEV: &str = "destruído";
+/// Reparo obrigatório (s) que também basta para o piso de "grave". Corroboração.
+const QUALI_WRECK_PENALTY_S: f64 = 25.0;
+/// Reparo obrigatório (s) que também basta para o piso de "destruído".
+const QUALI_WRECK_DQ_S: f64 = 60.0;
+/// Penalidade (s) da bandeira preta quando o `!eol` perde a janela da formação. O castigo
+/// não pode evaporar só porque o YAML demorou a entregar o número do carro.
+const QUALI_WRECK_FALLBACK_PENALTY_S: u32 = 15;
+
+/// Variável de ambiente que arma a regra do carro destruído na classificação.
+const QUALI_WRECK_ENV: &str = "IRACER_QUALI_WRECK";
+
 const SEV_MINOR: f64 = 15.0;
 const SEV_MODERATE: f64 = 50.0;
 const SEV_SEVERE: f64 = 110.0;
@@ -271,6 +307,41 @@ struct RaceMonitor {
     crash_entry_speed_ms: f64,
     crash_min_speed_ms: f64,
     crash_had_impact: bool,
+    /// Segundos de reparo (obrigatório + opcional) que o sim reportava no tick anterior.
+    /// O SALTO desse valor é o próprio iRacing dizendo "o carro quebrou agora", e serve de
+    /// segunda confirmação do impacto. -1 = ainda sem leitura nesta tentativa.
+    prev_repair_needed_s: f64,
+    /// Número da tentativa que cobriu a CLASSIFICAÇÃO deste fim de semana. 0 = não houve (ou
+    /// ainda não fechou). Serve para o import cobrar o conserto da batida da quali com a
+    /// MESMA régua da corrida (`player_worst_severity` sobre esta tentativa).
+    quali_attempt_number: i32,
+    /// Castigo por carro destruído na classificação, decidido na virada para a corrida e
+    /// pendente de envio: `"eol"` (larga do fundo) ou `"dq"` (não larga). Fica latch porque o
+    /// comando precisa do NÚMERO do carro, que só é conhecido depois que a sessão de corrida
+    /// popula o YAML — mandar no mesmo tick da virada acertaria o vazio.
+    quali_wreck_pending: Option<&'static str>,
+    /// O lockout AO VIVO da quali já saiu (`!dq` no meio da classificação). Latch por fim de
+    /// semana: o comando é um só, e é ele que decide se o despacho da corrida precisa de um
+    /// `!clear` antes do `!eol`.
+    quali_lockout_sent: bool,
+    /// Quantas falas de rádio já foram DESCARTADAS por reinícios/corridas anteriores.
+    ///
+    /// O overlay mostra "a mais nova por id" e ignora id menor ou igual ao último visto. O id
+    /// é a posição no log — e os logs são esvaziados a cada tentativa nova. Sem esta base, o
+    /// primeiro reinício fazia os ids voltarem a zero e o rádio emudecia PARA SEMPRE naquela
+    /// sessão: as falas chegavam ao overlay e eram descartadas por "já vi essa", sem erro em
+    /// lugar nenhum. Medido em 2026-08-10, com o jogador reiniciando a quali várias vezes.
+    ///
+    /// Uma base só para todos os canais: ela nunca decresce, então cada canal continua
+    /// monotônico, e o desperdício de espaço de id é irrelevante.
+    radio_epoch: usize,
+    /// A regra do carro destruído na classificação está armada? `None` = ainda não resolvida
+    /// (lida de [`QUALI_WRECK_ENV`] no primeiro fim de semana).
+    ///
+    /// Fica atrás de flag porque o comando da faixa do meio (`!eol`, "larga do fundo") ainda
+    /// não foi confirmado numa etapa de verdade: se ele não pegar em sessão de IA, o castigo
+    /// some em silêncio, e é melhor isso acontecer num teste do que na carreira de quem joga.
+    quali_wreck_on: Option<bool>,
 
     // Snapshot ao vivo
     connected: bool,
@@ -299,10 +370,24 @@ struct RaceMonitor {
     // RaceEventEngine
     events: Vec<RaceEvent>,
     prev_session_state: i32,
+    /// `SessionNum` do tick anterior — a fronteira entre treino, classificação e corrida
+    /// dentro da MESMA conexão. Trocou de sessão ⇒ a tentativa anterior fecha, para que a
+    /// batida de um treino não conte como dano da corrida. -1 = ainda sem sessão vista.
+    prev_session_num: i32,
     prev_on_pit_road: bool,
     prev_caution: bool,
     race_started_emitted: bool,
     race_finished_emitted: bool,
+    /// Voltas completas do líder no instante EXATO da bandeirada. 0 = a bandeirada ainda
+    /// não caiu (ou o monitor só começou a olhar depois dela).
+    ///
+    /// Existe porque `CarIdxLapCompleted` não para no fim da prova: quem continua girando
+    /// na volta de desaceleração fecha mais uma volta, e o maior valor da grade sobe
+    /// depois de a corrida ter acabado. Em prova por VOLTAS o total da prova segura o
+    /// número no cabeçalho da torre; em prova por TEMPO não existe total previsto, e este
+    /// congelamento é o único teto possível. Por isso é capturado na BORDA de entrada em
+    /// `STATE_CHECKERED`, no sampler a 60 Hz: um frame depois o valor já pode ter subido.
+    volta_final_lider: i32,
     dnf_probable: bool,
     car_monitors: [CarMonitor; 64],
 
@@ -327,8 +412,6 @@ struct RaceMonitor {
     driver_names: Vec<(i32, String)>,
     /// Voltas do jogador que passaram pelo pit (in/out lap) — o ritmo as ignora.
     player_pit_laps: Vec<i32>,
-    /// Running: o jogador passou pelo pit road na volta em andamento?
-    player_pit_seen: bool,
     /// Pins do jogador no race trace (incidentes/saídas), com a posição na volta.
     player_incidents: Vec<PlayerIncidentMark>,
     /// Número do carro (`CarNumberRaw`) por carro — ponte p/ driver_id (Fase 3).
@@ -340,6 +423,18 @@ struct RaceMonitor {
     session_track_id: i64,
     /// Identidade única do evento (`WeekendInfo:SubSessionID`).
     session_subsession_id: i64,
+    /// Reinícios da sessão de CORRIDA neste fim de semana, contados na borda em que o
+    /// `restarted()` fecha a tentativa.
+    ///
+    /// Existe porque o número que ia para a telemetria de produto era
+    /// `attempt_number - 1`, e a tentativa é criada a cada troca de sessão: um fim de
+    /// semana normal (treino → quali → corrida, zero reinícios) reportava dois
+    /// "restarts". Ver `build_race_outcome`.
+    restarts_corrida: i32,
+    /// Reinícios da sessão de CLASSIFICAÇÃO. Contados à parte porque respondem outra
+    /// pergunta: refazer a quali é o jogador caçando uma volta boa, refazer a corrida é
+    /// ele fugindo de um resultado.
+    restarts_quali: i32,
     /// Carro do jogador nesta sessão (`CarScreenName`). Só telemetria de produto: sem
     /// ele, o tempo de volta não é comparável — 1:35 é rápido num carro e lento noutro.
     session_car_name: Option<String>,
@@ -353,8 +448,19 @@ struct RaceMonitor {
     prev_in_qualy: bool,
     /// Voltas capturadas na sessão de quali (carregadas no histórico da corrida).
     qualy_laps: Vec<CarLap>,
-    /// Última volta de quali já registrada por carro.
-    qualy_car_lap_completed: [i32; 64],
+    /// Ciclo de vida da volta na QUALI, por carro. Separado do da corrida porque os dois
+    /// rodam em gates diferentes e são zerados em momentos diferentes.
+    voltas_quali: [voltas::ColetorDeVoltas; 64],
+    /// Melhor volta VÁLIDA da quali por carro (segundos; 0 = nenhuma), travada do
+    /// `CarIdxBestLapTime` a cada tick.
+    ///
+    /// Existe por causa de duas coisas que só valem na classificatória. A primeira: o
+    /// `CarIdxBestLapTime` é o único canal que já vem com a volta anulada por limite de
+    /// pista descartada — `qualy_laps` guarda o `CarIdxLastLapTime` cru, que registra a
+    /// volta cortada como se valesse. A segunda: carro na garagem SAI de `cars`, e com
+    /// ele sairia o tempo. Travando o valor enquanto o carro está no mundo, a melhor
+    /// volta válida sobrevive à ida ao box.
+    qualy_best_valid: [f64; 64],
     /// Último alerta de acidente coletivo por setor (cooldown).
     last_collective_alert: Option<f64>,
     /// Diagnóstico ao vivo por carro (para a UI) + se está verde.
@@ -371,10 +477,12 @@ struct RaceMonitor {
     hist_session_num: i32,
     /// Última volta do líder já registrada no histórico.
     hist_leader_lap: i32,
-    /// Última volta do jogador já registrada no histórico.
-    hist_player_lap: i32,
-    /// Última volta completada já registrada POR CARRO (detecta fim de volta da IA).
-    hist_car_lap_completed: [i32; 64],
+    /// Ciclo de vida da volta do JOGADOR: quando ela abre, quando fecha e com que tempo entra
+    /// no histórico. Ver [`voltas`] — ler `LapCompleted` e `LapLastLapTime` no mesmo tique
+    /// gravava cada volta com o tempo da anterior.
+    voltas_jogador: voltas::ColetorDeVoltas,
+    /// O mesmo, por carro, na CORRIDA (base do ritmo do campo).
+    voltas_carro: [voltas::ColetorDeVoltas; 64],
     /// Última posição VÁLIDA (≥1) conhecida por carro. `CarIdxPosition` pisca 0
     /// quando o carro está no box/entre estados; guardamos a última boa pra ele não
     /// sumir do race trace num tick ruim. 0 = nunca teve posição válida.
@@ -422,6 +530,15 @@ struct RaceMonitor {
     /// Diretor da quebra da grade toda (por número de carro) — montado no verde/armado no
     /// debug. `None` = nada a disparar. A avaliação por volta produz comandos aqui.
     breakdown: Option<crate::car::breakdown::BreakdownDirector>,
+    /// Cópia PRISTINA do diretor no instante da instalação, com o estado do jogador (que só é
+    /// vinculado no verde) e o pedido de vitrine guardados junto. É o que a tentativa nova
+    /// recebe de volta num reinício: o desgaste que as voltas da tentativa abandonada
+    /// consumiram, e as peças que largaram nela, são de uma corrida que não aconteceu — e
+    /// desgaste e quebra viram consequência de carreira. `None` = nenhum diretor de PRODUÇÃO
+    /// instalado (arme de debug ou nada), e aí não há a que voltar.
+    breakdown_base: Option<crate::car::breakdown::BreakdownDirector>,
+    breakdown_player_base: Option<crate::car::breakdown::LiveBreakdown>,
+    showcase_armed: bool,
     /// Comandos de admin (`!black`/`!dq`) a enviar — drenados FORA do lock e mandados via
     /// `send_chat_text` (que foca a janela + SendInput, não pode rodar segurando o lock).
     pending_breakdown_cmds: Vec<String>,
@@ -436,8 +553,16 @@ struct RaceMonitor {
     /// liga ao diretor no verde. `None` = jogador fora do disparo (ou já vinculado).
     pending_player_live: Option<crate::car::breakdown::LiveBreakdown>,
     /// Diretor de produção recém-instalado ainda NÃO preso à volta atual — o monitor faz o
-    /// `prime_lap` de todos os carros no primeiro tick verde pra não retroagir voltas passadas.
+    /// `prime_lap` de todos os carros no primeiro tick verde da CORRIDA pra não retroagir voltas
+    /// passadas (nem prender o diretor nas voltas do treino/quali).
     breakdown_needs_prime: bool,
+    /// O diretor atual veio de um ARME DE DEBUG (`arm_test_breakdown`/`request_arm_grid`), e não
+    /// do export. Ferramenta de teste na pista: ignora o gate de sessão e a carência de largada,
+    /// senão testar a quebra exigiria uma corrida de verdade e três minutos de espera.
+    breakdown_debug: bool,
+    /// `session_time` do primeiro tick VERDE da sessão de corrida — âncora da carência de
+    /// largada (ver `BREAKDOWN_GRACE_SECS`). `None` = a corrida ainda não largou.
+    breakdown_green_at: Option<f64>,
     /// Estado de ALERTA de quebra por car_idx, pro overlay: quando uma peça larga o carro entra
     /// em alerta (leve/grave) até SAIR do box reparado; DNF fica persistente. Alimenta o
     /// triângulo laranja/vermelho e a bandeira preta da torre. Separado da fila de comandos
@@ -534,6 +659,12 @@ impl RaceMonitor {
             crash_entry_speed_ms: 0.0,
             crash_min_speed_ms: 0.0,
             crash_had_impact: false,
+            prev_repair_needed_s: -1.0,
+            quali_attempt_number: 0,
+            quali_wreck_pending: None,
+            quali_lockout_sent: false,
+            radio_epoch: 0,
+            quali_wreck_on: None,
             connected: false,
             live_score: 0.0,
             live_g: 0.0,
@@ -550,10 +681,12 @@ impl RaceMonitor {
             gap_hist: Vec::new(),
             events: Vec::new(),
             prev_session_state: 0,
+            prev_session_num: -1,
             prev_on_pit_road: false,
             prev_caution: false,
             race_started_emitted: false,
             race_finished_emitted: false,
+            volta_final_lider: 0,
             dnf_probable: false,
             car_monitors: [CarMonitor::DEFAULT; 64],
             pending_yellow_time: None,
@@ -565,18 +698,20 @@ impl RaceMonitor {
             class_names: Vec::new(),
             driver_names: Vec::new(),
             player_pit_laps: Vec::new(),
-            player_pit_seen: false,
             player_incidents: Vec::new(),
             car_number: [0; 64],
             car_redline: None,
             session_track_id: 0,
             session_subsession_id: 0,
+            restarts_corrida: 0,
+            restarts_quali: 0,
             session_car_name: None,
             qualy_session_num: -1,
             race_session_num: -1,
             prev_in_qualy: false,
             qualy_laps: Vec::new(),
-            qualy_car_lap_completed: [0; 64],
+            voltas_quali: [voltas::ColetorDeVoltas::DEFAULT; 64],
+            qualy_best_valid: [0.0; 64],
             last_collective_alert: None,
             cars_debug: Vec::new(),
             live_is_green: false,
@@ -584,8 +719,8 @@ impl RaceMonitor {
             history: RaceHistory::empty(),
             hist_session_num: -1,
             hist_leader_lap: 0,
-            hist_player_lap: 0,
-            hist_car_lap_completed: [0; 64],
+            voltas_jogador: voltas::ColetorDeVoltas::DEFAULT,
+            voltas_carro: [voltas::ColetorDeVoltas::DEFAULT; 64],
             hist_car_last_pos: [0; 64],
             hist_trace_pos: [0; 64],
             hist_last_trace_event_time: 0.0,
@@ -602,11 +737,16 @@ impl RaceMonitor {
             sec_enter_time: 0.0,
             sec_clean: false,
             breakdown: None,
+            breakdown_base: None,
+            breakdown_player_base: None,
+            showcase_armed: false,
             pending_breakdown_cmds: Vec::new(),
             arm_grid_pending: false,
             breakdown_weather: crate::car::breakdown::Weather::NEUTRAL,
             pending_player_live: None,
             breakdown_needs_prime: false,
+            breakdown_debug: false,
+            breakdown_green_at: None,
             breakdown_alert: [None; 64],
             player_risk_warned: [false; 11],
             player_warning_log: Vec::new(),

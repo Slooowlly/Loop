@@ -518,6 +518,7 @@ mod tests {
             track_id: 1,
             subsession_id: 1,
             qualy_laps: Vec::new(),
+            qualy_best_valid: Vec::new(),
             pit_stops: Vec::new(),
             weather: Default::default(),
             player_sectors: Vec::new(),

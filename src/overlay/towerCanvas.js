@@ -88,6 +88,13 @@ const POINTS_GAIN_X = 396;
 const PIN_X = PANEL_W;
 // Folga entre o fim do nome e o emoji de rivalidade (que vem DEPOIS do nome).
 const RIVAL_GAP = 4;
+// Quanto a coluna do nome cede quando a coluna do meio mostra INTERVALO DE TEMPO em vez
+// das setas de posição. Tudo medido nas fontes reais: o intervalo ocupa ~39 px em
+// qualquer faixa (é o que a precisão decrescente de `formatQualyGap` garante) contra
+// 25 px do "▲ 10", e o nome já encurtado chega a 75,7 px ("Matthew K." no peso do tema)
+// mais 20,5 px quando ele tem marcador de rivalidade. Ceder a diferença cheia truncaria
+// justamente esse nome; com 6 px o nome ainda cabe e sobram 3 px até o intervalo.
+const GAP_COL_EXTRA = 6;
 
 // ─── Modo MINI ────────────────────────────────────────────────────────────────
 // A torre tem duas larguras: a COMPLETA (todas as colunas) e a MINI — um painel
@@ -582,7 +589,7 @@ function drawStopStack(ctx, car, cy, assets) {
 }
 
 // ─── Linha ───────────────────────────────────────────────────────────────────
-function drawRow(ctx, car, y, assets, team, theme, L) {
+function drawRow(ctx, car, y, assets, team, theme, L, col = {}) {
   const isPlayer = Boolean(car.player);
   const mate = isTeammate(car, team);
   const ownTeam = isPlayer || mate; // seus dois carros: nome na cor da equipe
@@ -686,7 +693,11 @@ function drawRow(ctx, car, y, assets, team, theme, L) {
   const nameWeight = theme.rowStyle === "block" ? 700 : 600;
   ctx.fillStyle = nameColor;
   ctx.font = `${nameWeight} 14px ${FONT}`;
-  const nameText = truncate(ctx, shortDriverName(car.name), L.nameRight - nameX - rivalW);
+  // O intervalo de tempo é mais largo que as setas de posição (43 px de "+12.345" contra
+  // 25 de "▲ 10"), então na classificação o nome cede a diferença. Sem isso o gap entra
+  // por cima da última letra do nome mais comprido.
+  const nameLimit = L.nameRight - nameX - rivalW - (col.gap ? GAP_COL_EXTRA : 0);
+  const nameText = truncate(ctx, shortDriverName(car.name), nameLimit);
   ctx.fillText(nameText, nameX, cy);
 
   // Emoji logo APÓS o nome (mede o nome ainda na fonte dele, depois troca pra do emoji).
@@ -696,10 +707,17 @@ function drawRow(ctx, car, y, assets, team, theme, L) {
     ctx.fillText(rivalGlyph, nameX + nameW + RIVAL_GAP, cy);
   }
 
-  // Delta.
+  // Coluna do meio. Em CORRIDA são as posições ganhas/perdidas desde a largada (▲/▼).
+  // Na CLASSIFICATÓRIA isso não existe — não houve largada, e a coluna ficava com um
+  // "— 0" morto na grade inteira. Ali ela mostra o INTERVALO para o melhor tempo da
+  // classe, que é a leitura da sessão: quanto falta para a pole.
   ctx.textAlign = "right";
   ctx.font = `600 12px ${FONT}`;
-  if (!car.delta) {
+  if (col.gap) {
+    const gapStr = formatQualyGap(car.bestMs, col.refMs);
+    ctx.fillStyle = gapStr.startsWith("+") ? theme.text : theme.textMuted;
+    ctx.fillText(gapStr, L.deltaRight, cy);
+  } else if (!car.delta) {
     ctx.fillStyle = theme.textMuted;
     ctx.fillText("— 0", L.deltaRight, cy);
   } else {
@@ -966,6 +984,54 @@ export function formatSessionClock(secs) {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
+// Contador do canto direito do cabeçalho, escolhido pelo TIPO da sessão.
+//
+// Na CORRIDA a régua é a volta (LAPS 36/40). Na CLASSIFICATÓRIA e no TREINO a régua é o
+// relógio, sempre — em prova de 8 minutos o que decide é quanto ainda sobra, e a volta em
+// que o líder está não quer dizer nada. Antes a escolha era feita pela DISPONIBILIDADE do
+// dado (`durationS > 0`), então bastava o iRacing não declarar a duração para a quali cair
+// na apresentação de voltas da corrida. Agora o tipo manda, e é o dado de tempo que cede:
+// relógio completo se houver, senão o tempo restante, senão o placeholder.
+export function sessionCounter(session = {}) {
+  if (session.type === "R") {
+    return {
+      label: "LAPS",
+      big: String(session.lap ?? 0),
+      tail: session.totalLaps > 0 ? `/${session.totalLaps}` : "", // total desconhecido: sem "/0"
+    };
+  }
+  if (session.elapsedS != null && session.durationS > 0) {
+    return {
+      label: "TIME",
+      big: formatSessionClock(session.elapsedS),
+      tail: `/${formatSessionClock(session.durationS)}`,
+    };
+  }
+  if (session.remainingS != null && session.remainingS >= 0) {
+    return { label: "LEFT", big: formatSessionClock(session.remainingS), tail: "" };
+  }
+  if (session.durationS > 0) {
+    return { label: "TIME", big: "--:--", tail: `/${formatSessionClock(session.durationS)}` };
+  }
+  return { label: "TIME", big: "--:--", tail: "" };
+}
+
+// Intervalo para o melhor tempo da classe — o que a coluna do meio mostra FORA da corrida.
+// `bestMs`/`refMs` em milissegundos, 0 = sem volta marcada.
+// A precisão cai conforme o intervalo cresce, e não por gosto: a coluna tem largura fixa
+// e o milésimo só decide alguma coisa quando a disputa é de décimos. Assim o texto fica
+// sempre com ~6 caracteres, seja "+0.243" ou "+1:03.0".
+export function formatQualyGap(bestMs, refMs) {
+  if (!(bestMs > 0)) return "--"; // ainda não marcou
+  if (!(refMs > 0) || bestMs <= refMs) return "—"; // é a referência da classe
+  const diff = bestMs - refMs;
+  if (diff < 10_000) return `+${(diff / 1000).toFixed(3)}`;
+  if (diff < 60_000) return `+${(diff / 1000).toFixed(2)}`;
+  const m = Math.floor(diff / 60_000);
+  const s = (diff % 60_000) / 1000;
+  return `+${m}:${s.toFixed(1).padStart(4, "0")}`;
+}
+
 function drawSessionHeader(ctx, session, theme, assets, L = layoutFor(false)) {
   const H = SESSION_H;
   const panelW = L.panelW;
@@ -1032,16 +1098,9 @@ function drawSessionHeader(ctx, session, theme, assets, L = layoutFor(false)) {
     drawWeatherIcon(ctx, rx - airW - 14, cy1, w.condition);
   }
 
-  // Contador do canto direito. Em CORRIDA é a volta (LAPS 36/40). Fora dela é o
-  // RELÓGIO da sessão (TIME 3:12/8:00) — na classificação de 8 min o que importa é
-  // quanto ainda sobra, não em que volta o líder está.
-  const clock = session.type !== "R" && session.durationS > 0;
-  const bigStr = clock ? formatSessionClock(session.elapsedS) : String(session.lap);
-  const tailStr = clock
-    ? `/${formatSessionClock(session.durationS)}`
-    : session.totalLaps > 0
-      ? `/${session.totalLaps}`
-      : ""; // total desconhecido: mostra só a volta, sem "/0"
+  // Contador do canto direito: voltas na corrida, relógio na classificação (ver
+  // `sessionCounter`).
+  const { label, big: bigStr, tail: tailStr } = sessionCounter(session);
 
   ctx.textAlign = "right";
   ctx.font = `700 12px ${FONT}`;
@@ -1056,7 +1115,7 @@ function drawSessionHeader(ctx, session, theme, assets, L = layoutFor(false)) {
 
   ctx.font = `700 8px ${FONT}`;
   ctx.fillStyle = theme.textMuted;
-  ctx.fillText(clock ? "TIME" : "LAPS", rx - tailW - bigW - 8, cy2);
+  ctx.fillText(label, rx - tailW - bigW - 8, cy2);
 
   // Dois rótulos que ajudam: "pits" sobre a coluna de pneus e "best" sobre a
   // melhor volta — no chrome do header, acima da linha de acento. Só na completa
@@ -1067,6 +1126,12 @@ function drawSessionHeader(ctx, session, theme, assets, L = layoutFor(false)) {
     ctx.textAlign = "center";
     ctx.fillText("PITS", STOPS_CENTER, H - 10);
     ctx.fillText("BEST", 303, H - 10); // acompanha FASTEST_RIGHT (334)
+    // Fora da corrida a coluna do meio vira intervalo de tempo, e aí ela ganha rótulo:
+    // na corrida as setas de posição se explicam sozinhas, "+0.243" não.
+    if (session.type !== "R") {
+      ctx.textAlign = "right";
+      ctx.fillText("GAP", DELTA_RIGHT, H - 10);
+    }
   }
 
   fgShadow(ctx, false);
@@ -1085,12 +1150,24 @@ function drawSessionHeader(ctx, session, theme, assets, L = layoutFor(false)) {
 // desenho é o que permite a animação — dá pra comparar o layout de agora com o de
 // antes sem tocar num `ctx` —, e mantém uma única conta de y (antes o cálculo de
 // altura e o laço de desenho repetiam a mesma soma, livres pra divergir).
+/** Melhor tempo (ms) de uma classe. 0 = ninguém marcou volta ainda. */
+function classBestMs(cls) {
+  return (cls?.cars ?? []).reduce(
+    (best, c) => (c.bestMs > 0 && (best === 0 || c.bestMs < best) ? c.bestMs : best),
+    0,
+  );
+}
+
 export function towerLayout(sections) {
   const blocks = [];
   const items = [];
   let y = SESSION_H; // o colhead vive DENTRO do header
   sections.forEach(({ cls, rows }, i) => {
     if (i > 0) y += CLASS_GAP;
+    // Referência de tempo da classe (a "pole"): sai da classe INTEIRA, não das linhas
+    // visíveis — com a janela do jogador aberta o líder pode nem estar na tela, e o
+    // intervalo continua tendo de ser contado a partir dele.
+    const refMs = classBestMs(cls);
     const bodyH = rows.reduce((a, r) => a + (r.kind === "separator" ? SEP_H : ROW_H), 0);
     blocks.push({ cls, y, blockH: CLASS_H + bodyH, isLast: i === sections.length - 1 });
     y += CLASS_H;
@@ -1103,7 +1180,15 @@ export function towerLayout(sections) {
         items.push({ kind: "separator", y, bodyTop, bodyBottom });
         y += SEP_H;
       } else {
-        items.push({ kind: "car", car: row.car, key: rowKey(row.car), y, bodyTop, bodyBottom });
+        items.push({
+          kind: "car",
+          car: row.car,
+          key: rowKey(row.car),
+          y,
+          bodyTop,
+          bodyBottom,
+          refMs,
+        });
         y += ROW_H;
       }
     });
@@ -1175,6 +1260,10 @@ export function drawTower(ctx, data, assets, theme = DEFAULT_THEME, opts = {}) {
   // Linhas paradas primeiro; as EM TRÂNSITO por último, pra quem está passando ficar
   // por cima de quem é passado (a faixa do jogador é opaca — desenhada antes, ela
   // levaria o texto do ultrapassado por cima no meio do cruzamento).
+  // Fora da CORRIDA a coluna do meio troca de assunto: intervalo de tempo no lugar das
+  // posições ganhas/perdidas (ver `drawRow`). Sem tipo de sessão, o padrão é corrida.
+  const porTempo = Boolean(data.session?.type) && data.session.type !== "R";
+
   const moving = [];
   items.forEach((item) => {
     if (item.kind === "separator") {
@@ -1186,7 +1275,10 @@ export function drawTower(ctx, data, assets, theme = DEFAULT_THEME, opts = {}) {
       moving.push({ item, st });
       return;
     }
-    drawRow(ctx, item.car, item.y, assets, team, theme, L);
+    drawRow(ctx, item.car, item.y, assets, team, theme, L, {
+      gap: porTempo,
+      refMs: item.refMs,
+    });
   });
 
   moving.forEach(({ item, st }) => {
@@ -1197,7 +1289,7 @@ export function drawTower(ctx, data, assets, theme = DEFAULT_THEME, opts = {}) {
     ctx.rect(0, item.bodyTop, LOGICAL_W, item.bodyBottom - item.bodyTop);
     ctx.clip();
     ctx.globalAlpha = st.alpha;
-    drawRow(ctx, item.car, st.y, assets, team, theme, L);
+    drawRow(ctx, item.car, st.y, assets, team, theme, L, { gap: porTempo, refMs: item.refMs });
     ctx.restore();
   });
 

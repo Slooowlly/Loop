@@ -114,6 +114,20 @@ pub fn iracing_career_race_result(
 /// e o evento pelo "post-it" gravado no export + a próxima corrida pendente da
 /// carreira. A batida do jogador (custo de conserto) ainda vem do monitor ao vivo.
 /// Devolve `(banco, career_dir, track_id, pior severidade do jogador, resultado)`.
+/// A batida do jogador na CLASSIFICAÇÃO, lida do monitor.
+///
+/// Vive numa tentativa própria desde que o monitor passou a cortar na fronteira de sessão,
+/// e por isso pode ser cobrada à parte: o carro é o MESMO da corrida, o estrago é real, e
+/// sem esta conta destruir o carro na quali sairia de graça.
+pub(crate) struct BatidaDaQuali {
+    /// Severidade pela mesma régua da corrida (impacto confirmado + rebaixamento).
+    /// `"nenhum"` quando ele não bateu na quali, ou quando não houve quali monitorada.
+    pub severidade: String,
+    /// Direção do impacto no pico (front/rear/side/vertical). Vazia = frontal, o padrão
+    /// documentado em [`crate::car::crash::ImpactDirection::from_str`].
+    pub direcao: String,
+}
+
 pub(crate) fn build_session_race_result(
     app: &tauri::AppHandle,
     career_id: &str,
@@ -133,6 +147,8 @@ pub(crate) fn build_session_race_result(
         String,
         // Estilo de pilotagem do jogador (fatores de desgaste por peça; neutro se sem estilo).
         crate::car::driving_style::StyleFactors,
+        // A batida do jogador na CLASSIFICAÇÃO (ver [`BatidaDaQuali`]).
+        BatidaDaQuali,
     ),
     String,
 > {
@@ -235,6 +251,23 @@ pub(crate) fn build_session_race_result(
     let history = race_monitor::get_history();
     let status = race_monitor::poll();
     let player_crash = result_bridge::player_worst_severity(&status, status.attempt_number);
+    // A batida da CLASSIFICAÇÃO, pela mesma régua (impacto confirmado + rebaixamento). Vive
+    // numa tentativa própria desde que o monitor passou a cortar na fronteira de sessão, e é
+    // cobrada à parte no import: sem isto, destruir o carro na quali saía de graça.
+    let quali_attempt = race_monitor::quali_attempt_number();
+    let player_quali_crash = BatidaDaQuali {
+        severidade: if quali_attempt > 0 {
+            result_bridge::player_worst_severity(&status, quali_attempt)
+        } else {
+            "nenhum".to_string()
+        },
+        direcao: status
+            .attempts
+            .iter()
+            .find(|a| a.number == quali_attempt)
+            .and_then(|a| a.peak_impact_dir.clone())
+            .unwrap_or_default(),
+    };
     let player_attempt = status
         .attempts
         .iter()
@@ -366,6 +399,7 @@ pub(crate) fn build_session_race_result(
         by_number,
         player_impact_dir,
         player_style,
+        player_quali_crash,
     ))
 }
 
@@ -419,7 +453,7 @@ pub fn iracing_preview_race_result(
     app: tauri::AppHandle,
     career_id: String,
 ) -> Result<crate::simulation::race::RaceResult, String> {
-    let (_db, _dir, _track_id, _sev, result, _tel, _hist, _by_number, _impact_dir, _style) =
+    let (_db, _dir, _track_id, _sev, result, _tel, _hist, _by_number, _impact_dir, _style, _quali) =
         build_session_race_result(&app, &career_id)?;
     Ok(result)
 }

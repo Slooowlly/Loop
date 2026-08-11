@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatQualyGap,
   formatSessionClock,
   formatTowerPosition,
   pinsFor,
+  sessionCounter,
   shortDriverName,
   towerLayout,
 } from "./towerCanvas";
@@ -53,6 +55,65 @@ describe("formatSessionClock", () => {
     expect(formatSessionClock(undefined)).toBe("--:--");
     expect(formatSessionClock(null)).toBe("--:--");
     expect(formatSessionClock(-1)).toBe("--:--");
+  });
+});
+
+describe("sessionCounter", () => {
+  it("corrida conta VOLTA, com o total quando ele é conhecido", () => {
+    expect(sessionCounter({ type: "R", lap: 36, totalLaps: 40 })).toEqual({
+      label: "LAPS",
+      big: "36",
+      tail: "/40",
+    });
+    // Total desconhecido: só a volta, sem "/0".
+    expect(sessionCounter({ type: "R", lap: 12, totalLaps: 0 }).tail).toBe("");
+  });
+
+  it("classificação conta TEMPO: decorrido sobre a duração", () => {
+    expect(sessionCounter({ type: "Q", lap: 5, elapsedS: 192, durationS: 480 })).toEqual({
+      label: "TIME",
+      big: "3:12",
+      tail: "/8:00",
+    });
+  });
+
+  // A regressão que este teste tranca: com a duração ausente, a quali caía no ramo da
+  // corrida e anunciava a VOLTA do líder — um número que não diz nada numa sessão de tempo.
+  it("classificação sem duração cai no tempo RESTANTE, nunca na volta", () => {
+    const c = sessionCounter({ type: "Q", lap: 5, totalLaps: 40, remainingS: 288 });
+    expect(c).toEqual({ label: "LEFT", big: "4:48", tail: "" });
+  });
+
+  it("classificação sem tempo nenhum mostra placeholder, e ainda assim não mostra volta", () => {
+    expect(sessionCounter({ type: "Q", lap: 5, totalLaps: 40 })).toEqual({
+      label: "TIME",
+      big: "--:--",
+      tail: "",
+    });
+    // Duração conhecida e relógio ainda não: mantém a régua da sessão à vista.
+    expect(sessionCounter({ type: "Q", lap: 5, durationS: 480 })).toEqual({
+      label: "TIME",
+      big: "--:--",
+      tail: "/8:00",
+    });
+  });
+
+  it("treino segue a mesma régua da classificação", () => {
+    expect(sessionCounter({ type: "P", lap: 9, remainingS: 600 }).label).toBe("LEFT");
+  });
+});
+
+describe("formatQualyGap", () => {
+  it.each([
+    [102_089, 102_089, "—"], // é a referência da classe
+    [102_198, 102_089, "+0.109"],
+    [104_589, 102_089, "+2.500"],
+    [122_089, 102_089, "+20.00"], // acima de 10 s o milésimo sai: a coluna tem largura fixa
+    [0, 102_089, "--"], // ainda não marcou volta
+    [102_198, 0, "—"], // ninguém marcou: não há de quem se distanciar
+    [165_089, 102_089, "+1:03.0"], // acima de um minuto muda de formato
+  ])("intervalo de %s ms para %s ms vira %s", (bestMs, refMs, expected) => {
+    expect(formatQualyGap(bestMs, refMs)).toBe(expected);
   });
 });
 

@@ -166,9 +166,9 @@ pub struct EstadoAgora {
     pub saldo_combustivel_voltas: f64,
 
     // ── Carro ──
-    /// Segundos de reparo OBRIGATÓRIO pendentes (`PitRepairNeeded`).
+    /// Segundos de reparo OBRIGATÓRIO pendentes (`PitRepairLeft`).
     pub reparo_obrigatorio_s: f64,
-    /// Segundos de reparo OPCIONAL (`PitOptRepairNeeded`) — reflete melhor o estrago total.
+    /// Segundos de reparo OPCIONAL (`PitOptRepairLeft`) — reflete melhor o estrago total.
     pub reparo_opcional_s: f64,
     pub reparos_rapidos_usados: i32,
 
@@ -240,6 +240,26 @@ pub(super) fn voltas_restantes(
         return ((tempo_restante_s / ritmo_s).ceil() as i32, true);
     }
     (-1, false)
+}
+
+/// Volta em que o jogador está e total da prova, com os sentinelas do SDK traduzidos.
+///
+/// `SessionLapsTotal` vale [`LAPS_REMAIN_SENTINELA`] em prova por TEMPO, e o contrato do
+/// campo `voltas_totais` promete 0 nesse caso. Sem a tradução o contexto do engenheiro
+/// recebia "Volta: 12 de 32767" e o rádio anunciava o sentinela como se fosse a prova.
+///
+/// O teto na volta é a mesma regra do cabeçalho da torre: passada a bandeirada o
+/// `lap_completed` continua subindo com quem segue girando na volta de desaceleração, e
+/// uma prova de 8 voltas não tem uma nona para anunciar.
+pub(super) fn volta_e_total(lap_completed: i32, laps_total: i32) -> (i32, i32) {
+    let total = if laps_total > 0 && laps_total < LAPS_REMAIN_SENTINELA {
+        laps_total
+    } else {
+        0
+    };
+    let volta = lap_completed.max(0);
+    let volta = if total > 0 { volta.min(total) } else { volta };
+    (volta, total)
 }
 
 /// Voltas até encostar, dado o gap e a diferença de ritmo. `delta_ritmo_s` é o MEU ritmo
@@ -571,6 +591,7 @@ impl RaceMonitor {
 
         let (consumo, autonomia) = self.combustivel_agora(t);
         let saldo = saldo_combustivel(autonomia, voltas_restantes_n);
+        let (volta, voltas_totais) = volta_e_total(t.lap_completed, t.session_laps_total);
 
         EstadoAgora {
             conectado: self.connected,
@@ -582,8 +603,8 @@ impl RaceMonitor {
             posicao_classe: eu.map(|c| c.class_position).unwrap_or(0),
             total_carros: self.live_cars_count,
 
-            volta: t.lap_completed,
-            voltas_totais: t.session_laps_total.max(0),
+            volta,
+            voltas_totais,
             voltas_restantes: voltas_restantes_n,
             voltas_restantes_estimadas: estimadas,
             tempo_restante_s: if t.session_time_remain > 0.0 {

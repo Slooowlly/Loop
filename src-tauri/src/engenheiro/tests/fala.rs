@@ -875,6 +875,12 @@ fn toda_peca_gravada_e_alcancavel_por_alguma_situacao() {
         for variante in 0..3 {
             emitidas.insert(pp::poupar_frase(variante).0.to_string());
         }
+        // O castigo por destruir o carro na CLASSIFICAÇÃO. Mesmo emissor das outras desta
+        // família (`commands::overlay::avisos`), gatilho diferente: não é desgaste de peça,
+        // é o monitor tirando o jogador da quali. Cinco falas fixas, uma por desfecho.
+        for chave in pp::QUALI_CHAVES {
+            emitidas.insert(chave.to_string());
+        }
     }
 
     // A CLASSIFICAÇÃO. Também não sai de `renderizar` — quem a produz é o observador da
