@@ -42,11 +42,11 @@ pub(crate) fn advance_market_week_in_base_dir(
     accepted_seat_id: Option<&str>,
 ) -> Result<WeekResult, String> {
     let _career_number =
-        career_number_from_id(career_id).ok_or_else(|| "ID de carreira invalido.".to_string())?;
+        career_number_from_id(career_id).ok_or_else(errors::invalid_career_id)?;
     let (db, career_dir, mut meta) = open_career_resources(base_dir, career_id)?;
     let meta_path = career_dir.join("meta.json");
     let mut plan = load_preseason_plan(&career_dir)?
-        .ok_or_else(|| "Plano da pre-temporada nao encontrado.".to_string())?;
+        .ok_or_else(errors::preseason_plan_not_found)?;
     let tx = db
         .conn
         .unchecked_transaction()
@@ -74,7 +74,7 @@ pub(crate) fn get_preseason_state_in_base_dir(
 ) -> Result<PreSeasonState, String> {
     let (db, career_dir, _) = open_career_resources_read_only(base_dir, career_id)?;
     let mut plan = load_preseason_plan(&career_dir)?
-        .ok_or_else(|| "Plano da pre-temporada nao encontrado.".to_string())?;
+        .ok_or_else(errors::preseason_plan_not_found)?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao carregar temporada da pre-temporada: {e}"))?
         .ok_or_else(|| format!("Temporada {} nao encontrada", plan.state.season_number))?;
@@ -106,14 +106,18 @@ pub(crate) fn get_player_poach_offer_in_base_dir(
 ) -> Result<Option<crate::market::pipeline::PlayerPoachOffer>, String> {
     let (_, career_dir, _) = open_career_resources_read_only(base_dir, career_id)?;
     let plan = load_preseason_plan(&career_dir)?
-        .ok_or_else(|| "Plano da pre-temporada nao encontrado.".to_string())?;
+        .ok_or_else(errors::preseason_plan_not_found)?;
     Ok(plan.player_poach_offer)
 }
 
 /// Resolve a decisão do jogador na quebra de contrato: `accept = true` sai pro
-/// pretendente, `false` fica no time atual. Recebe a oferta que o jogador VIU (a UI a
-/// tem em mãos), aplica no banco e — se existir um plano de janela — limpa a oferta
-/// dele. Independente do plano, pra o debug funcionar de qualquer tela.
+/// pretendente, `false` fica no time atual. A oferta que VALE é a que o backend emitiu e
+/// guardou no plano da janela; a que a UI manda serve só para conferir que o jogador
+/// decidiu sobre essa mesma oferta. Sem essa conferência, um front desatualizado (ou
+/// adulterado) gravaria salário e equipe que o backend nunca ofereceu.
+///
+/// Sem plano de janela no disco (debug fora da pré-temporada) o payload é a única fonte
+/// e segue valendo, que é o que faz o botão de debug funcionar de qualquer tela.
 pub(crate) fn resolve_player_poach_offer_in_base_dir(
     base_dir: &Path,
     career_id: &str,
@@ -123,13 +127,48 @@ pub(crate) fn resolve_player_poach_offer_in_base_dir(
     let (db, career_dir, _) = open_career_resources(base_dir, career_id)?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao carregar temporada ativa: {e}"))?
-        .ok_or_else(|| "Nenhuma temporada ativa.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
+
+    let plan_on_disk = load_preseason_plan(&career_dir).ok().flatten();
+    let effective_offer = match plan_on_disk.as_ref() {
+        Some(plan) => match plan.player_poach_offer.as_ref() {
+            // Janela aberta com oferta viva: ela manda. Divergiu do que a UI mostrou →
+            // a tela está velha, e nada é aplicado.
+            Some(persisted) => {
+                if persisted.current_contract_id != offer.current_contract_id
+                    || persisted.suitor_team_id != offer.suitor_team_id
+                    || persisted.current_team_id != offer.current_team_id
+                {
+                    return Ok(crate::market::pipeline::PlayerPoachOutcome {
+                        applied: false,
+                        left: false,
+                        salary: persisted.current_salary,
+                        team_name: persisted.current_team_name.clone(),
+                        note: rust_i18n::t!("market.poach_outcome.expired").to_string(),
+                    });
+                }
+                persisted.clone()
+            }
+            // Janela aberta e sem oferta viva: a decisão já foi consumida (uma por janela).
+            None => {
+                return Ok(crate::market::pipeline::PlayerPoachOutcome {
+                    applied: false,
+                    left: false,
+                    salary: offer.current_salary,
+                    team_name: offer.current_team_name.clone(),
+                    note: rust_i18n::t!("market.poach_outcome.expired").to_string(),
+                })
+            }
+        },
+        None => offer.clone(),
+    };
 
     let tx = db
         .conn
         .unchecked_transaction()
         .map_err(|e| format!("Falha ao iniciar transacao da quebra de contrato: {e}"))?;
-    let outcome = crate::market::pipeline::resolve_player_poach(&tx, offer, accept, season.numero)?;
+    let outcome =
+        crate::market::pipeline::resolve_player_poach(&tx, &effective_offer, accept, season.numero)?;
     tx.commit()
         .map_err(|e| format!("Falha ao confirmar quebra de contrato: {e}"))?;
 
@@ -160,7 +199,7 @@ pub(crate) fn get_player_proposals_in_base_dir(
     let (db, career_dir, _meta) = open_career_resources(base_dir, career_id)?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao carregar temporada ativa: {e}"))?
-        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
     let player = driver_queries::get_player_driver(&db.conn)
         .map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
     let mut proposals =
@@ -212,16 +251,16 @@ pub(crate) fn respond_to_proposal_in_base_dir(
         .map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao carregar temporada ativa: {e}"))?
-        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
     let proposal =
         market_proposal_queries::get_market_proposal_by_id(&db.conn, &season.id, proposal_id)
             .map_err(|e| format!("Falha ao carregar proposta: {e}"))?
-            .ok_or_else(|| "Proposta nao encontrada.".to_string())?;
+            .ok_or_else(errors::proposal_not_found)?;
     if proposal.piloto_id != player.id {
-        return Err("A proposta nao pertence ao jogador.".to_string());
+        return Err(errors::proposal_not_player());
     }
     if proposal.status != ProposalStatus::Pendente {
-        return Err("A proposta nao esta mais pendente.".to_string());
+        return Err(errors::proposal_not_pending());
     }
 
     let mut news_items = Vec::new();
@@ -339,14 +378,14 @@ pub(crate) fn finalize_preseason_in_base_dir(
     let (db, career_dir, mut meta) = open_career_resources(base_dir, career_id)?;
     let meta_path = career_dir.join("meta.json");
     let plan = load_preseason_plan(&career_dir)?
-        .ok_or_else(|| "Plano da pre-temporada nao encontrado.".to_string())?;
+        .ok_or_else(errors::preseason_plan_not_found)?;
     if !plan.state.is_complete {
-        return Err("Pre-temporada ainda nao foi concluida.".to_string());
+        return Err(errors::preseason_not_finished());
     }
 
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao carregar temporada ativa: {e}"))?
-        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
     // Gate da Janela de Transferências: a pré-temporada só finaliza quando a janela
     // fechou (plan.state.is_complete, garantido acima). O jogador já está garantido
     // num assento pela garantia de porta no fecho — não há mais "propostas pendentes".
@@ -465,7 +504,7 @@ pub(crate) fn build_player_proposal_view(
 ) -> Result<PlayerProposalView, String> {
     let team = team_queries::get_team_by_id(conn, &proposal.equipe_id)
         .map_err(|e| format!("Falha ao carregar equipe da proposta: {e}"))?
-        .ok_or_else(|| "Equipe da proposta nao encontrada.".to_string())?;
+        .ok_or_else(errors::proposal_team_not_found)?;
     let category = categories::get_category_config(&team.categoria)
         .ok_or_else(|| format!("Categoria '{}' nao encontrada", team.categoria))?;
     let companion_id = match proposal.papel {
@@ -533,7 +572,7 @@ pub(crate) fn accept_player_proposal_tx(
 
     let team = team_queries::get_team_by_id(tx, &proposal.equipe_id)
         .map_err(|e| format!("Falha ao carregar equipe da proposta: {e}"))?
-        .ok_or_else(|| "Equipe da proposta nao encontrada.".to_string())?;
+        .ok_or_else(errors::proposal_team_not_found)?;
     ensure_driver_can_join_division(
         tx,
         &player.id,
@@ -619,7 +658,7 @@ pub(crate) fn is_team_role_vacant(
 ) -> Result<bool, String> {
     let team = team_queries::get_team_by_id(conn, team_id)
         .map_err(|e| format!("Falha ao carregar equipe para validar vaga: {e}"))?
-        .ok_or_else(|| "Equipe nao encontrada para validar vaga.".to_string())?;
+        .ok_or_else(errors::team_not_found_for_seat)?;
     let is_vacant = match TeamRole::from_str_strict(role)
         .map_err(|e| format!("Papel de equipe invalido ao validar vaga: {e}"))?
     {
@@ -718,7 +757,7 @@ pub(crate) fn refresh_planned_hierarchy_for_team(
 
     let team = team_queries::get_team_by_id(conn, team_id)
         .map_err(|e| format!("Falha ao carregar equipe para atualizar plano: {e}"))?
-        .ok_or_else(|| "Equipe nao encontrada para atualizar plano.".to_string())?;
+        .ok_or_else(errors::team_not_found_for_plan)?;
     let mut candidates = Vec::new();
     for driver_id in [team.piloto_1_id.clone(), team.piloto_2_id.clone()]
         .into_iter()

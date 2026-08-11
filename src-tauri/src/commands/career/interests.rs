@@ -39,8 +39,9 @@ const NEMESIS_HYSTERESIS_MARGIN: f64 = 10.0;
 
 /// Seleciona os pilotos de interesse do jogador a partir do estado acumulado do motor
 /// de rivalidade: Nemesis = maior intensidade (se ≥ 40); Rivais = os 2 seguintes
-/// (se ≥ 20). Sem histerese ainda (a acumulação do eixo histórico já dá estabilidade;
-/// histerese persistida é um refino futuro). Atravessa categorias.
+/// (se ≥ 20). Com histerese persistida: o Nemesis reinante (lido de `player_nemesis`)
+/// só cai quando outro rival o supera por mais de `NEMESIS_HYSTERESIS_MARGIN`, e a troca
+/// é gravada de volta aqui mesmo. Atravessa categorias.
 pub(crate) fn get_player_interests_in_base_dir(
     base_dir: &Path,
     career_id: &str,

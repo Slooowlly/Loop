@@ -9,7 +9,7 @@ pub(crate) fn normalize_regular_contracts_for_team(
 ) -> Result<bool, String> {
     let team = team_queries::get_team_by_id(conn, team_id)
         .map_err(|e| format!("Falha ao carregar equipe para normalizar contratos: {e}"))?
-        .ok_or_else(|| "Equipe nao encontrada para normalizar contratos.".to_string())?;
+        .ok_or_else(errors::team_not_found_for_contracts)?;
     let mut active_regular_contracts =
         contract_queries::get_active_contracts_for_team(conn, team_id)
             .map_err(|e| format!("Falha ao carregar contratos ativos da equipe: {e}"))?
@@ -163,7 +163,7 @@ pub(crate) fn place_driver_in_team(
 ) -> Result<(), String> {
     let team = team_queries::get_team_by_id(conn, team_id)
         .map_err(|e| format!("Falha ao carregar equipe para encaixar jogador: {e}"))?
-        .ok_or_else(|| "Equipe nao encontrada para encaixe do jogador.".to_string())?;
+        .ok_or_else(errors::team_not_found_for_placement)?;
     let existing = [team.piloto_1_id.clone(), team.piloto_2_id.clone()]
         .into_iter()
         .flatten()
@@ -184,7 +184,7 @@ pub(crate) fn refresh_team_hierarchy_now(
 ) -> Result<(), String> {
     let team = team_queries::get_team_by_id(conn, team_id)
         .map_err(|e| format!("Falha ao carregar equipe para hierarquia: {e}"))?
-        .ok_or_else(|| "Equipe nao encontrada para hierarquia.".to_string())?;
+        .ok_or_else(errors::team_not_found_for_hierarchy)?;
     let mut candidates = [team.piloto_1_id.clone(), team.piloto_2_id.clone()]
         .into_iter()
         .flatten()
@@ -232,6 +232,147 @@ pub(crate) fn list_team_vacancies(conn: &rusqlite::Connection) -> Result<Vec<Tea
     Ok(vacancies)
 }
 
+/// O painel de mercado do jogador FORA da janela de pré-temporada: os assentos
+/// vazios do mundo, cada um com o veredito de elegibilidade já resolvido.
+///
+/// A regra de elegibilidade é a MESMA de [`generate_emergency_player_proposals`] —
+/// licença da divisão mais faixa de tier (o tier do jogador ou um degrau acima).
+/// Ela não é reimplementada aqui: `licenca_ok` chama o mesmo
+/// `driver_has_required_license_for_division`, e `tier_ok` repete o mesmo intervalo.
+/// A diferença é o propósito: lá a regra FILTRA (o mercado só oferta o que cabe),
+/// aqui ela ANOTA — o jogador tem o direito de ver a cadeira que abriu na categoria
+/// de cima e saber que ela não é para ele ainda.
+///
+/// Read-only: nada aqui grava proposta, contrato ou assento.
+pub(crate) fn get_season_market_board_in_base_dir(
+    base_dir: &Path,
+    career_id: &str,
+) -> Result<SeasonMarketBoard, String> {
+    let (db, _dir, _meta) = open_career_resources_read_only(base_dir, career_id)?;
+    let conn = &db.conn;
+
+    let player = driver_queries::get_player_driver(conn)
+        .map_err(|e| format!("Falha ao carregar o piloto do jogador: {e}"))?;
+
+    let player_categoria = player
+        .categoria_atual
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let player_tier = player_categoria
+        .as_deref()
+        .and_then(categories::get_category_config)
+        .map(|config| config.tier);
+
+    let mut vagas = Vec::new();
+    for vacancy in list_team_vacancies(conn)? {
+        let team = &vacancy.team;
+        let seat_tier = categories::get_category_config(&team.categoria).map(|config| config.tier);
+        // Sem tier do jogador não há faixa a comparar: a vaga fica anotada como fora
+        // da faixa em vez de a tela afirmar que um agente livre sem categoria pode
+        // ocupar qualquer assento do mundo.
+        let tier_ok = match (player_tier, seat_tier) {
+            (Some(mine), Some(theirs)) => theirs >= mine && theirs <= mine + 1,
+            _ => false,
+        };
+        let licenca_ok = driver_has_required_license_for_division(
+            conn,
+            &player.id,
+            &team.categoria,
+            team.classe.as_deref(),
+        )?;
+        let elegivel = tier_ok && licenca_ok;
+
+        vagas.push(OpenSeat {
+            team_id: team.id.clone(),
+            team_name: team.nome.clone(),
+            team_color: team.cor_primaria.clone(),
+            categoria: team.categoria.clone(),
+            classe: team.classe.clone(),
+            categoria_tier: seat_tier,
+            papel: vacancy.role.as_str().to_string(),
+            car_performance_rating: normalize_car_performance(team.effective_car_performance()),
+            licenca_ok,
+            tier_ok,
+            salario_estimado: if elegivel {
+                Some(calculate_offer_salary_for_team(team, &player))
+            } else {
+                None
+            },
+        });
+    }
+
+    // Elegíveis primeiro e, dentro de cada grupo, o melhor carro na frente: a
+    // ordem responde "o que eu posso pegar, e o que vale mais" na mesma varredura.
+    vagas.sort_by(|a, b| {
+        let a_elegivel = a.licenca_ok && a.tier_ok;
+        let b_elegivel = b.licenca_ok && b.tier_ok;
+        b_elegivel
+            .cmp(&a_elegivel)
+            .then_with(|| b.car_performance_rating.cmp(&a.car_performance_rating))
+            .then_with(|| a.team_name.cmp(&b.team_name))
+    });
+
+    let vagas_elegiveis = vagas
+        .iter()
+        .filter(|vaga| vaga.licenca_ok && vaga.tier_ok)
+        .count() as i32;
+
+    Ok(SeasonMarketBoard {
+        player_categoria,
+        player_tier,
+        vagas,
+        vagas_elegiveis,
+    })
+}
+
+/// Vagas em que o jogador cabe: as que passam no filtro de tier E em que ele tem a
+/// licença da divisão. A licença nunca é dispensada — é ela que impede um assento
+/// acima do que o piloto pode dirigir.
+///
+/// `tier_ok` recebe o tier da categoria da vaga (`None` quando a categoria não tem
+/// config) — cada chamador define a própria faixa.
+///
+/// `fallback_sem_tier` refaz a passada ignorando o tier quando a primeira não achou
+/// nada. Ligado só no encaixe forçado, onde deixar o jogador sem assento é pior que
+/// dar um assento fora da faixa; a proposta emergencial NÃO usa, porque ali uma vaga
+/// fora da faixa seria uma oferta que o mercado não faria.
+fn player_eligible_vacancies(
+    conn: &rusqlite::Connection,
+    player: &Driver,
+    fallback_sem_tier: bool,
+    tier_ok: impl Fn(Option<u8>) -> bool,
+) -> Result<Vec<TeamVacancy>, String> {
+    let mut vacancies = collect_licensed_vacancies(conn, player, &tier_ok)?;
+    if vacancies.is_empty() && fallback_sem_tier {
+        vacancies = collect_licensed_vacancies(conn, player, |_| true)?;
+    }
+    Ok(vacancies)
+}
+
+fn collect_licensed_vacancies(
+    conn: &rusqlite::Connection,
+    player: &Driver,
+    tier_ok: impl Fn(Option<u8>) -> bool,
+) -> Result<Vec<TeamVacancy>, String> {
+    let mut vacancies = Vec::new();
+    for vacancy in list_team_vacancies(conn)? {
+        let tier = categories::get_category_config(&vacancy.team.categoria).map(|c| c.tier);
+        if tier_ok(tier)
+            && driver_has_required_license_for_division(
+                conn,
+                &player.id,
+                &vacancy.team.categoria,
+                vacancy.team.classe.as_deref(),
+            )?
+        {
+            vacancies.push(vacancy);
+        }
+    }
+    Ok(vacancies)
+}
+
 pub(crate) fn generate_emergency_player_proposals(
     conn: &rusqlite::Connection,
     player: &Driver,
@@ -243,35 +384,12 @@ pub(crate) fn generate_emergency_player_proposals(
         .and_then(categories::get_category_config)
         .map(|config| config.tier)
         .unwrap_or(0);
-    let mut vacancies = Vec::new();
-    for vacancy in list_team_vacancies(conn)? {
-        let tier = categories::get_category_config(&vacancy.team.categoria)
-            .map(|config| config.tier)
-            .unwrap_or(0);
-        let tier_ok = tier >= player_tier && tier <= player_tier + 1;
-        if tier_ok
-            && driver_has_required_license_for_division(
-                conn,
-                &player.id,
-                &vacancy.team.categoria,
-                vacancy.team.classe.as_deref(),
-            )?
-        {
-            vacancies.push(vacancy);
-        }
-    }
-    if vacancies.is_empty() {
-        for vacancy in list_team_vacancies(conn)? {
-            if driver_has_required_license_for_division(
-                conn,
-                &player.id,
-                &vacancy.team.categoria,
-                vacancy.team.classe.as_deref(),
-            )? {
-                vacancies.push(vacancy);
-            }
-        }
-    }
+    // A categoria do próprio tier ou UM degrau acima. Sem fallback: se nada cabe na
+    // faixa, o jogador não recebe proposta emergencial.
+    let mut vacancies = player_eligible_vacancies(conn, player, false, |tier| {
+        let tier = tier.unwrap_or(0);
+        tier >= player_tier && tier <= player_tier + 1
+    })?;
     // Melhor vaga = melhor CARRO efetivo (peças > coluna legada). Num grid spec ninguém
     // desempata pelo pacote e a ordem de entrada manda — que é a verdade da pista.
     vacancies.sort_by(|a, b| {
@@ -325,34 +443,10 @@ pub(crate) fn force_place_player(
         .and_then(categories::get_category_config)
         .map(|config| config.tier)
         .unwrap_or(0);
-    let mut vacancies = Vec::new();
-    for vacancy in list_team_vacancies(conn)? {
-        let tier_ok = categories::get_category_config(&vacancy.team.categoria)
-            .map(|config| config.tier == player_tier)
-            .unwrap_or(false);
-        if tier_ok
-            && driver_has_required_license_for_division(
-                conn,
-                &player.id,
-                &vacancy.team.categoria,
-                vacancy.team.classe.as_deref(),
-            )?
-        {
-            vacancies.push(vacancy);
-        }
-    }
-    if vacancies.is_empty() {
-        for vacancy in list_team_vacancies(conn)? {
-            if driver_has_required_license_for_division(
-                conn,
-                &player.id,
-                &vacancy.team.categoria,
-                vacancy.team.classe.as_deref(),
-            )? {
-                vacancies.push(vacancy);
-            }
-        }
-    }
+    // Encaixe forçado: só o MESMO tier (categoria sem config não serve) e, se não houver
+    // nenhuma, qualquer vaga licenciada — o jogador não pode ficar de fora do grid.
+    let mut vacancies =
+        player_eligible_vacancies(conn, player, true, |tier| tier == Some(player_tier))?;
     vacancies.sort_by(|a, b| {
         a.team
             .effective_car_performance()
@@ -408,7 +502,7 @@ pub(crate) fn backfill_team_vacancy(
 ) -> Result<(), String> {
     let team = team_queries::get_team_by_id(conn, team_id)
         .map_err(|e| format!("Falha ao carregar equipe para reposicao: {e}"))?
-        .ok_or_else(|| "Equipe nao encontrada para reposicao.".to_string())?;
+        .ok_or_else(errors::team_not_found_for_replacement)?;
     let role = if team.piloto_1_id.is_none() {
         TeamRole::Numero1
     } else if team.piloto_2_id.is_none() {
@@ -455,7 +549,7 @@ pub(crate) fn backfill_team_vacancy(
         )
         .into_iter()
         .next()
-        .ok_or_else(|| "Falha ao gerar rookie emergencial.".to_string())?;
+        .ok_or_else(errors::rookie_generation_failed)?;
         rookie.id = format!(
             "P-EM-{}",
             next_id(conn, IdType::Driver)

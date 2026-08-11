@@ -9,6 +9,7 @@ use crate::commands::career::{
 };
 use crate::commands::race::simulate_race_weekend_in_base_dir;
 use crate::config::app_config::AppConfig;
+use crate::constants::historical_timeline::PLAYABLE_START_YEAR;
 use crate::db::connection::Database;
 use crate::db::queries::calendar as calendar_queries;
 use crate::db::queries::contracts as contract_queries;
@@ -21,6 +22,16 @@ use crate::models::enums::TeamRole;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Ano civil da temporada `numero` de uma carreira nova.
+///
+/// A carreira regular nasce em [`PLAYABLE_START_YEAR`] (`career/lifecycle.rs`), o mesmo início
+/// de mundo do draft histórico. Estes testes cravavam 2024 e 2025 no literal, então passaram a
+/// falhar quando o início do mundo se moveu — sem nada ter regredido no backup ou no restore,
+/// que é o que eles medem. A conta abaixo os prende ao mesmo lugar de onde a produção lê.
+fn ano_da_temporada(numero: i32) -> i32 {
+    PLAYABLE_START_YEAR + numero - 1
+}
 
 fn unique_test_dir(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -176,7 +187,7 @@ fn full_career_flow_backup_restore_round_trip() {
 
     let season_result =
         advance_season_in_base_dir(&base_dir, "career_001").expect("advance season");
-    assert_eq!(season_result.new_year, 2025);
+    assert_eq!(season_result.new_year, ano_da_temporada(2));
     assert!(season_result.preseason_initialized);
     assert!(
         season_result.promotion_result.errors.is_empty(),
@@ -204,7 +215,10 @@ fn full_career_flow_backup_restore_round_trip() {
 
     let mutated_meta = expected_meta
         .replace("\"current_season\": 2", "\"current_season\": 99")
-        .replace("\"current_year\": 2025", "\"current_year\": 2099");
+        .replace(
+            &format!("\"current_year\": {}", ano_da_temporada(2)),
+            "\"current_year\": 2099",
+        );
     fs::write(&meta_path, mutated_meta).expect("mutate meta");
     fs::write(&race_results_path, "{\"version\":999}").expect("mutate race results");
     fs::write(&preseason_path, "{\"state\":{\"current_week\":99}}").expect("mutate preseason");
@@ -224,7 +238,7 @@ fn full_career_flow_backup_restore_round_trip() {
         .expect("restored season query")
         .expect("restored active season");
     assert_eq!(restored_active_season.numero, 2);
-    assert_eq!(restored_active_season.ano, 2025);
+    assert_eq!(restored_active_season.ano, ano_da_temporada(2));
 
     assert_eq!(
         fs::read_to_string(&meta_path).expect("restored meta"),
@@ -323,7 +337,7 @@ fn full_preseason_player_proposal_flow_reaches_season_start() {
 
     assert_eq!(finalized_contract.equipe_id, target_team.id);
     assert_eq!(finalized_season.numero, 2);
-    assert_eq!(finalized_season.ano, 2025);
+    assert_eq!(finalized_season.ano, ano_da_temporada(2));
     assert!(
         !config
             .saves_dir()
@@ -410,7 +424,10 @@ fn restore_legacy_backup_rebuilds_meta_and_clears_stale_sidecars() {
         fs::read_to_string(&meta_path)
             .expect("read meta")
             .replace("\"current_season\": 1", "\"current_season\": 99")
-            .replace("\"current_year\": 2024", "\"current_year\": 2099"),
+            .replace(
+                &format!("\"current_year\": {}", ano_da_temporada(1)),
+                "\"current_year\": 2099",
+            ),
     )
     .expect("mutate meta");
 
@@ -421,11 +438,11 @@ fn restore_legacy_backup_rebuilds_meta_and_clears_stale_sidecars() {
         .expect("season query")
         .expect("active season");
     assert_eq!(active_season.numero, 1);
-    assert_eq!(active_season.ano, 2024);
+    assert_eq!(active_season.ano, ano_da_temporada(1));
 
     let restored_meta = fs::read_to_string(&meta_path).expect("restored meta");
     assert!(restored_meta.contains("\"current_season\": 1"));
-    assert!(restored_meta.contains("\"current_year\": 2024"));
+    assert!(restored_meta.contains(&format!("\"current_year\": {}", ano_da_temporada(1))));
     assert!(!race_results_path.exists());
     assert!(!resume_context_path.exists());
     assert!(!briefing_path.exists());

@@ -15,9 +15,10 @@ use crate::commands::career_types::{
     AcceptedSpecialOfferSummary, BriefingPhraseEntry, BriefingPhraseEntryInput,
     BriefingPhraseHistory, BriefingStorySummary, CareerData, CareerResumeContext, CareerResumeView,
     ContractWarningInfo, CreateCareerResult, DriverCareerRankEntry, DriverDetail, DriverSummary,
-    NextRaceBriefingSummary, PrimaryRivalSummary, RaceReading, RaceReadingCar,
-    RaceReadingSafetyCar, RaceSummary, SaveInfo, SeasonSummary, TeamCarPartLevel, TeamCarParts,
-    TeamStanding, TeamSummary, TrackHistorySummary, VerifyDatabaseResponse, WeekendReading,
+    NextRaceBriefingSummary, OpenSeat, PrimaryRivalSummary, RaceReading, RaceReadingCar,
+    RaceReadingSafetyCar, RaceSummary, SaveInfo, SeasonMarketBoard, SeasonSummary,
+    TeamCarPartLevel, TeamCarParts, TeamStanding, TeamSummary, TrackHistorySummary,
+    VerifyDatabaseResponse, WeekendReading,
 };
 use crate::commands::race_history::{
     build_driver_histories, empty_previous_champions, ConstructorChampion, DriverRaceHistory,
@@ -73,6 +74,9 @@ mod briefing;
 mod champion;
 #[path = "career/debug.rs"]
 mod debug;
+// `pub(crate)` para os irmãos alcançarem `errors::*` pelo `use super::*;`.
+#[path = "career/errors.rs"]
+pub(crate) mod errors;
 #[path = "career/interests.rs"]
 mod interests;
 #[path = "career/lifecycle.rs"]
@@ -101,16 +105,16 @@ pub(crate) use debug::{
 };
 pub(crate) use interests::{get_player_interests_in_base_dir, select_player_interests};
 pub use interests::{PlayerInterests, RivalInterest};
-pub(crate) use lifecycle::{career_number_from_id, open_career_resources};
+pub(crate) use lifecycle::{career_number_from_id, count_rows, open_career_resources};
 pub(crate) use lifecycle::{
     create_career_in_base_dir, delete_career_in_base_dir, list_saves_in_base_dir,
     load_career_in_base_dir,
 };
 #[cfg(test)]
-pub(crate) use lifecycle::{next_career_id, validate_create_career_input};
-pub(super) use lifecycle::{
-    open_career_resources_for_category_read, open_career_resources_read_only,
+pub(crate) use lifecycle::{
+    needs_regular_contract_repair, next_career_id, validate_create_career_input,
 };
+pub(super) use lifecycle::open_career_resources_read_only;
 #[allow(unused_imports)]
 pub(crate) use lifecycle::{test_create_driver, test_list_drivers, verify_database};
 #[cfg(test)]
@@ -132,7 +136,7 @@ pub(crate) use queries::{
     calculate_consecutive_team_tenure, count_calendar_entries,
     get_calendar_for_category_in_base_dir, get_displaced_driver_context_in_base_dir,
     get_driver_detail_in_base_dir,
-    get_driver_dossier_ranks_in_base_dir, get_driver_in_base_dir,
+    get_driver_dossier_ranks_in_base_dir,
     get_drivers_by_category_in_base_dir, get_news_in_base_dir, get_player_dossier_in_base_dir,
     get_previous_champions_in_base_dir, get_race_reading_in_base_dir,
     get_race_results_by_category_in_base_dir, toggle_driver_favorite_in_base_dir,
@@ -155,8 +159,8 @@ pub(crate) use vacancies::backfill_team_vacancy;
 #[cfg(test)]
 pub(crate) use vacancies::calculate_offer_salary_for_team;
 pub(crate) use vacancies::{
-    force_place_player, generate_emergency_player_proposals, normalize_car_performance,
-    normalize_regular_contracts_for_team, refresh_team_hierarchy_now,
+    force_place_player, generate_emergency_player_proposals, get_season_market_board_in_base_dir,
+    normalize_car_performance, normalize_regular_contracts_for_team, refresh_team_hierarchy_now,
 };
 
 pub(crate) struct HistoricalSpecialStanding {

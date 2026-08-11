@@ -8,13 +8,13 @@ pub(crate) fn advance_season_in_base_dir(
     career_id: &str,
 ) -> Result<EndOfSeasonResult, String> {
     let career_number =
-        career_number_from_id(career_id).ok_or_else(|| "ID de carreira invalido.".to_string())?;
+        career_number_from_id(career_id).ok_or_else(errors::invalid_career_id)?;
     let mut config = AppConfig::load_or_default(base_dir);
     let (mut db, career_dir, mut meta) = open_career_resources(base_dir, career_id)?;
     let meta_path = career_dir.join("meta.json");
     let mut season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
 
     let pending_races = calendar_queries::get_pending_races(&db.conn, &season.id)
         .map_err(|e| format!("Falha ao verificar corridas pendentes: {e}"))?;
@@ -38,7 +38,7 @@ pub(crate) fn advance_season_in_base_dir(
     // Assim o mercado normal nunca atropela a convocacao nem o bloco especial.
     match season.fase {
         SeasonPhase::PreTemporada => {
-            return Err("A temporada ainda nao comecou.".to_string());
+            return Err(errors::season_not_started());
         }
         SeasonPhase::Temporada => {
             if !pending_races.is_empty() {
@@ -87,10 +87,6 @@ pub(crate) fn advance_season_in_base_dir(
     .map_err(|e| format!("Falha ao criar backup de fim de temporada: {e}"))?;
 
     let result = run_end_of_season(&mut db.conn, &season, &career_dir)?;
-    warn_if_noncritical(
-        persist_end_of_season_news(&db.conn, &result, season.numero),
-        "Falha ao persistir noticias de fim de temporada",
-    );
     let total_races = count_season_calendar_entries(&db.conn, &result.new_season_id)
         .map_err(|e| format!("Falha ao contar corridas da nova temporada: {e}"))?;
     let now = Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
@@ -143,7 +139,7 @@ pub(crate) fn skip_all_pending_races_in_base_dir(
     {
         let season = season_queries::get_active_season(&db.conn)
             .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-            .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+            .ok_or_else(errors::active_season_not_found)?;
 
         if season.fase == SeasonPhase::Temporada {
             let pending = calendar_queries::get_pending_races(&db.conn, &season.id)
@@ -161,7 +157,7 @@ pub(crate) fn skip_all_pending_races_in_base_dir(
     {
         let season = season_queries::get_active_season(&db.conn)
             .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-            .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+            .ok_or_else(errors::active_season_not_found)?;
 
         if season.fase == SeasonPhase::BlocoRegular {
             let pending = calendar_queries::get_pending_races(&db.conn, &season.id)
@@ -178,7 +174,7 @@ pub(crate) fn skip_all_pending_races_in_base_dir(
     {
         let season = season_queries::get_active_season(&db.conn)
             .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-            .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+            .ok_or_else(errors::active_season_not_found)?;
 
         if season.fase == SeasonPhase::JanelaConvocacao {
             crate::convocation::run_convocation_window(&db.conn)
@@ -192,7 +188,7 @@ pub(crate) fn skip_all_pending_races_in_base_dir(
     {
         let season = season_queries::get_active_season(&db.conn)
             .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-            .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+            .ok_or_else(errors::active_season_not_found)?;
 
         if season.fase == SeasonPhase::BlocoEspecial {
             let player = driver_queries::get_player_driver(&db.conn)
@@ -204,7 +200,7 @@ pub(crate) fn skip_all_pending_races_in_base_dir(
                 );
             }
 
-            for category_id in ["production_challenger", "endurance"] {
+            for category_id in crate::constants::categories::SPECIAL_PHASE_CATEGORIES {
                 let pending = calendar_queries::get_pending_races_for_category(
                     &db.conn,
                     &season.id,
@@ -225,14 +221,6 @@ pub(crate) fn skip_all_pending_races_in_base_dir(
         }
     }
 
-    Ok(())
-}
-
-pub(crate) fn persist_end_of_season_news(
-    _conn: &rusqlite::Connection,
-    _result: &EndOfSeasonResult,
-    _season_number: i32,
-) -> Result<(), String> {
     Ok(())
 }
 

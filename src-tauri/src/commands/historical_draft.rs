@@ -3,6 +3,10 @@ use std::path::{Path, PathBuf};
 use chrono::Local;
 
 use crate::calendar::full_season::generate_full_season_calendar;
+// Helpers compartilhados com a camada de carreira. Eram três cópias locais aqui
+// (`career_number_from_id`, `count_rows`, `read_save_meta`) que podiam divergir da
+// original sem ninguém notar.
+use crate::commands::career::{career_number_from_id, count_rows, read_save_meta};
 use crate::commands::career_types::{
     CareerDraftState, CreateCareerResult, CreateHistoricalDraftInput, DraftTeamOption,
     FinalizeHistoricalDraftInput, SaveLifecycleStatus, UpdateDraftIdentityInput, WorldSummary,
@@ -32,9 +36,12 @@ use crate::models::season::Season;
 use crate::models::team::Team;
 use crate::world::integrity::{audit_historical_world, WorldAuditReport};
 
-const HISTORY_START_YEAR: i32 = 2000;
-const HISTORY_END_YEAR: i32 = 2025;
-const PLAYABLE_START_YEAR: i32 = 2026;
+// Fonte única dos anos de mundo (a carreira regular lê os mesmos): ver
+// `constants::historical_timeline`.
+use crate::constants::historical_timeline::{
+    HISTORY_END_YEAR, HISTORY_START_YEAR, PLAYABLE_START_YEAR,
+};
+
 const STARTING_CATEGORY_IDS: [&str; 2] = ["mazda_rookie", "toyota_rookie"];
 
 pub(crate) fn create_historical_career_draft_in_base_dir(
@@ -365,10 +372,6 @@ fn next_draft_career_id(saves_dir: &Path) -> String {
     format!("career_{next_number:03}")
 }
 
-fn career_number_from_id(career_id: &str) -> Option<u32> {
-    career_id.strip_prefix("career_")?.parse::<u32>().ok()
-}
-
 fn finalize_career_draft(
     base_dir: &Path,
     input: FinalizeHistoricalDraftInput,
@@ -508,12 +511,6 @@ fn finalize_career_draft(
         total_races,
         message: "Carreira historica criada com sucesso".to_string(),
     })
-}
-
-fn count_rows(conn: &rusqlite::Connection, table: &str) -> Result<usize, DbError> {
-    let sql = format!("SELECT COUNT(*) FROM {table}");
-    let count: i64 = conn.query_row(&sql, [], |row| row.get(0))?;
-    Ok(count as usize)
 }
 
 fn empty_draft_state() -> CareerDraftState {
@@ -828,13 +825,6 @@ where
     Err(last_err.expect("retry loop sempre registra o último erro antes de sair"))
 }
 
-fn read_save_meta(meta_path: &Path) -> Result<SaveMeta, String> {
-    let content = std::fs::read_to_string(meta_path)
-        .map_err(|e| format!("Falha ao ler meta do draft: {e}"))?;
-    serde_json::from_str::<SaveMeta>(&content)
-        .map_err(|e| format!("Falha ao parsear meta do draft: {e}"))
-}
-
 fn optional_driver_name(conn: &rusqlite::Connection, driver_id: Option<&str>) -> Option<String> {
     driver_id.and_then(|id| {
         driver_queries::get_driver(conn, id)
@@ -923,7 +913,7 @@ fn simulate_current_historical_special_block(db: &mut Database) -> Result<(), St
     crate::convocation::iniciar_bloco_especial(&db.conn)
         .map_err(|e| format!("Falha ao iniciar bloco especial historico: {e}"))?;
 
-    for category_id in ["production_challenger", "endurance"] {
+    for category_id in crate::constants::categories::SPECIAL_PHASE_CATEGORIES {
         if !is_category_active_in_year(category_id, season.ano) {
             continue;
         }

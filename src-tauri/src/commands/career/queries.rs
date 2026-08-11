@@ -25,19 +25,6 @@ pub(crate) fn get_player_dossier_in_base_dir(
     ))
 }
 
-pub(crate) fn get_driver_in_base_dir(
-    base_dir: &Path,
-    career_number: u32,
-    driver_id: &str,
-) -> Result<Driver, String> {
-    let config = AppConfig::load_or_default(base_dir);
-    let db_path = config.career_db_path(career_number);
-    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
-
-    driver_queries::get_driver(&db.conn, driver_id)
-        .map_err(|e| format!("Falha ao buscar piloto: {e}"))
-}
-
 pub(crate) fn get_news_in_base_dir(
     base_dir: &Path,
     career_id: &str,
@@ -93,7 +80,7 @@ pub(crate) fn get_driver_detail_in_base_dir(
         .map_err(|e| format!("Falha ao buscar piloto: {e}"))?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
     let contract = preferred_active_contract_for_phase(&db.conn, driver_id, season.fase)?;
     let team = resolve_driver_team(&db.conn, driver_id, contract.as_ref())?;
     let role = resolve_driver_role(driver_id, contract.as_ref(), team.as_ref());
@@ -142,10 +129,10 @@ pub(crate) fn get_drivers_by_category_in_base_dir(
 ) -> Result<Vec<DriverSummary>, String> {
     let category = category.trim().to_lowercase();
     let (db, career_dir, _) =
-        open_career_resources_for_category_read(base_dir, career_id, &category)?;
+        open_career_resources_read_only(base_dir, career_id)?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
     let total_rounds = count_calendar_entries(&db.conn, &season.id, &category)
         .map_err(|e| format!("Falha ao contar corridas da categoria: {e}"))?
         as usize;
@@ -363,7 +350,7 @@ pub(crate) fn get_race_results_by_category_in_base_dir(
     let (db, career_dir, _) = open_career_resources_read_only(base_dir, career_id)?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
     let drivers = driver_queries::get_drivers_by_category(&db.conn, &category)
         .map_err(|e| format!("Falha ao buscar pilotos da categoria: {e}"))?;
     let total_rounds = count_calendar_entries(&db.conn, &season.id, &category)
@@ -386,7 +373,7 @@ pub(crate) fn get_previous_champions_in_base_dir(
     let (db, _, _) = open_career_resources_read_only(base_dir, career_id)?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
 
     if season.numero <= 1 {
         return Ok(empty_previous_champions());
@@ -419,10 +406,10 @@ pub(crate) fn get_calendar_for_category_in_base_dir(
     category: &str,
 ) -> Result<Vec<RaceSummary>, String> {
     let category = category.trim().to_lowercase();
-    let (db, _, _) = open_career_resources_for_category_read(base_dir, career_id, &category)?;
+    let (db, _, _) = open_career_resources_read_only(base_dir, career_id)?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
     calendar_queries::normalize_calendar_display_dates_for_weekday_policy(
         &db.conn, &season.id, season.ano,
     )

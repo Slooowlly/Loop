@@ -238,11 +238,11 @@ pub(crate) fn get_teams_standings_in_base_dir(
     category: &str,
 ) -> Result<Vec<TeamStanding>, String> {
     let category = category.trim().to_lowercase();
-    let (db, _, _) = open_career_resources_for_category_read(base_dir, career_id, &category)?;
+    let (db, _, _) = open_career_resources_read_only(base_dir, career_id)?;
     let previous_champions = get_previous_champions_in_base_dir(base_dir, career_id, &category)?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
     let active_season_number = season.numero;
 
     if categories::is_multiclass_category(&category) {
@@ -608,7 +608,7 @@ pub(crate) fn get_teams_car_parts_in_base_dir(
     category: &str,
 ) -> Result<Vec<TeamCarParts>, String> {
     let category = category.trim().to_lowercase();
-    let (db, _, _) = open_career_resources_for_category_read(base_dir, career_id, &category)?;
+    let (db, _, _) = open_career_resources_read_only(base_dir, career_id)?;
     let teams = team_queries::get_teams_by_category(&db.conn, &category)
         .map_err(|e| format!("Falha ao buscar equipes da categoria: {e}"))?;
 

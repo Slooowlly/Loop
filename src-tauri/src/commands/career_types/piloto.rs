@@ -28,8 +28,10 @@ pub struct DriverSummary {
     pub is_estreante: bool,
     #[serde(default)]
     pub is_estreante_da_vida: bool,
+    /// Gravidade da lesão ativa. Vai no fio como chave estável ("light"/"moderate"/"severe"/
+    /// "critical") — a grafia do banco fica no banco.
     #[serde(default)]
-    pub lesao_ativa_tipo: Option<String>,
+    pub lesao_ativa_tipo: Option<crate::models::enums::InjuryType>,
     /// Piloto que encerrou a carreira (aposentado). Fica congelado na classificação da
     /// temporada com os pontos que somou, mas não volta à pista. Ganha selo na UI.
     #[serde(default)]

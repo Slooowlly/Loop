@@ -236,7 +236,7 @@ pub(crate) fn get_season_champion_payload_in_base_dir(
         }
         None => season_queries::get_active_season(&db.conn)
             .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-            .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?,
+            .ok_or_else(errors::active_season_not_found)?,
     };
     let player = driver_queries::get_player_driver(&db.conn)
         .map_err(|e| format!("Falha ao carregar jogador: {e}"))?;

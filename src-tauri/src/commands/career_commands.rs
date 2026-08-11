@@ -9,15 +9,15 @@ use crate::commands::career::{
     debug_stamp_player_championship_in_base_dir, delete_career_in_base_dir,
     finalize_preseason_in_base_dir, get_briefing_phrase_history_in_base_dir,
     get_calendar_for_category_in_base_dir, get_driver_detail_in_base_dir,
-    get_driver_dossier_ranks_in_base_dir, get_driver_in_base_dir,
+    get_driver_dossier_ranks_in_base_dir,
     get_displaced_driver_context_in_base_dir, get_drivers_by_category_in_base_dir,
     get_news_in_base_dir, get_player_dossier_in_base_dir,
     get_player_interests_in_base_dir, get_player_poach_offer_in_base_dir,
     get_player_proposals_in_base_dir, get_preseason_free_agents_in_base_dir,
     get_preseason_state_in_base_dir, get_previous_champions_in_base_dir,
     get_race_reading_in_base_dir, get_race_results_by_category_in_base_dir,
-    get_season_champion_payload_in_base_dir, get_teams_car_parts_in_base_dir,
-    get_teams_standings_in_base_dir,
+    get_season_champion_payload_in_base_dir, get_season_market_board_in_base_dir,
+    get_teams_car_parts_in_base_dir, get_teams_standings_in_base_dir,
     list_saves_in_base_dir, load_career_in_base_dir, persist_resume_context_in_base_dir,
     resolve_player_poach_offer_in_base_dir, respond_to_proposal_in_base_dir,
     save_briefing_phrase_history_in_base_dir, skip_all_pending_races_in_base_dir, PlayerInterests,
@@ -33,8 +33,8 @@ use crate::commands::career_types::{
     CreateHistoricalDraftInput, DriverCareerRankEntry, DriverDetail, DriverSummary,
     DriverWorldRank, FinalizeHistoricalDraftInput, FreeAgentPreview, GlobalDriverRankingPayload,
     GlobalTeamHistoryPayload, RaceReading, RaceSummary, SaveInfo, SeasonChampionPayload,
-    TeamCarParts, TeamFinanceReport, TeamHistoryDossier, TeamRecordsRanking, TeamStanding,
-    UpdateDraftIdentityInput,
+    SeasonMarketBoard, TeamCarParts, TeamFinanceReport, TeamHistoryDossier, TeamRecordsRanking,
+    TeamStanding, UpdateDraftIdentityInput,
 };
 use crate::commands::global_driver_rankings::{
     get_driver_world_rank_in_base_dir, get_global_driver_rankings_in_base_dir,
@@ -50,8 +50,22 @@ use crate::commands::historical_draft::{
 use crate::commands::race_history::{DriverRaceHistory, PreviousChampions};
 use crate::evolution::pipeline::EndOfSeasonResult;
 use crate::market::preseason::{PreSeasonState, WeekResult};
-use crate::models::driver::Driver;
 use crate::news::NewsItem;
+
+/// Portão dos comandos de depuração. Eles escrevem SQL cru no save (posição forçada
+/// no campeonato, fama carimbada, contrato rescindido) e ficam registrados no
+/// `invoke_handler` do build de release junto com todo o resto — qualquer devtools
+/// aberto conseguiria corromper uma carreira real. No release eles recusam.
+///
+/// O gate é no corpo, e não um `cfg` na lista do `generate_handler!`, porque a macro
+/// não aceita atributos condicionais nas entradas.
+fn ensure_debug_build() -> Result<(), String> {
+    if cfg!(debug_assertions) {
+        Ok(())
+    } else {
+        Err("Comando de depuracao indisponivel neste build.".to_string())
+    }
+}
 
 fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
@@ -74,7 +88,14 @@ pub async fn create_historical_career_draft(
     input: CreateHistoricalDraftInput,
 ) -> Result<CareerDraftState, String> {
     let base_dir = app_data_dir(&app)?;
-    create_historical_career_draft_in_base_dir(&base_dir, input)
+    // async + spawn_blocking: o draft simula 26 temporadas (trabalho de MINUTOS) e
+    // rodava síncrono dentro do runtime async, segurando os outros comandos. O
+    // progresso continua saindo por meta.json, lido pelo polling da tela.
+    tauri::async_runtime::spawn_blocking(move || {
+        create_historical_career_draft_in_base_dir(&base_dir, input)
+    })
+    .await
+    .map_err(|e| format!("Falha ao executar o draft historico: {e}"))?
 }
 
 #[tauri::command]
@@ -151,6 +172,7 @@ pub async fn get_season_champion_payload(
 /// a um "Avançar calendário" da final da temporada.
 #[tauri::command]
 pub async fn debug_skip_to_season_finale(app: AppHandle, career_id: String) -> Result<(), String> {
+    ensure_debug_build()?;
     let base_dir = app_data_dir(&app)?;
     debug_skip_to_season_finale_in_base_dir(&base_dir, &career_id)
 }
@@ -163,6 +185,7 @@ pub async fn debug_prepare_market_scenario(
     career_id: String,
     scenario: String,
 ) -> Result<(), String> {
+    ensure_debug_build()?;
     let base_dir = app_data_dir(&app)?;
     debug_prepare_market_scenario_in_base_dir(&base_dir, &career_id, &scenario)
 }
@@ -195,6 +218,7 @@ pub async fn debug_force_player_poach_offer(
     app: AppHandle,
     career_id: String,
 ) -> Result<Option<crate::market::pipeline::PlayerPoachOffer>, String> {
+    ensure_debug_build()?;
     let base_dir = app_data_dir(&app)?;
     debug_force_player_poach_offer_in_base_dir(&base_dir, &career_id)
 }
@@ -206,6 +230,7 @@ pub async fn debug_poaching_auctions(
     app: AppHandle,
     career_id: String,
 ) -> Result<crate::commands::career::PoachDebugReport, String> {
+    ensure_debug_build()?;
     let base_dir = app_data_dir(&app)?;
     debug_poaching_auctions_in_base_dir(&base_dir, &career_id)
 }
@@ -218,6 +243,7 @@ pub async fn debug_stamp_player_championship(
     career_id: String,
     scenario: String,
 ) -> Result<(), String> {
+    ensure_debug_build()?;
     let base_dir = app_data_dir(&app)?;
     debug_stamp_player_championship_in_base_dir(&base_dir, &career_id, &scenario)
 }
@@ -345,6 +371,18 @@ pub async fn get_player_interests(
     get_player_interests_in_base_dir(&base_dir, &career_id)
 }
 
+/// Os assentos vazios do mundo, com o veredito de elegibilidade do jogador em cada
+/// um. É o painel de mercado do MEIO da temporada: fora da janela de pré-temporada
+/// o jogador não tinha onde perguntar que cadeira abriu. Read-only.
+#[tauri::command]
+pub async fn get_season_market_board(
+    app: AppHandle,
+    career_id: String,
+) -> Result<SeasonMarketBoard, String> {
+    let base_dir = app_data_dir(&app)?;
+    get_season_market_board_in_base_dir(&base_dir, &career_id)
+}
+
 #[tauri::command]
 pub async fn get_team_history_dossier(
     app: AppHandle,
@@ -415,11 +453,10 @@ pub async fn get_calendar_for_category(
     get_calendar_for_category_in_base_dir(&base_dir, &career_id, &category)
 }
 
-#[tauri::command]
-pub fn get_driver(app: AppHandle, career_number: u32, driver_id: String) -> Result<Driver, String> {
-    let base_dir = app_data_dir(&app)?;
-    get_driver_in_base_dir(&base_dir, career_number, &driver_id)
-}
+// Não há mais um comando `get_driver` cru. Ele nasceu com a assinatura antiga
+// (`career_number: u32`, de antes de todo mundo passar a receber `career_id`) e a tela
+// nunca chegou a chamá-lo: quem lê um piloto é `get_driver_detail`, que devolve a ficha
+// montada. Saiu em 11/08/2026, junto com `get_driver_in_base_dir`.
 
 /// Dossiê de habilidade do jogador (atributos inferidos do desempenho real; só
 /// visual). Ver `crate::player_skill`.

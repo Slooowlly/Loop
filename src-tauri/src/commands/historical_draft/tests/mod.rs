@@ -20,7 +20,7 @@ use crate::db::connection::Database;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::{calendar as calendar_queries, seasons as season_queries};
 use crate::db::queries::{contracts as contract_queries, teams as team_queries};
-use crate::finance::planning::{category_finance_scale, category_finance_scale_for};
+use crate::finance::planning::category_finance_scale_for;
 use crate::models::enums::{RaceStatus, SeasonPhase};
 use std::collections::HashMap;
 
@@ -525,10 +525,138 @@ fn closed_system_playable_world_has_no_orphans_and_drivers_raced() {
         active_orphans, orphans_raced,
         "todo orfao remanescente ja deve ter corrido (entre contratos), nao ser artefato"
     );
-    // Reserva de free agents (que correram) pequena e limitada.
+
+    // NASCIMENTO NA ESCADA: a métrica que enxerga piloto brotando no meio da escada é a
+    // categoria do PRIMEIRO contrato regular da vida, não `carreira_corridas` no fim. O
+    // piloto nasce na pré-temporada, a temporada roda, e ele chega ao snapshot com
+    // corridas > 0 — `never_raced_acima_do_amador` acima passa mesmo com dezenas nascendo
+    // em gt3 (medido em 30/07/2026: 59-79 por mundo antes do conserto de escassez, 0
+    // depois).
+    //
+    // Mas "acima do amador" NÃO é um limite fixo no mundo histórico, e foi essa a
+    // primeira versão errada desta asserção: as categorias abrem em anos diferentes
+    // (`category_start_year`), e as de ENTRADA são as mais novas de todas — mazda_rookie
+    // e toyota_rookie só existem a partir de 2020. Antes disso não há degrau de baixo em
+    // que nascer: em 2000 o piso do mundo é gt3, em 2002 passa a ser gt4, e só em 2016 a
+    // escada ganha o amador. Medido em 11/08/2026: 129 nascimentos "acima do amador", em
+    // blocos exatamente nas aberturas de classe (gt4 do endurance em 2007, o
+    // production_challenger em 2018) — legítimos, não vazamento.
+    //
+    // O que dá para exigir, e é o que a asserção exige: o primeiro contrato fica no PISO
+    // da época, ou um degrau acima dele (o alcance da válvula de emergência). A temporada
+    // 1 fica fora, porque ali todo grid nasce preenchido pela geração inicial.
+    let anos_por_temporada = {
+        let mut stmt = db
+            .conn
+            .prepare("SELECT numero, ano FROM seasons")
+            .expect("seasons stmt");
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)? as i32))
+            })
+            .expect("seasons rows");
+        rows.map(|row| row.expect("season row"))
+            .collect::<HashMap<i64, i32>>()
+    };
+    // Piso da escada no ano: o menor tier entre as categorias REGULARES já ativas. As
+    // especiais (production_challenger, endurance) ficam fora da conta de piso — elas não
+    // são degrau, são bloco sazonal — mas continuam valendo como destino permitido, pelo
+    // mesmo motivo.
+    let piso_do_ano = |ano: i32| -> u8 {
+        crate::constants::categories::get_all_categories()
+            .iter()
+            .filter(|config| !crate::constants::categories::is_especial(config.id))
+            .filter(|config| is_category_active_in_year(config.id, ano))
+            .map(|config| config.tier)
+            .min()
+            .unwrap_or(0)
+    };
+
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT estreia.piloto_id, estreia.categoria, primeiro.temporada
+               FROM (
+                    SELECT c.piloto_id, MIN(CAST(c.temporada_inicio AS INTEGER)) AS temporada
+                      FROM contracts c
+                      JOIN drivers d ON d.id = c.piloto_id
+                     WHERE c.tipo = 'Regular' AND d.is_jogador = 0
+                     GROUP BY c.piloto_id
+               ) AS primeiro
+               JOIN contracts estreia
+                 ON estreia.piloto_id = primeiro.piloto_id
+                AND CAST(estreia.temporada_inicio AS INTEGER) = primeiro.temporada
+                AND estreia.tipo = 'Regular'
+              WHERE primeiro.temporada > 1
+              ORDER BY primeiro.temporada",
+        )
+        .expect("born-above stmt");
+    let estreias = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .expect("born-above rows")
+        .map(|row| row.expect("born-above row"))
+        .collect::<Vec<_>>();
+    let mut born_above_floor = 0;
+    for (piloto_id, categoria, temporada) in &estreias {
+        // Especial não é degrau: convocação sazonal pode ser a primeira linha da ficha.
+        if crate::constants::categories::is_especial(categoria) {
+            continue;
+        }
+        let Some(&ano) = anos_por_temporada.get(temporada) else {
+            continue;
+        };
+        let Some(config) = crate::constants::categories::get_category_config(categoria) else {
+            continue;
+        };
+        let piso = piso_do_ano(ano);
+        if config.tier > piso + 1 {
+            born_above_floor += 1;
+            eprintln!(
+                "[NASCEU ACIMA] {piloto_id} 1o_contrato={categoria} tier={} temporada={temporada} \
+                 ano={ano} piso_do_ano={piso}"
+            , config.tier);
+        }
+    }
+    eprintln!(
+        "[NASCIMENTO] estreias_pos_temporada_1={} acima_do_piso={born_above_floor}",
+        estreias.len()
+    );
+    assert_eq!(
+        born_above_floor, 0,
+        "piloto com o PRIMEIRO contrato da vida mais de um degrau acima do piso da época: \
+         a escada voltou a criar gente no meio dela em vez de na entrada"
+    );
+
+    // BANCO DE RESERVAS: órfão ativo é piloto sem assento, e assento é recurso fixo —
+    // 2 por equipe regular. Enquanto o mundo gerar mais ativos que assentos, a sobra vai
+    // para o banco por aritmética, não por vazamento. O teto absoluto de 40 que estava
+    // aqui era anterior ao tamanho atual do mundo e já não passava nem no HEAD limpo
+    // (medido em 11/08/2026: 41 a 48 em execuções sem nenhuma mudança). O que se exige
+    // agora é que o banco não passe da SOBRA estrutural; explosão de população continua
+    // coberta pelo `active < 400` acima, e o leak antigo (649 órfãos) reprova lá.
+    let regular_seats = count(
+        "SELECT COUNT(*) * 2 FROM teams
+          WHERE ativa = 1
+            AND categoria NOT IN ('production_challenger', 'endurance')",
+    );
+    let sobra_estrutural = (active - regular_seats).max(0);
+    // Folga para o arredondamento do banco: quem só tem histórico especial e quem trocou
+    // de assento na virada aparecem como órfão sem serem sobra de grid.
+    const FOLGA_DO_BANCO: i64 = 12;
+    eprintln!(
+        "[BANCO] orfaos={active_orphans} ativos={active} assentos_regulares={regular_seats} \
+         sobra_estrutural={sobra_estrutural} folga={FOLGA_DO_BANCO}"
+    );
     assert!(
-        active_orphans <= 40,
-        "free agents entre contratos devem ser poucos: {active_orphans}"
+        active_orphans <= sobra_estrutural + FOLGA_DO_BANCO,
+        "banco de reservas além da sobra estrutural: {active_orphans} órfãos com {active} \
+         ativos para {regular_seats} assentos (sobra {sobra_estrutural})"
     );
 }
 

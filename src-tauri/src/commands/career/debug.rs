@@ -14,7 +14,7 @@ pub(crate) fn debug_force_player_poach_offer_in_base_dir(
     let (db, career_dir, _) = open_career_resources(base_dir, career_id)?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao carregar temporada ativa: {e}"))?
-        .ok_or_else(|| "Nenhuma temporada ativa.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
     let offer = crate::market::pipeline::debug_build_player_poach_offer(&db.conn, season.numero)?;
     // Se estamos numa janela de mercado, persiste no plano (fluxo real); senão só devolve.
     if let Ok(Some(mut plan)) = load_preseason_plan(&career_dir) {
@@ -42,7 +42,7 @@ pub(crate) fn debug_prepare_market_scenario_in_base_dir(
         .map_err(|e| format!("Falha ao abrir banco da carreira: {e}"))?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
     let player = driver_queries::get_player_driver(&db.conn)
         .map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
 
@@ -146,13 +146,13 @@ pub(crate) fn debug_skip_to_season_finale_in_base_dir(
 
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
     let player = driver_queries::get_player_driver(&db.conn)
         .map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
     let player_category = player
         .categoria_atual
         .clone()
-        .ok_or_else(|| "O jogador nao esta em nenhuma categoria.".to_string())?;
+        .ok_or_else(errors::player_without_category)?;
 
     let mut pending = calendar_queries::get_pending_races(&db.conn, &season.id)
         .map_err(|e| format!("Falha ao buscar corridas pendentes: {e}"))?;
@@ -201,7 +201,7 @@ pub(crate) fn debug_poaching_auctions_in_base_dir(
         .map_err(|e| format!("Falha ao abrir banco da carreira: {e}"))?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-        .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+        .ok_or_else(errors::active_season_not_found)?;
     let player = driver_queries::get_player_driver(&db.conn)
         .map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
     let categoria = player
@@ -355,7 +355,7 @@ pub(crate) fn debug_stamp_player_championship_in_base_dir(
             // Sem arquivo ainda: cria uma linha pro ano da temporada ativa (edge case).
             let season = season_queries::get_active_season(&db.conn)
                 .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
-                .ok_or_else(|| "Temporada ativa nao encontrada.".to_string())?;
+                .ok_or_else(errors::active_season_not_found)?;
             db.conn
                 .execute(
                     "INSERT INTO driver_season_archive

@@ -51,3 +51,61 @@ pub struct DisplacedDriverContext {
     /// de "quem é rival" no mesmo jogo divergem na primeira vez que uma muda.
     pub rival_role: Option<String>,
 }
+
+/// Um assento VAZIO no mundo, como o painel de mercado em temporada o lê.
+///
+/// A pergunta que ele responde não é "quem está sem equipe" (isso é agente livre,
+/// e é `FreeAgentPreview`): é "onde existe cadeira aberta hoje, e alguma delas é
+/// para mim". Por isso cada vaga carrega o veredito de elegibilidade em vez de a
+/// tela recalcular a regra em JS — a regra de licença e de faixa de tier é a
+/// mesma da proposta emergencial, e duas cópias divergem na primeira mudança.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenSeat {
+    pub team_id: String,
+    pub team_name: String,
+    pub team_color: String,
+    /// Chave crua da categoria (`gt3`, `endurance`) — a tela nomeia.
+    pub categoria: String,
+    /// Classe dentro da categoria compartilhada (`gt3`, `lmp2`), quando há.
+    pub classe: Option<String>,
+    /// Tier de prestígio da categoria da vaga. `None` quando a categoria não tem
+    /// config — a mesma ausência que o resto do mercado trata como tier 0.
+    pub categoria_tier: Option<u8>,
+    /// `"numero_1"` | `"numero_2"`, na convenção do `TeamRole`.
+    pub papel: String,
+    /// Carro da equipe normalizado em 0–100, a MESMA escala do card de oferta.
+    pub car_performance_rating: u8,
+    /// A licença do jogador cobre a divisão desta vaga.
+    pub licenca_ok: bool,
+    /// A vaga está na faixa de tier em que o mercado ofertaria ao jogador (o tier
+    /// dele ou um degrau acima), pelo mesmo critério de
+    /// `generate_emergency_player_proposals`.
+    pub tier_ok: bool,
+    /// O que esta equipe pagaria ao jogador neste assento. Só vem quando a vaga é
+    /// elegível — estimar salário de um assento que ele não pode ocupar seria
+    /// inventar uma oferta que o mercado nunca faria.
+    pub salario_estimado: Option<f64>,
+}
+
+/// O painel de mercado do jogador FORA da janela de pré-temporada.
+///
+/// Responde a pergunta que o meio da temporada não tinha onde responder: que
+/// cadeira está aberta no mundo, e qual delas é para mim.
+///
+/// O estado do CONTRATO não vem aqui de propósito: ele já viaja completo em
+/// `get_driver_detail(jogador).contrato_mercado`, e a tela que abre este painel
+/// carrega aquele payload de qualquer forma. Um segundo caminho para o mesmo
+/// contrato é a receita para os dois discordarem.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeasonMarketBoard {
+    /// Categoria efetiva do jogador hoje. `None` para agente livre.
+    pub player_categoria: Option<String>,
+    /// Tier da categoria acima. `None` quando não há categoria resolvível — e a
+    /// tela não desenha a faixa em vez de assumir tier 0.
+    pub player_tier: Option<u8>,
+    /// Assentos vazios do mundo, os elegíveis primeiro e, dentro de cada grupo, do
+    /// melhor carro para o pior.
+    pub vagas: Vec<OpenSeat>,
+    /// Quantas das vagas acima são elegíveis para o jogador (licença E faixa).
+    pub vagas_elegiveis: i32,
+}

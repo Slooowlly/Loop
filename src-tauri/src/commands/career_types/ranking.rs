@@ -47,7 +47,9 @@ pub struct GlobalDriverRankingRow {
     #[serde(default)]
     pub is_favorito: bool,
     pub is_lesionado: bool,
-    pub lesao_ativa_tipo: Option<String>,
+    /// Gravidade da lesão ativa, como chave estável no fio ("light"/"moderate"/"severe"/
+    /// "critical"). Ver [`InjuryType`](crate::models::enums::InjuryType).
+    pub lesao_ativa_tipo: Option<crate::models::enums::InjuryType>,
     pub equipe_nome: Option<String>,
     pub equipe_cor_primaria: Option<String>,
     pub categoria_atual: Option<String>,
