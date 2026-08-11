@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! Percepção de rivalidade a partir dos dados REAIS do SDK do iRacing. **Puro.**
 //!
 //! Camada de ENTRADA do sistema de rivalidade: lê o `RaceHistory` de uma corrida

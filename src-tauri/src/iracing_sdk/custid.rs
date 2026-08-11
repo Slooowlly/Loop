@@ -1,18 +1,24 @@
 //! Custid do jogador: capturado automaticamente do YAML de sessão e persistido
 //! em disco, para o app saber quem é o jogador entre execuções.
+//!
+//! Mora na pasta de dados do app ([`super::prefs`]), e não em `%TEMP%`: este é o
+//! número que casa o jogador no pós-corrida, e a Limpeza de Disco do Windows apagava
+//! o arquivo sem deixar rastro — o sintoma (dificuldade adaptativa que não reconhece
+//! ninguém) aparecia semanas depois, longe da causa.
 
 use super::parse_player_custid;
+use super::prefs;
 
 static PLAYER_CUSTID: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 static CUSTID_LOADED: std::sync::Once = std::sync::Once::new();
 
-fn custid_file() -> std::path::PathBuf {
-    std::env::temp_dir().join("loop_player_custid.txt")
-}
+/// Nome do arquivo. Mantido igual ao antigo para o [`prefs::ler`] achar e migrar o
+/// valor de quem já jogava.
+const ARQUIVO: &str = "loop_player_custid.txt";
 
 fn ensure_custid_loaded() {
     CUSTID_LOADED.call_once(|| {
-        if let Ok(s) = std::fs::read_to_string(custid_file()) {
+        if let Some(s) = prefs::ler(ARQUIVO) {
             if let Ok(id) = s.trim().parse::<i64>() {
                 if id > 0 {
                     PLAYER_CUSTID.store(id, std::sync::atomic::Ordering::Relaxed);
@@ -39,6 +45,13 @@ pub fn note_session_custid(yaml: &str) {
     }
     if let Some(id) = parse_player_custid(yaml) {
         PLAYER_CUSTID.store(id, std::sync::atomic::Ordering::Relaxed);
-        let _ = std::fs::write(custid_file(), id.to_string());
+        // A falha vai pro log em vez de sumir: sem este arquivo a identidade do jogador
+        // se perde entre execuções, e o sintoma aparece longe daqui.
+        if let Err(e) = prefs::gravar(ARQUIVO, &id.to_string()) {
+            crate::diagnostico::linha(
+                "iracing",
+                &format!("Falha ao gravar o custid do jogador: {e}"),
+            );
+        }
     }
 }

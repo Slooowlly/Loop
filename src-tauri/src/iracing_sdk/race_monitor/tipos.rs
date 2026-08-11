@@ -3,6 +3,197 @@
 
 use super::*;
 
+// ─── Vocabulário fechado do monitor ──────────────────────────────────────────
+// Estes três enums eram `String` com valores mágicos, comparados por literal em duas
+// dúzias de pontos e por ÍNDICE num array de severidades. Um typo compilava, serializava
+// e falhava calado dos dois lados da ponte. As strings no fio continuam exatamente as
+// mesmas (é o que o React já lê); o que mudou é que agora só o compilador pode escrevê-las.
+
+/// Quanto uma batida estragou o carro, do nada ao fim de linha.
+///
+/// A ORDEM das variantes é o posto: `Ord` derivado substitui o antigo `severity_rank`
+/// sobre o array `SEVERITIES`, que era aritmética de índice com `unwrap_or(0)` no meio.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
+pub enum Severidade {
+    #[serde(rename = "nenhum")]
+    Nenhum,
+    #[serde(rename = "leve")]
+    Leve,
+    #[serde(rename = "moderado")]
+    Moderado,
+    #[serde(rename = "grave")]
+    Grave,
+    #[serde(rename = "destruído")]
+    Destruido,
+    #[serde(rename = "catastrófico")]
+    Catastrofico,
+}
+
+impl Severidade {
+    /// A chave que cruza a ponte e que o resto do app (conserto do carro, notícia,
+    /// percepção de rivalidade) ainda consome como texto.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Severidade::Nenhum => "nenhum",
+            Severidade::Leve => "leve",
+            Severidade::Moderado => "moderado",
+            Severidade::Grave => "grave",
+            Severidade::Destruido => "destruído",
+            Severidade::Catastrofico => "catastrófico",
+        }
+    }
+
+    /// Inverso de [`Severidade::as_str`]. `None` para texto que não é severidade —
+    /// quem chama decide se isso é `Nenhum` ou um erro.
+    pub fn from_key(key: &str) -> Option<Severidade> {
+        [
+            Severidade::Nenhum,
+            Severidade::Leve,
+            Severidade::Moderado,
+            Severidade::Grave,
+            Severidade::Destruido,
+            Severidade::Catastrofico,
+        ]
+        .into_iter()
+        .find(|s| s.as_str() == key)
+    }
+
+    /// Posto numérico (0 = nenhum, 5 = catastrófico), para quem ainda compara por número.
+    pub fn rank(self) -> usize {
+        self as usize
+    }
+
+    /// Rebaixa um nível: o carro cruzou a bandeirada, então o estrago não foi terminal.
+    /// `Nenhum` continua `Nenhum` — não havia batida para abrandar.
+    pub fn rebaixada(self) -> Severidade {
+        match self {
+            Severidade::Nenhum => Severidade::Nenhum,
+            Severidade::Leve => Severidade::Leve,
+            Severidade::Moderado => Severidade::Leve,
+            Severidade::Grave => Severidade::Moderado,
+            Severidade::Destruido => Severidade::Grave,
+            Severidade::Catastrofico => Severidade::Destruido,
+        }
+    }
+
+    /// Houve batida.
+    pub fn houve_batida(self) -> bool {
+        self != Severidade::Nenhum
+    }
+}
+
+/// Em que pé está uma tentativa.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StatusTentativa {
+    /// Correndo agora.
+    Active,
+    /// Cruzou a bandeirada.
+    Finished,
+    /// Correu e não terminou.
+    Dnf,
+    /// Nunca chegou a largar.
+    NotStarted,
+}
+
+impl StatusTentativa {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StatusTentativa::Active => "active",
+            StatusTentativa::Finished => "finished",
+            StatusTentativa::Dnf => "dnf",
+            StatusTentativa::NotStarted => "not_started",
+        }
+    }
+
+    /// Como o desfecho aparece para o jogador.
+    pub fn rotulo_pt(self) -> &'static str {
+        match self {
+            StatusTentativa::Active => "Ativa",
+            StatusTentativa::Finished => "Finalizada",
+            StatusTentativa::Dnf => "DNF",
+            StatusTentativa::NotStarted => "Não largou",
+        }
+    }
+}
+
+/// O que fechou a tentativa.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FimDaTentativa {
+    /// O jogador reiniciou a sessão.
+    Restart,
+    /// O fim de semana virou de sessão (treino → quali → corrida).
+    SessionChange,
+    /// O iRacing fechou.
+    SimClosed,
+    /// Caiu a bandeirada.
+    Checkered,
+}
+
+impl FimDaTentativa {
+    /// Encerrar a tentativa por reinício ou por troca de sessão é bookkeeping do container
+    /// de dano: nenhuma corrida terminou ali, e nada disso vai para a telemetria de produto.
+    pub fn e_corrida_de_verdade(self) -> bool {
+        !matches!(
+            self,
+            FimDaTentativa::Restart | FimDaTentativa::SessionChange
+        )
+    }
+}
+
+/// O castigo por voltar destruído da CLASSIFICAÇÃO, na ordem de gravidade.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CastigoDaQuali {
+    /// `!eol`: larga do fim do grid.
+    Eol,
+    /// `!dq`: não corre.
+    Dq,
+}
+
+impl CastigoDaQuali {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CastigoDaQuali::Eol => "eol",
+            CastigoDaQuali::Dq => "dq",
+        }
+    }
+
+    /// O comando de admin que impõe o castigo ao carro `num`.
+    pub fn comando(self, num: i32) -> String {
+        match self {
+            CastigoDaQuali::Eol => format!("!eol #{num}"),
+            CastigoDaQuali::Dq => format!("!dq #{num}"),
+        }
+    }
+}
+
+/// Um castigo já despachado, à espera de PROVA de que o simulador o recebeu.
+///
+/// O problema que ela existe para medir: o comando vai por `SendInput` com roubo de foco, e
+/// com o sim em fullscreen exclusivo esse caminho devolve SUCESSO sem o comando chegar. Do
+/// lado do envio o furo é indetectável — e a punição da quali destruída inteira depende dele.
+///
+/// A saída é olhar o EFEITO em vez do envio. Dois dos três comandos acendem bandeira no
+/// próprio carro, e a bandeira volta na telemetria: `!dq` deve acender [`FLAG_DISQUALIFY`] e
+/// `!black` deve acender [`FLAG_BLACK`]. O `!eol` **não acende nada** — ele reordena o grid —,
+/// e por isso fica marcado como sem prova possível em vez de ser dado por perdido.
+///
+/// **Isto é diagnóstico, não veredito.** Uma prova que não aparece tem duas leituras — o
+/// comando evaporou, ou o sim não sinaliza aquele estado por este canal — e enquanto não
+/// houver uma captura real com o carro punido para separar as duas, a linha de log diz
+/// exatamente isso. Nada aqui muda o que o jogador ouve.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProvaDoCastigo {
+    /// O comando REAL enviado (já com o número do carro, e já resolvido o fallback).
+    pub comando: String,
+    /// `session_time` do despacho.
+    pub enviado_em_s: f64,
+    /// Bits de `session_flags` que provam a chegada. 0 = não há prova possível (`!eol`).
+    pub prova: u32,
+}
+
 // ─── Modelo exposto à UI ─────────────────────────────────────────────────────
 /// Uma batida registrada numa tentativa.
 #[derive(Clone, Serialize)]
@@ -11,9 +202,9 @@ pub struct CrashEvent {
     pub lap: i32,
     pub score: f64,
     /// Severidade final (pode ter sido rebaixada por a tentativa ter completado).
-    pub severity: String,
+    pub severity: Severidade,
     /// Severidade do impacto bruto, antes de qualquer rebaixamento.
-    pub impact_severity: String,
+    pub impact_severity: Severidade,
     /// Houve IMPACTO de verdade nesta batida (pancada de G ou o incidente 4x de
     /// contato do próprio iRacing), e não só perda de controle. Uma rodada limpa
     /// pontua alto pelo conjunto (incidente + guinada + rotação + fora da pista)
@@ -48,12 +239,12 @@ pub struct AttemptEvidence {
 #[derive(Clone, Serialize)]
 pub struct Attempt {
     pub number: i32,
-    pub status: String, // active | finished | dnf | not_started
+    pub status: StatusTentativa,
     pub started_at_session_time: f64,
     pub laps_completed: i32,
-    pub ended_by: Option<String>, // restart | session_change | sim_closed | checkered
+    pub ended_by: Option<FimDaTentativa>,
     pub reason: Option<String>,
-    pub worst_crash: Option<String>,
+    pub worst_crash: Option<Severidade>,
     pub evidence: AttemptEvidence,
     pub crashes: Vec<CrashEvent>,
     /// PICO do score de batida visto ao vivo nesta tentativa — atualizado todo
@@ -142,7 +333,7 @@ pub struct RaceStatus {
     pub lap_completed: i32,
     pub incident_count: i32,
     pub crash_score: f64,
-    pub crash_severity_now: String,
+    pub crash_severity_now: Severidade,
     pub g_force: f64,
     pub speed_kmh: f64,
     pub tow_time: f64,
@@ -151,7 +342,7 @@ pub struct RaceStatus {
     pub crash_in_progress: bool,
     /// Score acumulado da batida em andamento e sua severidade.
     pub crash_progress_score: f64,
-    pub crash_progress_severity: String,
+    pub crash_progress_severity: Severidade,
     /// Se a corrida está verde agora (gate das bandeiras).
     pub is_green: bool,
     /// Diagnóstico por carro (o que o RaceControl vê).
@@ -386,7 +577,9 @@ pub struct BreakdownOutcome {
     pub part: String,
     pub problem: u8,
     pub lap: u32,
-    pub severity: String,
+    /// Gravidade da quebra. Serializa como a chave estável ("light"/"heavy"/"dnf"), então o
+    /// que sai no fio é o mesmo de quando isto era `String` — só que agora fechado.
+    pub severity: crate::car::breakdown::Severity,
     pub penalty_secs: Option<u32>,
     pub forced: bool,
     pub label: String,
@@ -399,7 +592,7 @@ impl BreakdownOutcome {
             part: ev.part.as_str().to_string(),
             problem: ev.problem,
             lap: ev.lap,
-            severity: ev.severity.key().to_string(),
+            severity: ev.severity,
             penalty_secs: ev.penalty_secs,
             forced: ev.forced,
             label: ev.problem_label().to_string(),

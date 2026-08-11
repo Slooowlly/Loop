@@ -34,10 +34,13 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use serde::Serialize;
 
+use crate::iracing_sdk::spotter_base::{
+    adiante, saltou, spotter_singleton, AUSENCIA_MAX_S, ESTADO_CORRIDA, JANELA_VEL_S, MAX_CARROS,
+    SUP_ENTRANDO_BOX, SUP_FORA_DA_PISTA, SUP_FORA_DO_MUNDO, SUP_NA_CAIXA, SUP_NA_PISTA,
+};
 use crate::iracing_sdk::CarSnapshot;
 
 /// A fala. Duas chaves porque o grau saiu dos dados e não do gosto: abaixo de
@@ -46,19 +49,9 @@ use crate::iracing_sdk::CarSnapshot;
 pub const CHAVE_LENTO_FRENTE: &str = "carro_lento_frente";
 pub const CHAVE_MUITO_LENTO_FRENTE: &str = "carro_muito_lento_frente";
 
-// ───────────────────────────── irsdk_TrkLoc ─────────────────────────────
-const SUP_FORA_DO_MUNDO: i32 = -1;
-const SUP_FORA_DA_PISTA: i32 = 0;
-const SUP_NA_CAIXA: i32 = 1;
-const SUP_ENTRANDO_BOX: i32 = 2;
-const SUP_NA_PISTA: i32 = 3;
-
-/// `irsdk_SessionState::Racing`.
-const ESTADO_CORRIDA: i32 = 4;
-
-/// Janela para derivar a velocidade de um carro (s). Não existe `CarIdxSpeed`; a mesma
-/// janela do irmão, pelo mesmo motivo — trocá-la invalidaria a calibração inteira.
-const JANELA_VEL_S: f64 = 0.25;
+// As superfícies, o estado de corrida e a [`JANELA_VEL_S`] vivem em
+// [`crate::iracing_sdk::spotter_base`]. A janela de velocidade é a mesma do irmão pelo
+// mesmo motivo de sempre: trocá-la invalidaria a calibração inteira desta família.
 
 /// Ritmo recente, em baldes rotativos de 1 s. Ver o irmão.
 const PICO_JANELA_S: f64 = 10.0;
@@ -143,16 +136,6 @@ const DIST_MAX_M: f64 = 200.0;
 /// o obstáculo que aparece a 3 metros. Aqui não cobre: com fechamento lento, 2 s podem
 /// ser 15 metros. Medido, o piso tira 21% dos avisos e baixa os inúteis de 26% para 18%.
 const DIST_MIN_M: f64 = 40.0;
-
-/// Salto de `SessionTime` que denuncia replay, rebobinada ou troca de sessão (s).
-const SALTO_MAX_S: f64 = 5.0;
-
-/// Quanto um carro pode faltar de `cars[]` antes de contar como sumido (s). Um guinchado
-/// some por ~145 s; um quadro perdido é ordens de grandeza menor.
-const AUSENCIA_MAX_S: f64 = 1.0;
-
-/// Teto do array de carros do SDK. Casa com `IRSDK_MAX_CARS` em `imp/util.rs`.
-const MAX_CARROS: usize = 64;
 
 /// Quantos episódios encerrados o histórico guarda.
 const MAX_EPISODIOS: usize = 60;
@@ -408,15 +391,6 @@ fn mediana(v: &mut [f64]) -> Option<f64> {
     })
 }
 
-/// Distância para a FRENTE, de `de` até `para`, em metros (0..comprimento).
-fn adiante(de_pct: f64, para_pct: f64, comprimento_m: f64) -> f64 {
-    let mut d = para_pct - de_pct;
-    if d < 0.0 {
-        d += 1.0;
-    }
-    d * comprimento_m
-}
-
 /// Distância COM SINAL: positiva à frente, negativa atrás, dentro de meia volta.
 fn com_sinal(de_pct: f64, para_pct: f64, comprimento_m: f64) -> f64 {
     let mut d = para_pct - de_pct;
@@ -501,8 +475,7 @@ impl ObservadorLento {
     /// prioridade), o episódio continua marcado como não avisado e tenta de novo na
     /// próxima. **Nunca descarta, no máximo adia.**
     pub fn observar(&mut self, a: AmostraLento<'_>) -> Option<&'static str> {
-        let salto =
-            a.tempo_s < self.ultimo_tempo_s || a.tempo_s - self.ultimo_tempo_s > SALTO_MAX_S;
+        let salto = saltou(self.ultimo_tempo_s, a.tempo_s);
         self.ultimo_tempo_s = a.tempo_s;
         if salto {
             self.zerar();
@@ -739,14 +712,24 @@ impl ObservadorLento {
             } else {
                 None
             };
+            // O `take` roda dentro do tique do amostrador, a 60 Hz. O invariante é
+            // verdadeiro (só se chega aqui com episódio aberto), mas um `expect` no laço
+            // quente troca um bug improvável por um pânico certo: o `catch_unwind` do
+            // amostrador segura o processo e o tique morre com log genérico, o que é pior
+            // do que perder um desfecho.
+            //
+            // O `take` fica DENTRO do `if let Some(d)`, e não numa tupla junto dele: numa
+            // tupla ele é avaliado a cada tique, com ou sem desfecho, e arrancaria o
+            // episódio aberto do carro 60 vezes por segundo.
             if let Some(d) = desfecho {
-                let mut ep = self.carros[i].episodio.take().expect("acabou de existir");
-                ep.desfecho = Some(d);
-                self.arquivar(ep);
-                self.carros[i].lento_desde_s = None;
-                // Fechou, mas o carro pode continuar exatamente na mesma situação — ver
-                // [`Carro::aguardando_normalizar`].
-                self.carros[i].aguardando_normalizar = true;
+                if let Some(mut ep) = self.carros[i].episodio.take() {
+                    ep.desfecho = Some(d);
+                    self.arquivar(ep);
+                    self.carros[i].lento_desde_s = None;
+                    // Fechou, mas o carro pode continuar exatamente na mesma situação —
+                    // ver [`Carro::aguardando_normalizar`].
+                    self.carros[i].aguardando_normalizar = true;
+                }
             }
             return;
         }
@@ -849,14 +832,7 @@ pub fn comprimento_m() -> f64 {
     f64::from_bits(COMPRIMENTO_M.load(Ordering::Relaxed))
 }
 
-fn observador() -> &'static Mutex<ObservadorLento> {
-    static OBS: OnceLock<Mutex<ObservadorLento>> = OnceLock::new();
-    OBS.get_or_init(|| Mutex::new(ObservadorLento::novo()))
-}
-
-fn lock() -> MutexGuard<'static, ObservadorLento> {
-    observador().lock().unwrap_or_else(|e| e.into_inner())
-}
+spotter_singleton!(ObservadorLento, ObservadorLento::novo());
 
 /// Alimenta o observador global com uma amostra. Devolve a chave de fala, se houver.
 pub fn observar(t: &crate::iracing_sdk::IracingTelemetry) -> Option<&'static str> {
@@ -930,6 +906,7 @@ pub fn abertos() -> Vec<Episodio> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::iracing_sdk::spotter_base::SALTO_MAX_S;
 
     /// Okayama Short — a corrida que produziu quase todos os números deste módulo.
     const PISTA: f64 = 1929.0;

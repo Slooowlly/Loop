@@ -7,31 +7,29 @@ use super::*;
 /// Retorna `[(is_ai, is_pace, class_id); 64]`. Varredura por linha (sem parser YAML).
 /// Lê `WeekendInfo:TrackID` do YAML de sessão (a pista da corrida). 0 se ausente.
 pub(crate) fn parse_track_id(yaml: &str) -> i64 {
-    for line in yaml.lines() {
-        if let Some(rest) = line.trim().strip_prefix("TrackID:") {
-            if let Ok(id) = rest.trim().parse::<i64>() {
-                return id;
-            }
-        }
-    }
-    0
+    // Ancorado em `WeekendInfo`: `TrackID` é um prefixo curto e genérico, e a varredura
+    // solta pegava a primeira ocorrência no arquivo INTEIRO.
+    campo_i64(yaml, "WeekendInfo", "TrackID:")
 }
 
 /// Lê `WeekendInfo:SubSessionID` do YAML. 0 se ausente ou inválido.
 pub(crate) fn parse_subsession_id(yaml: &str) -> i64 {
-    for line in yaml.lines() {
-        if let Some(rest) = line.trim().strip_prefix("SubSessionID:") {
-            if let Ok(id) = rest.trim().parse::<i64>() {
-                return id;
-            }
-        }
-    }
-    0
+    campo_i64(yaml, "WeekendInfo", "SubSessionID:")
+}
+
+/// Primeiro `prefixo` numérico dentro de uma seção de topo. 0 quando ausente.
+fn campo_i64(yaml: &str, secao: &str, prefixo: &str) -> i64 {
+    crate::iracing_sdk::secao_do_yaml(yaml, secao)
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(prefixo))
+        .and_then(|rest| rest.trim().parse::<i64>().ok())
+        .unwrap_or(0)
 }
 
 /// `SessionNum` da sessão de QUALIFY no YAML (-1 se não houver). Varre
 /// `SessionInfo:Sessions` e casa o `SessionType` que contém "qualify".
 pub(crate) fn parse_qualy_session_num(yaml: &str) -> i32 {
+    let yaml = crate::iracing_sdk::secao_do_yaml(yaml, "SessionInfo");
     let mut cur_num: i32 = -1;
     for line in yaml.lines() {
         // Idem `parse_race_session_num`: sem tirar o "- " da lista o `SessionNum` nunca
@@ -60,6 +58,7 @@ pub(crate) fn parse_qualy_session_num(yaml: &str) -> i32 {
 /// Racing`, então sem este número a primeira sessão do fim de semana consumia o
 /// gate e o grid da corrida vinha do treino.
 pub(crate) fn parse_race_session_num(yaml: &str) -> i32 {
+    let yaml = crate::iracing_sdk::secao_do_yaml(yaml, "SessionInfo");
     let mut cur_num: i32 = -1;
     for line in yaml.lines() {
         // `Sessions:` é uma LISTA no YAML do iRacing, então a primeira chave de cada

@@ -236,8 +236,10 @@ impl RaceMonitor {
         let closed = self
             .attempts
             .last()
-            .filter(|a| a.number == self.history.attempt_number && a.status != "active")
-            .map(|a| status_pt(&a.status));
+            .filter(|a| {
+                a.number == self.history.attempt_number && a.status != StatusTentativa::Active
+            })
+            .map(|a| a.status.rotulo_pt());
         if let Some(label) = closed {
             self.history.finished = true;
             self.history.outcome = label.to_string();
@@ -246,7 +248,7 @@ impl RaceMonitor {
         // Só grava com uma tentativa ATIVA (corrida em andamento ao vivo). Após o
         // fim (finished/dnf) paramos, mas mantemos o que já foi capturado.
         let attempt = match self.attempts.last() {
-            Some(a) if a.status == "active" => a.number,
+            Some(a) if a.status == StatusTentativa::Active => a.number,
             _ => return,
         };
         // Tentativa nova OU sessão de telemetria nova (quali/treino → corrida) →

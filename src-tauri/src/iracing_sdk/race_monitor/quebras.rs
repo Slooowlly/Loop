@@ -245,7 +245,7 @@ impl RaceMonitor {
             let abandonos = self
                 .breakdown_log
                 .iter()
-                .filter(|o| o.severity == "dnf")
+                .filter(|o| o.severity.e_abandono())
                 .count() as u32;
             if abandonos > crate::engenheiro::quebra::ABANDONOS_PARA_COMENTAR {
                 self.poupar_avisado = true;

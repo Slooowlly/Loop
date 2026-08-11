@@ -81,7 +81,7 @@ impl RaceMonitor {
                     self.player_yellow_rec_emitted = true;
                     let detail = format!(
                         "Batida {} do jogador — bandeira recomendada",
-                        severity_label(live_score)
+                        severity_label(live_score).as_str()
                     );
                     self.recommend_yellow(now, t.lap_completed + 1, None, detail);
                 }

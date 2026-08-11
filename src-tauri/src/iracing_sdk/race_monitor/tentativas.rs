@@ -82,7 +82,7 @@ impl RaceMonitor {
         self.pending_yellow_time = None;
         self.attempts.push(Attempt {
             number: self.current_attempt,
-            status: "active".to_string(),
+            status: StatusTentativa::Active,
             started_at_session_time: session_time,
             laps_completed: 0,
             ended_by: None,
@@ -102,7 +102,7 @@ impl RaceMonitor {
     pub(super) fn ensure_active(&mut self, session_time: f64) {
         let need = match self.attempts.last() {
             None => true,
-            Some(a) => a.status != "active",
+            Some(a) => a.status != StatusTentativa::Active,
         };
         if need {
             self.start_attempt(session_time);
@@ -127,7 +127,7 @@ impl RaceMonitor {
         &self,
         ev: &AttemptEvidence,
         laps: i32,
-        worst_crash: Option<String>,
+        worst_crash: Option<Severidade>,
     ) -> crate::telemetry::RaceOutcome {
         let mut out = crate::telemetry::RaceOutcome {
             voltas: laps,
@@ -143,7 +143,7 @@ impl RaceMonitor {
             garage: ev.garage,
             black_flag: ev.black_flag,
             disqualified: ev.disqualified,
-            pior_batida: worst_crash,
+            pior_batida: worst_crash.map(|s| s.as_str().to_string()),
             carro: self.session_car_name.clone(),
             ..Default::default()
         };
@@ -187,44 +187,40 @@ impl RaceMonitor {
         out
     }
 
-    pub(super) fn finalize_attempt(&mut self, ended_by: &str) -> Option<String> {
+    pub(super) fn finalize_attempt(&mut self, ended_by: FimDaTentativa) -> Option<String> {
         // Uma batida em aberto pertence a esta tentativa: fecha primeiro.
         if self.in_crash {
             self.close_crash();
         }
         let attempt = self.attempts.last_mut()?;
-        if attempt.status != "active" {
+        if attempt.status != StatusTentativa::Active {
             return None;
         }
-        attempt.ended_by = Some(ended_by.to_string());
+        attempt.ended_by = Some(ended_by);
         let ev = attempt.evidence.clone();
 
         if ev.reached_checkered {
-            attempt.status = "finished".to_string();
+            attempt.status = StatusTentativa::Finished;
             attempt.reason = Some("Cruzou a bandeira quadriculada".to_string());
             // Carro completou ⇒ dano não foi terminal: rebaixa as batidas.
             for crash in attempt.crashes.iter_mut() {
-                crash.severity = downgrade(&crash.severity).to_string();
+                crash.severity = crash.severity.rebaixada();
             }
         } else if !ev.raced {
-            attempt.status = "not_started".to_string();
+            attempt.status = StatusTentativa::NotStarted;
             attempt.reason = Some("Não chegou a largar".to_string());
         } else {
-            attempt.status = "dnf".to_string();
+            attempt.status = StatusTentativa::Dnf;
             attempt.reason = Some(build_dnf_reason(attempt, &ev, ended_by));
         }
 
         // Pior batida (pela severidade FINAL já ajustada).
-        attempt.worst_crash = attempt
-            .crashes
-            .iter()
-            .max_by_key(|c| severity_rank(&c.severity))
-            .map(|c| c.severity.clone());
+        attempt.worst_crash = attempt.crashes.iter().map(|c| c.severity).max();
 
         let number = attempt.number;
-        let status = attempt.status.clone();
+        let status = attempt.status;
         let lap = attempt.laps_completed;
-        let worst = attempt.worst_crash.clone();
+        let worst = attempt.worst_crash;
 
         // (o borrow de `attempt` termina aqui; a partir daqui pode emitir)
 
@@ -236,9 +232,9 @@ impl RaceMonitor {
         //
         // Fica DEPOIS do borrow porque o desfecho lê `self.history`, e não antes como
         // era: o `attempt` emprestado mutavelmente bloquearia a leitura.
-        if !matches!(ended_by, "restart" | "session_change") {
-            let outcome = self.build_race_outcome(&ev, lap, worst.clone());
-            crate::telemetry::race_end(&status, Some(outcome));
+        if ended_by.e_corrida_de_verdade() {
+            let outcome = self.build_race_outcome(&ev, lap, worst);
+            crate::telemetry::race_end(status.as_str(), Some(outcome));
         }
 
         let now = self.live_session_time;
@@ -249,21 +245,21 @@ impl RaceMonitor {
         // Trocar de sessão não é abandono: o jogador só saiu do treino/da quali para a
         // corrida. Anunciar "DNF confirmado" no feed no exato instante em que a corrida
         // abre seria mentira na cara do jogador.
-        if status == "dnf" && ended_by != "session_change" {
+        if status == StatusTentativa::Dnf && ended_by != FimDaTentativa::SessionChange {
             self.emit(
                 now,
                 lap,
                 "dnf_confirmed",
                 None,
                 format!("DNF confirmado (#{number})"),
-                worst,
+                worst.map(|s| s.as_str().to_string()),
             );
         }
 
         Some(format!(
             "Tentativa #{} encerrada: {}",
             number,
-            status_pt(&status)
+            status.rotulo_pt()
         ))
     }
 }

@@ -37,9 +37,9 @@ pub fn build_race_result_from_session(
 
     // DNF + batida do jogador, da sua tentativa.
     let p_attempt = player_attempt(status, history.attempt_number);
-    let player_dnf = p_attempt.map(|a| a.status == "dnf").unwrap_or(false);
+    let player_dnf = p_attempt.map(|a| a.status == crate::iracing_sdk::race_monitor::StatusTentativa::Dnf).unwrap_or(false);
     let player_dnf_reason = p_attempt.and_then(|a| a.reason.clone());
-    let player_worst_crash = p_attempt.and_then(|a| a.worst_crash.clone());
+    let player_worst_crash = p_attempt.and_then(|a| a.worst_crash.map(|s| s.as_str().to_string()));
     let player_incidents = p_attempt.map(|a| a.crashes.len() as i32).unwrap_or(0);
 
     // Carro com a melhor volta absoluta → autor da volta mais rápida.

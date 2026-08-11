@@ -52,7 +52,7 @@
 //! dura segundos e a dúvida ("ele ainda está aí?") se renova. Aqui o estado é estável e a
 //! informação não muda: fala uma vez, e cala.
 
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use crate::iracing_sdk::spotter_base::{saltou_desde, spotter_singleton, ESTADO_CORRIDA};
 
 /// Amarela em qualquer das quatro formas. **A máscara é o detector** — ver o cabeçalho.
 const AMARELA: u32 = 0x0000_0008 | 0x0000_0100 | 0x0000_4000 | 0x0000_8000;
@@ -71,8 +71,6 @@ pub const CHAVE_REPARO: &str = "reparo";
 /// coincidir com o que importa. O que marca a relargada com precisão é a borda de descida
 /// da máscara [`AMARELA`]: em Okayama, `t=532,3 s`, uma vez.
 pub const CHAVE_VERDE: &str = "verde";
-
-const ESTADO_CORRIDA: i32 = 4;
 
 /// Por quanto tempo a bandeira precisa estar acesa antes de virar fala.
 ///
@@ -96,9 +94,6 @@ const REARME_S: f64 = 5.0;
 /// esticar. Não há pisca de AMARELA medido — a de Okayama foi um episódio único de 349,9 s
 /// —, então isto é margem contra um caso não observado, não contra um medido.
 const LIBERA_S: f64 = 2.0;
-
-/// Salto de `session_time` que significa replay, rebobinada ou sessão nova.
-const SALTO_MAX_S: f64 = 5.0;
 
 /// As famílias, **em ordem de gravidade** — a mesma ordem do `rotulo_bandeira` do
 /// `EstadoAgora`, para a tela e o rádio nunca discordarem sobre o que é mais grave.
@@ -171,10 +166,8 @@ impl ObservadorBandeira {
     /// esteja pendente.
     pub fn observar(&mut self, a: AmostraBandeira) -> Option<&'static str> {
         // Replay, rebobinada ou sessão nova: o que estava aceso não descreve mais nada.
-        if let Some(ant) = self.ultimo_tempo_s {
-            if a.tempo_s < ant || a.tempo_s - ant > SALTO_MAX_S {
-                self.zerar();
-            }
+        if saltou_desde(self.ultimo_tempo_s, a.tempo_s) {
+            self.zerar();
         }
         self.ultimo_tempo_s = Some(a.tempo_s);
         self.pendente = None;
@@ -280,14 +273,7 @@ impl ObservadorBandeira {
 
 // ─────────────────────────── fachada ───────────────────────────
 
-fn observador() -> &'static Mutex<ObservadorBandeira> {
-    static OBS: OnceLock<Mutex<ObservadorBandeira>> = OnceLock::new();
-    OBS.get_or_init(|| Mutex::new(ObservadorBandeira::novo()))
-}
-
-fn lock() -> MutexGuard<'static, ObservadorBandeira> {
-    observador().lock().unwrap_or_else(|e| e.into_inner())
-}
+spotter_singleton!(ObservadorBandeira, ObservadorBandeira::novo());
 
 /// Alimenta o observador global. Devolve a chave de fala, se houver.
 pub fn observar(t: &crate::iracing_sdk::IracingTelemetry) -> Option<&'static str> {
@@ -306,6 +292,7 @@ pub fn confirmar_aviso() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::iracing_sdk::spotter_base::SALTO_MAX_S;
 
     const DT: f64 = 1.0 / 60.0;
 

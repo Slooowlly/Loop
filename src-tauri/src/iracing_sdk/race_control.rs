@@ -246,3 +246,115 @@ pub fn throw_yellow() -> Result<(), String> {
     let state = read_state(&app_ini).ok_or("Macro de bandeira não instalada.")?;
     super::send_chat_macro(state.slot + SDK_MACRO_OFFSET).map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Um `app.ini` no formato real: seção, recuo, CRLF e as macros numeradas.
+    fn app_ini_de_verdade() -> String {
+        "[Misc]\r\n\
+         audioDevice=default\r\n\
+         \r\n\
+         [Chat]\r\n\
+         AutoChatStr1=Sorry!\r\n\
+         AutoChatStr2=Thanks!\r\n\
+         AutoChatStr7=You're welcome\r\n\
+         AutoChatStr8=Good race\r\n"
+            .to_string()
+    }
+
+    #[test]
+    fn acha_o_slot_do_welcome_seja_qual_for_o_numero() {
+        let (slot, valor) =
+            find_welcome_slot(&app_ini_de_verdade()).expect("o welcome está no arquivo");
+        assert_eq!(slot, 7);
+        assert_eq!(valor, "You're welcome");
+    }
+
+    #[test]
+    fn o_welcome_e_achado_sem_depender_de_maiuscula() {
+        let ini = "AutoChatStr3=WELCOME to the race\r\n";
+        assert_eq!(find_welcome_slot(ini).map(|(n, _)| n), Some(3));
+    }
+
+    #[test]
+    fn sem_welcome_a_busca_devolve_nada_em_vez_de_chutar() {
+        // É o que faz o `install` cair no slot 7 explicitamente, em vez de instalar a
+        // macro por cima de uma frase qualquer do jogador.
+        let ini = "AutoChatStr1=Sorry!\r\nAutoChatStr2=Thanks!\r\n";
+        assert!(find_welcome_slot(ini).is_none());
+    }
+
+    #[test]
+    fn le_o_valor_de_um_slot_pelo_numero() {
+        let ini = app_ini_de_verdade();
+        assert_eq!(slot_value(&ini, 1).as_deref(), Some("Sorry!"));
+        assert_eq!(slot_value(&ini, 8).as_deref(), Some("Good race"));
+        assert_eq!(slot_value(&ini, 99), None);
+    }
+
+    #[test]
+    fn o_slot_nao_casa_com_um_numero_que_apenas_comeca_igual() {
+        // `AutoChatStr1` não pode responder por `AutoChatStr12`: seria trocar a macro
+        // errada no arquivo do jogador.
+        let ini = "AutoChatStr12=doze\r\n";
+        assert_eq!(slot_value(ini, 1), None);
+        assert_eq!(slot_value(ini, 12).as_deref(), Some("doze"));
+    }
+
+    #[test]
+    fn a_troca_preserva_recuo_e_quebra_de_linha_do_windows() {
+        // O `app.ini` é arquivo DO JOGADOR. Reescrever a linha destruindo o CRLF ou o
+        // recuo corromperia a configuração dele fora do app, e nada acusaria.
+        let ini = "[Chat]\r\n  AutoChatStr7=You're welcome\r\nAutoChatStr8=Good race\r\n";
+        let novo = set_slot(ini, 7, YELLOW_MACRO_TEXT).expect("o slot 7 existe");
+        assert!(novo.contains("  AutoChatStr7=!y$\r\n"), "{novo:?}");
+        assert!(
+            novo.contains("AutoChatStr8=Good race\r\n"),
+            "as outras linhas ficam intactas"
+        );
+        assert_eq!(
+            novo.lines().count(),
+            ini.lines().count(),
+            "a troca não pode acrescentar nem comer linha"
+        );
+    }
+
+    #[test]
+    fn a_troca_de_um_slot_inexistente_falha_em_vez_de_inventar_a_linha() {
+        let ini = "AutoChatStr1=Sorry!\r\n";
+        assert!(set_slot(ini, 7, YELLOW_MACRO_TEXT).is_none());
+    }
+
+    #[test]
+    fn so_a_primeira_ocorrencia_do_slot_e_trocada() {
+        // Arquivo com a chave repetida (acontece em `app.ini` remendado à mão): trocar as
+        // duas deixaria duas macros de bandeira e mudaria o comportamento do sim.
+        let ini = "AutoChatStr7=um\nAutoChatStr7=dois\n";
+        let novo = set_slot(ini, 7, "!y$").expect("existe");
+        assert_eq!(novo, "AutoChatStr7=!y$\nAutoChatStr7=dois\n");
+    }
+
+    #[test]
+    fn arquivo_sem_quebra_final_nao_ganha_uma() {
+        let ini = "AutoChatStr7=You're welcome";
+        let novo = set_slot(ini, 7, "!y$").expect("existe");
+        assert_eq!(novo, "AutoChatStr7=!y$");
+    }
+
+    #[test]
+    fn a_linha_do_slot_tolera_espaco_antes_do_igual() {
+        assert!(is_slot_line("AutoChatStr7 = x", 7));
+        assert!(is_slot_line("   AutoChatStr7=x", 7));
+        assert!(!is_slot_line("AutoChatStr70=x", 7));
+        assert!(!is_slot_line("# AutoChatStr7=x", 7));
+    }
+
+    #[test]
+    fn o_numero_de_macro_do_sdk_e_o_slot_menos_um() {
+        // Confirmado empiricamente: `AutoChatStr7` dispara com o índice 6. Errar por um
+        // aqui manda outra frase de chat para a sessão em vez da bandeira.
+        assert_eq!(FALLBACK_SLOT + SDK_MACRO_OFFSET, 6);
+    }
+}

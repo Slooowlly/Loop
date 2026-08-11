@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use crate::iracing_sdk::race_monitor::{
-    severity_rank, Attempt, RaceEvent, RaceHistory, RaceStatus,
+    severity_rank, Attempt, RaceEvent, RaceHistory, RaceStatus, Severidade,
 };
 
 /// Melhor volta (em ms) de cada carro, a partir de `car_laps` (tempos em segundos).
@@ -146,20 +146,29 @@ pub(super) fn ai_worst_incident(events: &[RaceEvent]) -> HashMap<i32, (String, S
 /// (`sim_repair_needed_s`), o carro quebrou de verdade e a severidade fica de pé. O
 /// silêncio desses canais não conclui nada e não interfere.
 pub fn player_worst_severity(status: &RaceStatus, attempt_number: i32) -> String {
-    use crate::iracing_sdk::race_monitor::{downgrade, worst_raw_severity};
+    player_worst_severidade(status, attempt_number)
+        .as_str()
+        .to_string()
+}
+
+/// A mesma conta de [`player_worst_severity`], sem passar pelo texto. É esta que o
+/// código novo deve usar; a versão em `String` sobrevive para os consumidores que ainda
+/// falam por chave (conserto do carro no import, notícia, percepção de rivalidade).
+pub fn player_worst_severidade(status: &RaceStatus, attempt_number: i32) -> Severidade {
+    use crate::iracing_sdk::race_monitor::worst_raw_severity;
     let Some(attempt) = player_attempt(status, attempt_number) else {
-        return "nenhum".to_string();
+        return Severidade::Nenhum;
     };
     // O bruto (pico × batidas fechadas, só com impacto) mora no monitor: o castigo do carro
     // destruído na classificação lê a MESMA conta, e duas redações dela divergiriam.
     let bruto = worst_raw_severity(attempt);
-    if bruto == "nenhum" {
-        return bruto.to_string();
+    if !bruto.houve_batida() {
+        return bruto;
     }
     if attempt.evidence.reached_checkered && attempt.sim_repair_needed_s <= 0.0 {
-        downgrade(bruto).to_string()
+        bruto.rebaixada()
     } else {
-        bruto.to_string()
+        bruto
     }
 }
 

@@ -27,6 +27,7 @@ use super::{CarSnapshot, IracingTelemetry};
 
 mod amostrador;
 mod api;
+mod constantes;
 mod controle_corrida;
 mod estado_agora;
 mod historico;
@@ -49,192 +50,36 @@ pub use resultado::*;
 use sessao::*;
 pub use tipos::*;
 
-// ─── Constantes de tentativa/sessão ──────────────────────────────────────────
-const STATE_RACING: i32 = 4;
-const STATE_CHECKERED: i32 = 5;
-const SURFACE_NOT_IN_WORLD: i32 = -1;
-const SURFACE_OFF_TRACK: i32 = 0;
-const SURFACE_IN_PIT_STALL: i32 = 1;
-const SURFACE_ON_TRACK: i32 = 3;
-const SESSION_TIME_DROP_TOLERANCE: f64 = 1.0;
-/// Salto de SessionTime (rebobinar/avançar replay) acima do qual zeramos os
-/// relógios da IA para não interpretar como "parado"/restart.
-const REPLAY_JUMP_SECS: f64 = 2.0;
-/// Um reinício de verdade leva o SessionTime de volta para perto de ZERO (o
-/// relógio do jogo zera, os carros voltam ao grid). Uma simples queda do tempo
-/// (ex.: ao entrar no replay) NÃO é reinício.
-const RESTART_RESET_MAX_SECS: f64 = 10.0;
-const FLAG_CHECKERED: u32 = 0x0000_0001;
-const FLAG_WHITE: u32 = 0x0000_0002;
-const FLAG_YELLOW: u32 = 0x0000_0008;
-const FLAG_RED: u32 = 0x0000_0010;
-const FLAG_BLUE: u32 = 0x0000_0020;
-const FLAG_YELLOW_WAVING: u32 = 0x0000_0100;
-const FLAG_CAUTION: u32 = 0x0000_4000;
-const FLAG_CAUTION_WAVING: u32 = 0x0000_8000;
-const FLAG_BLACK: u32 = 0x0001_0000;
-const FLAG_DISQUALIFY: u32 = 0x0002_0000;
-const FLAG_REPAIR: u32 = 0x0010_0000;
+use constantes::*;
 
-/// De quanto em quanto tempo o [`EstadoAgora`] recolhe uma amostra. O sampler roda a 60 Hz
-/// para o spotter e a pontuação de batida; o estado narrado não precisa disso — a fala mais
-/// curta do engenheiro leva meio segundo, e clonar o vetor de carros 60 vezes por segundo
-/// pagaria caro por uma resolução que ninguém consome.
-const ESTADO_REFRESH_SECS: f64 = 0.25;
+/// A regra do carro destruído na classificação está ligada na preferência do jogador?
+///
+/// Vive fora do `RaceMonitor` porque quem escreve é o boot e a tela de Configurações, e
+/// quem lê é o amostrador a 60 Hz: um `AtomicBool` evita tomar o lock do monitor só para
+/// responder isto. `None` (nunca resolvida) = cai no [`QUALI_WRECK_ENV`].
+static QUALI_WRECK_CFG: AtomicBool = AtomicBool::new(false);
+static QUALI_WRECK_CFG_SET: AtomicBool = AtomicBool::new(false);
 
-// ─── RaceEventEngine ─────────────────────────────────────────────────────────
-/// Quantos eventos manter no log (os mais antigos saem).
-const MAX_EVENTS: usize = 60;
-/// Teto de voltas guardadas no histórico (race trace). Corridas reais ficam bem
-/// abaixo; é só um guarda contra crescimento ilimitado.
-const MAX_HISTORY_LAPS: usize = 600;
-/// Intervalo (s) entre amostras da batalha do jogador (à frente/atrás). ~1Hz
-/// captura a briga sem peso (1h de corrida ≈ 7200 pontos minúsculos a 2Hz).
-const NEIGHBOR_SAMPLE_SECS: f64 = 0.5;
-/// Teto de amostras da batalha guardadas (≈ 41 min a 2Hz).
-const MAX_TRACK_POINTS: usize = 5000;
-/// Variação mínima de LapDistPct para considerar que um carro "andou".
-const AI_PROGRESS_EPS: f64 = 0.0015;
-/// Segundos sem progresso para sinalizar carro parado.
-const AI_STOPPED_SECS: f64 = 10.0;
-/// Segundos sem progresso para sinalizar provável DNF de IA.
-const AI_DNF_SECS: f64 = 25.0;
+/// Aplica a preferência do jogador. Chamado no boot e a cada `update_config`.
+///
+/// A variável de ambiente continua ganhando: ela é o atalho de teste, e quem a define
+/// está justamente tentando exercitar a regra.
+pub fn set_quali_wreck_penalty(enabled: bool) {
+    QUALI_WRECK_CFG.store(
+        enabled || std::env::var(QUALI_WRECK_ENV).is_ok(),
+        Ordering::Relaxed,
+    );
+    QUALI_WRECK_CFG_SET.store(true, Ordering::Relaxed);
+}
 
-// ─── RaceControlEngine ───────────────────────────────────────────────────────
-/// Tempo mínimo com progresso ZERADO para um carro parado virar candidato a
-/// bandeira. 2s sem progresso já é claramente anormal vs. o ritmo de corrida —
-/// o carro realmente parou, então já consideramos quem vem atrás.
-const YELLOW_MIN_STOP_SECS: f64 = 2.0;
-/// Janela de pista ATRÁS do carro parado (fração da volta) dentro da qual outro
-/// carro é considerado "chegando" — risco de colisão.
-const DANGER_GAP: f64 = 0.10;
-/// Quantos carros chegando configuram perigo (>= isto → recomenda bandeira).
-const DANGER_CARS_MIN: usize = 1;
-/// Janela para correlacionar a amarela do SessionFlags com nossa recomendação.
-const YELLOW_CONFIRM_WINDOW_SECS: f64 = 12.0;
-/// Cooldown após o verde: nos primeiros segundos da corrida o grid está
-/// engarrafado (carros rápidos presos atrás dos lentos), então não decidimos
-/// bandeira até o pelotão abrir.
-const START_GRACE_SECS: f64 = 8.0;
-
-// Cluster de pits = acidente: carros que reduziram muito o ritmo e foram ao box.
-/// Janela de medição do ritmo (pace) de cada carro.
-const PACE_WINDOW_SECS: f64 = 1.5;
-/// Abaixo desta fração do ritmo do líder, o carro está "lento" (danificado).
-const SLOW_PACE_FRACTION: f64 = 0.4;
-/// Acima desta fração, consideramos que o carro JÁ atingiu ritmo de corrida.
-/// "Lento" só conta depois disso — senão a largada (todos acelerando) vira
-/// falso "carro lento".
-const RACING_PACE_FRACTION: f64 = 0.6;
-/// Pit logo após ficar lento NA PISTA conta como pit de incidente.
-const SLOW_PIT_WINDOW_SECS: f64 = 6.0;
-/// Janela e mínimo de pits de incidente para suspeitar de acidente coletivo.
-const PIT_CLUSTER_WINDOW_SECS: f64 = 15.0;
-const PIT_CLUSTER_MIN: usize = 2;
-/// Não realertar sobre o mesmo cluster por este tempo.
-const PIT_CLUSTER_COOLDOWN_SECS: f64 = 30.0;
-/// Intervalo mínimo (segundos) entre snapshots do trace disparados por TROCA de
-/// posição. Evita que uma disputa lado-a-lado (posições trocando tick a tick) gere
-/// um snapshot por frame. A virada de volta do líder ignora este throttle.
-const MIN_TRACE_EVENT_GAP_SECS: f64 = 0.25;
-/// Dwell mínimo (segundos) para uma passagem pela caixa contar como parada real.
-/// `CarIdxTrackSurface == InPitStall` pode piscar por 1 frame (carro cruzando a
-/// zona da caixa, ou leitura transiente do SDK) e gerar "pits" de ~0s. Uma parada
-/// de verdade sempre fica estacionada por vários segundos.
-const MIN_PIT_STALL_DWELL_SECS: f64 = 2.5;
-
-// Setores: divide a pista para detectar acidente coletivo (carros em apuros no
-// mesmo trecho ou em setores vizinhos).
-const NUM_SECTORS: i32 = 20;
-const COLLECTIVE_MIN: usize = 2;
-const COLLECTIVE_COOLDOWN_SECS: f64 = 30.0;
-/// A cada quantos ticks (~60 Hz) recarregar a classificação de carros do YAML.
-const YAML_REFRESH_TICKS: u64 = 180;
-
-// ─── Constantes de pontuação de batida (calibradas nos testes) ───────────────
-const GRAVITY: f64 = 9.81;
-/// Período do sampler com o iRacing CONECTADO (~60 Hz) — para não perder picos.
-const SAMPLER_PERIOD_MS: u64 = 16;
-/// Período OCIOSO (iRacing fechado): só espia a conexão devagar, custo ~zero.
-const SAMPLER_IDLE_PERIOD_MS: u64 = 1000;
-const MERGE_WINDOW_SECS: f64 = 10.0;
-
-const INCIDENT_1X: f64 = 10.0;
-const INCIDENT_2X: f64 = 20.0;
-const INCIDENT_4X: f64 = 35.0;
-
-const G_THRESHOLD: f64 = 3.0;
-const G_RATE: f64 = 1.0;
-const G_CAP: f64 = 30.0;
-
-const SPEED_LOST_THRESHOLD: f64 = 3.0;
-const SPEED_LOST_RATE: f64 = 4.0;
-const SPEED_LOST_CAP: f64 = 160.0;
-
-const YAW_THRESHOLD: f64 = 3.0;
-const YAW_RATE_W: f64 = 10.0;
-const YAW_CAP: f64 = 18.0;
-
-const ROT_THRESHOLD: f64 = 3.5;
-const ROT_RATE_W: f64 = 10.0;
-const ROT_CAP: f64 = 15.0;
-
-const TOW_PTS: f64 = 25.0;
-const OFFTRACK_PTS: f64 = 8.0;
-
-/// Aumento (s) em `PitRepairLeft + PitOptRepairLeft` que conta como dano NOVO. Só
-/// separa ruído de ponto flutuante do que o sim de fato acrescentou.
-const REPAIR_JUMP_SECS: f64 = 0.05;
-
-// ─── Carro destruído na CLASSIFICAÇÃO ────────────────────────────────────────
-// O iRacing devolve o carro inteiro para a corrida; a consequência é regra NOSSA, imposta
-// por comando de admin, como já é o Sistema de Quebra.
-//
-// O castigo age em DOIS momentos. NA QUALI, ao vivo: batida "grave"+ manda `!dq` na hora —
-// o jogador fica impedido de seguir classificando, e o rádio diz o porquê no instante em
-// que o fim de semana dele muda. NA CORRIDA: "grave" vira largada do fundo (`!clear` +
-// `!eol`, medido funcionando em 2026-08-10); "destruído"+ vira DQ reafirmado (`!dq`) — o
-// carro não corre. "Catastrófico" só muda a fala do rádio ("você está inteiro?").
-//
-// A SEVERIDADE da batida gradua (G + velocidade perdida, impacto confirmado). O MEATBALL
-// (`FLAG_REPAIR`) é piso de "grave": é o sim declarando reparo obrigatório, e cobre o
-// score ficar curto em pista molhada/G subamostrado. Os canais `PitRepairLeft` são MUDOS
-// fora do box (medido: carro destruído, meatball na tela, 0.0 em todos os frames — e na
-// quali o botão de box conserta o carro, então eles nunca falam lá); quando falarem,
-// também são piso. Rodada sem impacto não castiga nunca.
-/// Severidade a partir da qual a quali TRAVA e a corrida sai do fundo.
-const QUALI_WRECK_PENALTY_SEV: &str = "grave";
-/// Severidade a partir da qual o carro não corre (DQ na quali E na corrida).
-const QUALI_WRECK_DQ_SEV: &str = "destruído";
-/// Reparo obrigatório (s) que também basta para o piso de "grave". Corroboração.
-const QUALI_WRECK_PENALTY_S: f64 = 25.0;
-/// Reparo obrigatório (s) que também basta para o piso de "destruído".
-const QUALI_WRECK_DQ_S: f64 = 60.0;
-/// Penalidade (s) da bandeira preta quando o `!eol` perde a janela da formação. O castigo
-/// não pode evaporar só porque o YAML demorou a entregar o número do carro.
-const QUALI_WRECK_FALLBACK_PENALTY_S: u32 = 15;
-
-/// Variável de ambiente que arma a regra do carro destruído na classificação.
-const QUALI_WRECK_ENV: &str = "IRACER_QUALI_WRECK";
-
-const SEV_MINOR: f64 = 15.0;
-const SEV_MODERATE: f64 = 50.0;
-const SEV_SEVERE: f64 = 110.0;
-const SEV_TOTALED: f64 = 170.0;
-const SEV_CATASTROPHIC: f64 = 230.0;
-
-/// Ordem das severidades, do menor para o maior. Índice usado para rebaixar.
-pub(crate) const SEVERITIES: [&str; 5] = ["leve", "moderado", "grave", "destruído", "catastrófico"];
-
-/// Distância máxima na volta (fração 0–1) para considerar outro carro "no mesmo
-/// ponto" do jogador num contato — ~2% da pista (poucos comprimentos de carro).
-const CONTACT_NEAR_PCT: f64 = 0.02;
-
-/// Limite de voltas-por-carro guardadas (todos os carros × várias voltas).
-const MAX_CAR_LAPS: usize = 4000;
-
-/// Limite de paradas de box guardadas (todos os carros × várias paradas).
-const MAX_PIT_STOPS: usize = 600;
+/// A regra está armada? Preferência do jogador quando já resolvida; senão, o ambiente.
+pub(crate) fn quali_wreck_penalty_ligada() -> bool {
+    if QUALI_WRECK_CFG_SET.load(Ordering::Relaxed) {
+        QUALI_WRECK_CFG.load(Ordering::Relaxed)
+    } else {
+        std::env::var(QUALI_WRECK_ENV).is_ok()
+    }
+}
 
 /// Rastreamento por carro para os eventos de IA (parado/offtrack/DNF).
 #[derive(Clone, Copy)]
@@ -316,14 +161,30 @@ struct RaceMonitor {
     /// MESMA régua da corrida (`player_worst_severity` sobre esta tentativa).
     quali_attempt_number: i32,
     /// Castigo por carro destruído na classificação, decidido na virada para a corrida e
-    /// pendente de envio: `"eol"` (larga do fundo) ou `"dq"` (não larga). Fica latch porque o
+    /// pendente de envio: [`CastigoDaQuali`]. Fica latch porque o
     /// comando precisa do NÚMERO do carro, que só é conhecido depois que a sessão de corrida
     /// popula o YAML — mandar no mesmo tick da virada acertaria o vazio.
-    quali_wreck_pending: Option<&'static str>,
-    /// O lockout AO VIVO da quali já saiu (`!dq` no meio da classificação). Latch por fim de
-    /// semana: o comando é um só, e é ele que decide se o despacho da corrida precisa de um
-    /// `!clear` antes do `!eol`.
-    quali_lockout_sent: bool,
+    quali_wreck_pending: Option<CastigoDaQuali>,
+    /// Castigo JÁ despachado e ainda sem prova de que chegou ao simulador.
+    ///
+    /// O envio é `SendInput` com roubo de foco ([`crate::iracing_sdk::send_chat_text`]), e ele
+    /// tem um furo conhecido e indetectável na origem: com o sim já em foreground e em
+    /// fullscreen EXCLUSIVO, o `SetForegroundWindow` devolve sucesso, o `SendInput` devolve
+    /// sucesso e o comando não chega. A punição da quali destruída inteira depende desse
+    /// caminho, então "não deu erro" nunca foi evidência de nada.
+    ///
+    /// Isto fecha metade do buraco pelo outro lado: em vez de perguntar se o envio deu certo,
+    /// pergunta se o EFEITO apareceu. Ver [`ProvaDoCastigo`].
+    castigo_a_confirmar: Option<ProvaDoCastigo>,
+    /// O pior posto que o veredito AO VIVO já anunciou nesta classificação.
+    ///
+    /// Guarda o POSTO e não um booleano porque a batida ainda está acontecendo quando o
+    /// veredito sai. Com um latch de sim/não, o primeiro instante em que a pontuação cruzava
+    /// "grave" congelava a decisão — e a mesma batida, dez segundos depois, valia "destruído".
+    /// Resultado medido em 2026-08-11: o jogador ouvia "largamos do fundo", entrava no grid e
+    /// só então tomava o `!dq`, no meio da corrida. Guardando o posto, a faixa PROMOVE dentro
+    /// da própria quali (nada → eol → dq) e o `!dq` chega antes de ele sair do box.
+    quali_lockout_tier: Severidade,
     /// Quantas falas de rádio já foram DESCARTADAS por reinícios/corridas anteriores.
     ///
     /// O overlay mostra "a mais nova por id" e ignora id menor ou igual ao último visto. O id
@@ -335,12 +196,12 @@ struct RaceMonitor {
     /// Uma base só para todos os canais: ela nunca decresce, então cada canal continua
     /// monotônico, e o desperdício de espaço de id é irrelevante.
     radio_epoch: usize,
-    /// A regra do carro destruído na classificação está armada? `None` = ainda não resolvida
-    /// (lida de [`QUALI_WRECK_ENV`] no primeiro fim de semana).
+    /// SOBREPOSIÇÃO local da regra do carro destruído na classificação. `None` (o normal em
+    /// produção) = vale a preferência global, [`quali_wreck_penalty_ligada`].
     ///
-    /// Fica atrás de flag porque o comando da faixa do meio (`!eol`, "larga do fundo") ainda
-    /// não foi confirmado numa etapa de verdade: se ele não pegar em sessão de IA, o castigo
-    /// some em silêncio, e é melhor isso acontecer num teste do que na carreira de quem joga.
+    /// Existe para os TESTES: eles precisam armar e desarmar a regra por monitor, e um
+    /// estático global compartilhado entre casos que rodam em paralelo trocaria o estado
+    /// de um teste debaixo do outro.
     quali_wreck_on: Option<bool>,
 
     // Snapshot ao vivo
@@ -662,7 +523,8 @@ impl RaceMonitor {
             prev_repair_needed_s: -1.0,
             quali_attempt_number: 0,
             quali_wreck_pending: None,
-            quali_lockout_sent: false,
+            castigo_a_confirmar: None,
+            quali_lockout_tier: Severidade::Nenhum,
             radio_epoch: 0,
             quali_wreck_on: None,
             connected: false,
@@ -778,19 +640,21 @@ static MONITOR: Mutex<RaceMonitor> = Mutex::new(RaceMonitor::new());
 /// Quando ligado, o RaceControl não só recomenda como DISPARA a bandeira (envia
 /// a macro `!y$` ao iRacing) automaticamente. Opt-in pelo usuário.
 ///
-/// A preferência é PERSISTIDA em disco (um flag em `%TEMP%`), então sobrevive a
-/// fechar o app / reiniciar o backend — sem isso o toggle "desmarcava sozinho".
+/// A preferência é PERSISTIDA em disco, então sobrevive a fechar o app / reiniciar o
+/// backend — sem isso o toggle "desmarcava sozinho". Mora na pasta de dados do app
+/// ([`super::prefs`]) junto do resto: em `%TEMP%` a Limpeza de Disco do Windows
+/// desmarcava a opção do jogador sem nenhum aviso.
 static AUTO_YELLOW: AtomicBool = AtomicBool::new(false);
 static AUTO_YELLOW_LOADED: std::sync::Once = std::sync::Once::new();
 
-fn auto_yellow_file() -> std::path::PathBuf {
-    std::env::temp_dir().join("loop_auto_yellow.flag")
-}
+/// Nome do arquivo. Igual ao antigo, para o [`super::prefs::ler`] migrar a escolha de
+/// quem já jogava em vez de zerá-la.
+const AUTO_YELLOW_FILE: &str = "loop_auto_yellow.flag";
 
 /// Carrega a preferência salva para o AtomicBool, uma única vez por processo.
 fn ensure_auto_yellow_loaded() {
     AUTO_YELLOW_LOADED.call_once(|| {
-        if let Ok(s) = std::fs::read_to_string(auto_yellow_file()) {
+        if let Some(s) = super::prefs::ler(AUTO_YELLOW_FILE) {
             AUTO_YELLOW.store(s.trim() == "1", Ordering::Relaxed);
         }
     });
@@ -800,7 +664,12 @@ fn ensure_auto_yellow_loaded() {
 pub fn set_auto_yellow(enabled: bool) {
     ensure_auto_yellow_loaded();
     AUTO_YELLOW.store(enabled, Ordering::Relaxed);
-    let _ = std::fs::write(auto_yellow_file(), if enabled { "1" } else { "0" });
+    if let Err(e) = super::prefs::gravar(AUTO_YELLOW_FILE, if enabled { "1" } else { "0" }) {
+        crate::diagnostico::linha(
+            "iracing",
+            &format!("Falha ao salvar a preferência de bandeira automática: {e}"),
+        );
+    }
 }
 
 /// Estado atual do envio automático (restaura do disco no primeiro acesso).

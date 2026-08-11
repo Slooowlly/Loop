@@ -41,17 +41,12 @@
 //! `on_pit_road == false` e `track_surface == ApproachingPits`. Quem detectar a saída pelo
 //! campo de nome óbvio perde a janela inteira. Daí [`dentro_do_box`] olhar os três sinais.
 
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use crate::iracing_sdk::spotter_base::{
+    adiante, empurrar_com_teto, saltou_desde, spotter_singleton, ESTADO_CORRIDA, JANELA_VEL_S,
+    MAX_CARROS, SUP_ENTRANDO_BOX, SUP_NA_CAIXA, SUP_NA_PISTA,
+};
 
 pub const CHAVE_SAINDO_BOX: &str = "carro_saindo_box";
-
-const SUP_NA_CAIXA: i32 = 1;
-const SUP_ENTRANDO_BOX: i32 = 2;
-const SUP_NA_PISTA: i32 = 3;
-const ESTADO_CORRIDA: i32 = 4;
-
-/// Janela da velocidade derivada. A mesma dos irmãos — não existe `CarIdxSpeed`.
-const JANELA_VEL_S: f64 = 0.25;
 
 /// Por quanto tempo depois de deixar a via de box o carro ainda conta como "saindo".
 ///
@@ -82,8 +77,8 @@ const DIF_MIN_KMH: f64 = 70.0;
 /// que a mesma leva de saídas produza duas falas seguidas.
 const LIBERA_S: f64 = 5.0;
 
-const SALTO_MAX_S: f64 = 5.0;
-const MAX_CARROS: usize = 64;
+/// Teto da fila de episódios guardados para calibração.
+const MAX_EPISODIOS: usize = 60;
 
 pub struct AmostraBoxe<'a> {
     pub tempo_s: f64,
@@ -131,14 +126,6 @@ pub struct ObservadorBoxe {
     encerrados: Vec<EpisodioBoxe>,
 }
 
-fn adiante(de_pct: f64, para_pct: f64, comprimento_m: f64) -> f64 {
-    let mut d = para_pct - de_pct;
-    if d < 0.0 {
-        d += 1.0;
-    }
-    d * comprimento_m
-}
-
 impl ObservadorBoxe {
     pub fn novo() -> Self {
         Self {
@@ -155,10 +142,8 @@ impl ObservadorBoxe {
     }
 
     pub fn observar(&mut self, a: AmostraBoxe<'_>) -> Option<&'static str> {
-        if let Some(ant) = self.ultimo_tempo_s {
-            if a.tempo_s < ant || a.tempo_s - ant > SALTO_MAX_S {
-                self.zerar();
-            }
+        if saltou_desde(self.ultimo_tempo_s, a.tempo_s) {
+            self.zerar();
         }
         self.ultimo_tempo_s = Some(a.tempo_s);
         self.pendente = None;
@@ -288,10 +273,7 @@ impl ObservadorBoxe {
     pub fn confirmar_aviso(&mut self) {
         let Some(ep) = self.pendente.take() else { return };
         self.aberto = true;
-        self.encerrados.push(ep);
-        if self.encerrados.len() > 60 {
-            self.encerrados.remove(0);
-        }
+        empurrar_com_teto(&mut self.encerrados, ep, MAX_EPISODIOS);
     }
 
     pub fn drenar_encerrados(&mut self) -> Vec<EpisodioBoxe> {
@@ -301,14 +283,7 @@ impl ObservadorBoxe {
 
 // ─────────────────────────── fachada ───────────────────────────
 
-fn observador() -> &'static Mutex<ObservadorBoxe> {
-    static OBS: OnceLock<Mutex<ObservadorBoxe>> = OnceLock::new();
-    OBS.get_or_init(|| Mutex::new(ObservadorBoxe::novo()))
-}
-
-fn lock() -> MutexGuard<'static, ObservadorBoxe> {
-    observador().lock().unwrap_or_else(|e| e.into_inner())
-}
+spotter_singleton!(ObservadorBoxe, ObservadorBoxe::novo());
 
 pub fn observar(t: &crate::iracing_sdk::IracingTelemetry) -> Option<&'static str> {
     let (chave, encerrados) = {
@@ -342,6 +317,7 @@ pub fn confirmar_aviso() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::iracing_sdk::spotter_base::SALTO_MAX_S;
     use crate::iracing_sdk::CarSnapshot;
 
     const DT: f64 = 1.0 / 60.0;

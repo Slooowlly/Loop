@@ -41,27 +41,19 @@ impl Components {
     }
 }
 
-pub(crate) fn severity_label(score: f64) -> &'static str {
+pub(crate) fn severity_label(score: f64) -> Severidade {
     if score >= SEV_CATASTROPHIC {
-        "catastrófico"
+        Severidade::Catastrofico
     } else if score >= SEV_TOTALED {
-        "destruído"
+        Severidade::Destruido
     } else if score >= SEV_SEVERE {
-        "grave"
+        Severidade::Grave
     } else if score >= SEV_MODERATE {
-        "moderado"
+        Severidade::Moderado
     } else if score >= SEV_MINOR {
-        "leve"
+        Severidade::Leve
     } else {
-        "nenhum"
-    }
-}
-
-/// Rebaixa uma severidade em um nível (carro sobreviveu/completou).
-pub(crate) fn downgrade(severity: &str) -> &'static str {
-    match SEVERITIES.iter().position(|s| *s == severity) {
-        Some(0) | None => "leve",
-        Some(i) => SEVERITIES[i - 1],
+        Severidade::Nenhum
     }
 }
 
@@ -264,15 +256,15 @@ impl RaceMonitor {
                 .push(format!("perdeu {:.0} km/h", speed_lost * 3.6));
         }
         let score = self.crash_components.total();
-        let sev = severity_label(score).to_string();
+        let sev = severity_label(score);
         let start_time = self.crash_start_time;
         let start_lap = self.crash_start_lap;
         let crash = CrashEvent {
             session_time: start_time,
             lap: start_lap,
             score,
-            severity: sev.clone(),
-            impact_severity: sev.clone(),
+            severity: sev,
+            impact_severity: sev,
             had_impact: self.crash_had_impact,
             factors: std::mem::take(&mut self.crash_factors),
         };
@@ -282,14 +274,15 @@ impl RaceMonitor {
         self.in_crash = false;
 
         // Batida grave+ = dano provável e suspeita de DNF (1º estágio).
-        if severity_rank(&sev) >= severity_rank("grave") {
+        if sev >= Severidade::Grave {
+            let rotulo = sev.as_str();
             self.emit(
                 start_time,
                 start_lap,
                 "player_damage_detected",
                 None,
-                format!("Dano provável após batida {sev}"),
-                Some(sev.clone()),
+                format!("Dano provável após batida {rotulo}"),
+                Some(rotulo.to_string()),
             );
             if !self.dnf_probable {
                 self.dnf_probable = true;
@@ -298,8 +291,8 @@ impl RaceMonitor {
                     start_lap,
                     "possible_dnf",
                     None,
-                    format!("Possível DNF após batida {sev}"),
-                    Some(sev),
+                    format!("Possível DNF após batida {rotulo}"),
+                    Some(rotulo.to_string()),
                 );
             }
         }

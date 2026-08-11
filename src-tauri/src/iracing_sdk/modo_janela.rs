@@ -38,6 +38,11 @@
 //! indistinguíveis para quem joga, então a pergunta só cobrava atrito por uma
 //! diferença que o jogador nunca ia ver — o mesmo critério da macro de bandeira
 //! amarela, que também entra sem pedir licença.
+//!
+//! **Mas se desfaz.** Não perguntar só é defensável porque o caminho de volta existe e
+//! é um clique: [`restaurar`] devolve cada `renderer*.ini` ao retrato de antes da
+//! primeira escrita nossa. O arquivo é do jogador, não do Loop — automatizar a ida sem
+//! oferecer a volta seria decidir por ele em cima da configuração gráfica dele.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -67,6 +72,9 @@ pub struct ArquivoModoJanela {
     pub caminho: String,
     /// `true` quando os três valores já estão como o overlay precisa.
     pub em_janela: bool,
+    /// Existe o retrato de antes da primeira escrita nossa (`.loop.bak`)? É o que
+    /// diz se este arquivo tem caminho de volta.
+    pub tem_backup: bool,
 }
 
 /// Estado exposto à UI.
@@ -80,6 +88,9 @@ pub struct ModoJanelaStatus {
     /// O SIMULADOR está aberto agora. A UI/lobby NÃO conta: ela não reescreve
     /// esses arquivos, então dá para ajustar com o jogador parado no lobby.
     pub simulador_aberto: bool,
+    /// Há pelo menos um `.loop.bak` para devolver — o botão de desfazer tem o que
+    /// fazer. Sem nenhum, o Loop nunca chegou a mudar nada aqui.
+    pub pode_desfazer: bool,
     pub arquivos: Vec<ArquivoModoJanela>,
 }
 
@@ -158,16 +169,19 @@ pub fn status() -> ModoJanelaStatus {
             Some(ArquivoModoJanela {
                 caminho: p.display().to_string(),
                 em_janela: conteudo_em_janela(&conteudo)?,
+                tem_backup: caminho_backup(&p).is_file(),
             })
         })
         .collect();
 
     let encontrado = !arquivos.is_empty();
     let em_janela = encontrado && arquivos.iter().all(|a| a.em_janela);
+    let pode_desfazer = arquivos.iter().any(|a| a.tem_backup);
     ModoJanelaStatus {
         encontrado,
         em_janela,
         simulador_aberto,
+        pode_desfazer,
         arquivos,
     }
 }
@@ -245,6 +259,63 @@ pub fn aplicar() -> Result<ModoJanelaStatus, String> {
                 .to_string(),
         );
     }
+    Ok(status())
+}
+
+/// Devolve UM arquivo ao retrato de antes da primeira escrita nossa e apaga o
+/// backup. `Ok(false)` quando não há backup — este arquivo nunca foi tocado.
+///
+/// Escreve o conteúdo em vez de renomear de propósito: o `.ini` pode estar aberto
+/// por outro programa, e um `rename` que falha no meio deixaria o jogador sem os
+/// dois arquivos. Só apaga o backup depois de a escrita ter dado certo, e uma falha
+/// ao apagar não desfaz nada — o pior que acontece é sobrar um `.loop.bak` órfão,
+/// que a próxima restauração reaplica sobre um arquivo idêntico.
+fn restaurar_arquivo(ini: &Path) -> Result<bool, String> {
+    let bak = caminho_backup(ini);
+    if !bak.is_file() {
+        return Ok(false);
+    }
+    let original =
+        fs::read_to_string(&bak).map_err(|e| format!("Falha ao ler {}: {e}", bak.display()))?;
+    fs::write(ini, original).map_err(|e| format!("Falha ao escrever {}: {e}", ini.display()))?;
+    let _ = fs::remove_file(&bak);
+    Ok(true)
+}
+
+/// Desfaz o modo janela: devolve os `renderer*.ini` ao que eram antes de o Loop
+/// tocar neles.
+///
+/// Bloqueia com o simulador aberto pela MESMA razão de [`aplicar`], e não por
+/// simetria: o sim reescreve esses arquivos ao fechar, então restaurar agora seria
+/// apagado no fechamento dele e o jogador acharia que o botão não funciona.
+///
+/// Sem nenhum backup, erra em vez de responder um sucesso vazio: "desfiz" sobre um
+/// arquivo que o Loop nunca mudou é uma mentira que só se descobre no jogo.
+pub fn restaurar() -> Result<ModoJanelaStatus, String> {
+    if super::imp::simulador_aberto() {
+        return Err(
+            "O simulador do iRacing está aberto. Feche-o antes — com ele aberto, a restauração \
+             seria desfeita quando você sair."
+                .to_string(),
+        );
+    }
+
+    let mut restaurados = 0usize;
+    for ini in arquivos_existentes() {
+        if restaurar_arquivo(&ini)? {
+            restaurados += 1;
+        }
+    }
+    if restaurados == 0 {
+        return Err(
+            "Não há nada a desfazer: o Loop não chegou a mudar a configuração gráfica do iRacing."
+                .to_string(),
+        );
+    }
+    crate::diagnostico::linha(
+        "modo_janela",
+        &format!("configuração gráfica restaurada ({restaurados} arquivo(s))"),
+    );
     Ok(status())
 }
 
@@ -337,6 +408,74 @@ fullScreen=1                                    \t; nao e a nossa secao\n";
         assert_eq!(ler_chave(&novo, SECAO, CHAVE_TELA_CHEIA).as_deref(), Some("0"));
         assert_eq!(ler_chave(&novo, SECAO, CHAVE_BORDA).as_deref(), Some("0"));
         assert_eq!(conteudo_em_janela(&novo), Some(true));
+    }
+
+    /// Pasta temporária só deste caso, para os testes de disco não se cruzarem.
+    fn pasta(rotulo: &str) -> PathBuf {
+        let unico = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("loop_modo_janela_{rotulo}_{unico}"));
+        fs::create_dir_all(&dir).expect("criar pasta temporária");
+        dir
+    }
+
+    #[test]
+    fn o_backup_fica_ao_lado_do_ini() {
+        let bak = caminho_backup(Path::new("C:/x/rendererDX11Monitor.ini"));
+        assert_eq!(
+            bak.file_name().unwrap().to_string_lossy(),
+            "rendererDX11Monitor.ini.loop.bak"
+        );
+    }
+
+    /// O caminho de volta que justifica não perguntar antes de aplicar: o arquivo
+    /// volta BYTE A BYTE ao que era, incluindo a resolução e os comentários.
+    #[test]
+    fn restaurar_devolve_o_arquivo_original_e_apaga_o_backup() {
+        let dir = pasta("restaura");
+        let ini = dir.join("rendererDX11.ini");
+        fs::write(&ini, DISPLAY_REAL).unwrap();
+        // Simula o que `aplicar` faz: guarda o retrato e escreve por cima.
+        fs::write(caminho_backup(&ini), DISPLAY_REAL).unwrap();
+        fs::write(&ini, conteudo_ajustado(DISPLAY_REAL).unwrap()).unwrap();
+        assert_eq!(
+            conteudo_em_janela(&fs::read_to_string(&ini).unwrap()),
+            Some(true)
+        );
+
+        assert!(restaurar_arquivo(&ini).unwrap());
+        assert_eq!(fs::read_to_string(&ini).unwrap(), DISPLAY_REAL);
+        assert!(!caminho_backup(&ini).exists(), "o backup precisa sair junto");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Sem backup não há o que devolver, e inventar um "restaurei" faria o jogador
+    /// procurar no lugar errado o motivo de a tela cheia não ter voltado.
+    #[test]
+    fn restaurar_sem_backup_nao_toca_no_arquivo() {
+        let dir = pasta("sem_backup");
+        let ini = dir.join("rendererDX11.ini");
+        fs::write(&ini, DISPLAY_REAL).unwrap();
+        assert!(!restaurar_arquivo(&ini).unwrap());
+        assert_eq!(fs::read_to_string(&ini).unwrap(), DISPLAY_REAL);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Desfazer duas vezes seguidas não é erro no arquivo: a segunda simplesmente
+    /// não acha backup. Quem transforma isso em mensagem é `restaurar`, que sabe se
+    /// NENHUM arquivo tinha o que devolver.
+    #[test]
+    fn restaurar_e_idempotente_por_arquivo() {
+        let dir = pasta("idempotente");
+        let ini = dir.join("rendererDX11.ini");
+        fs::write(caminho_backup(&ini), DISPLAY_REAL).unwrap();
+        fs::write(&ini, conteudo_ajustado(DISPLAY_REAL).unwrap()).unwrap();
+        assert!(restaurar_arquivo(&ini).unwrap());
+        assert!(!restaurar_arquivo(&ini).unwrap());
+        assert_eq!(fs::read_to_string(&ini).unwrap(), DISPLAY_REAL);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// Prova contra os arquivos DE VERDADE da máquina, quando existem: as chaves

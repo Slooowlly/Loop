@@ -934,4 +934,48 @@ mod tests {
             .unwrap();
         assert!([0, 4, 5, 8, 13].contains(&pat));
     }
+
+    // ─── Casos degenerados da normalização ───────────────────────────────────
+    // São CONVENÇÃO, não acidente: grid de um piloto, empate exato e lista vazia não têm
+    // faixa para esticar, e o valor escolhido aqui vira o `minSkill`/`maxSkill` do outro
+    // lado (`limites_da_banda`, em `commands/iracing/temporada.rs`). Os dois lados são
+    // testados para envelhecerem juntos — mudar a convenção só aqui escreveria uma faixa
+    // de largura zero no arquivo pelo qual o esticão do iRacing divide.
+
+    #[test]
+    fn grid_de_um_piloto_abre_um_ponto_de_faixa() {
+        let (skills, band) = normalize_to_roster(&[74.0]);
+        // Sem ninguém com quem comparar, o único piloto fica no meio da escala do roster.
+        assert_eq!(skills, vec![50]);
+        assert!((band.min - 74.0).abs() < 1e-9);
+        assert!((band.max - 75.0).abs() < 1e-9, "faixa nula: {band:?}");
+    }
+
+    #[test]
+    fn empate_exato_do_grid_inteiro_nao_produz_faixa_nula() {
+        // Todo mundo com a mesma skill pretendida: a faixa não existe, e ainda assim o
+        // arquivo precisa sair com `max > min`.
+        let (skills, band) = normalize_to_roster(&[80.0, 80.0, 80.0, 80.0]);
+        assert_eq!(skills, vec![50, 50, 50, 50]);
+        assert!(band.max > band.min, "{band:?}");
+    }
+
+    #[test]
+    fn lista_vazia_devolve_a_faixa_convencionada_em_vez_de_infinito() {
+        // O `fold` sobre lista vazia devolveria ±infinito, e a faixa chegaria ao arquivo
+        // como NaN depois da subtração.
+        let (skills, band) = normalize_to_roster(&[]);
+        assert!(skills.is_empty());
+        assert!((band.min - 0.0).abs() < 1e-9);
+        assert!((band.max - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn dois_pilotos_ocupam_as_duas_pontas_da_escala() {
+        // O menor grid que TEM faixa: o esticão devolve os dois alvos exatos.
+        let (skills, band) = normalize_to_roster(&[60.0, 90.0]);
+        assert_eq!(skills, vec![0, 100]);
+        assert!((band.min - 60.0).abs() < 1e-9);
+        assert!((band.max - 90.0).abs() < 1e-9);
+    }
 }

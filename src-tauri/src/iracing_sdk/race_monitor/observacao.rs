@@ -173,11 +173,13 @@ impl RaceMonitor {
             + self.classificacao_log.len();
     }
 
-    /// A regra está armada? (lida de `IRACER_QUALI_WRECK` uma vez, cacheada no monitor).
+    /// A regra está armada? Vem da preferência do jogador (`AppConfig::quali_wreck_penalty`,
+    /// aplicada no boot e a cada salvamento das Configurações), com o
+    /// [`QUALI_WRECK_ENV`] como atalho de teste por cima. Não é cacheada no monitor: o
+    /// jogador pode ligar a chave com o app aberto, e um cache aqui só faria a mudança
+    /// valer no reinício seguinte.
     fn quali_wreck_armado(&mut self) -> bool {
-        *self
-            .quali_wreck_on
-            .get_or_insert_with(|| std::env::var(QUALI_WRECK_ENV).is_ok())
+        self.quali_wreck_on.unwrap_or_else(quali_wreck_penalty_ligada)
     }
 
     /// O POSTO efetivo do estrago da quali, juntando os três sinais na ordem de autoridade:
@@ -185,45 +187,51 @@ impl RaceMonitor {
     /// declarando reparo obrigatório — é piso de "grave" (cobre o score ficar curto em pista
     /// molhada/G subamostrado); os segundos de reparo, quando existirem, também são piso.
     /// Sem impacto confirmado devolve 0: rodada limpa não castiga, meatball incluso.
-    fn tier_do_estrago(attempt: &Attempt) -> usize {
+    fn tier_do_estrago(attempt: &Attempt) -> Severidade {
         let severidade = worst_raw_severity(attempt);
-        if severidade == "nenhum" {
-            return 0;
+        if !severidade.houve_batida() {
+            return Severidade::Nenhum;
         }
-        let mut rank = severity_rank(severidade);
+        let mut tier = severidade;
         if attempt.evidence.meatball {
-            rank = rank.max(severity_rank(QUALI_WRECK_PENALTY_SEV));
+            tier = tier.max(QUALI_WRECK_PENALTY_SEV);
         }
         if attempt.sim_repair_required_s >= QUALI_WRECK_DQ_S {
-            rank = rank.max(severity_rank(QUALI_WRECK_DQ_SEV));
+            tier = tier.max(QUALI_WRECK_DQ_SEV);
         } else if attempt.sim_repair_required_s >= QUALI_WRECK_PENALTY_S {
-            rank = rank.max(severity_rank(QUALI_WRECK_PENALTY_SEV));
+            tier = tier.max(QUALI_WRECK_PENALTY_SEV);
         }
-        rank
+        tier
     }
 
-    /// O que o posto custa NA CORRIDA: `eol` (larga do fundo) ou `dq` (não corre).
-    fn acao_na_corrida(tier: usize) -> Option<&'static str> {
-        if tier >= severity_rank(QUALI_WRECK_DQ_SEV) {
-            Some("dq")
-        } else if tier >= severity_rank(QUALI_WRECK_PENALTY_SEV) {
-            Some("eol")
+    /// O que o posto custa NA CORRIDA: [`CastigoDaQuali::Eol`] (larga do fundo) ou
+    /// [`CastigoDaQuali::Dq`] (não corre).
+    fn acao_na_corrida(tier: Severidade) -> Option<CastigoDaQuali> {
+        if tier >= QUALI_WRECK_DQ_SEV {
+            Some(CastigoDaQuali::Dq)
+        } else if tier >= QUALI_WRECK_PENALTY_SEV {
+            Some(CastigoDaQuali::Eol)
         } else {
             None
         }
     }
 
-    /// O castigo AO VIVO, dentro da própria classificação: batida "grave"+ tira o jogador da
-    /// quali NA HORA (`!dq`) — o fim de semana dele muda ali, não num rodapé da largada. O
-    /// rádio diz o porquê no mesmo instante, graduado pelo estrago, e a consequência de
-    /// CORRIDA fica pendente para [`Self::despachar_castigo_da_quali`].
+    /// O veredito AO VIVO, dentro da própria classificação: batida "grave"+ encerra a quali do
+    /// jogador NA HORA, pelo rádio — o fim de semana dele muda ali, não num rodapé da largada.
+    /// A faixa terminal ("destruído"+) manda o `!dq` junto; a de baixo não pode (ver o bloco
+    /// do `!clear` em [`crate::iracing_sdk::race_monitor`]). A consequência de CORRIDA fica
+    /// pendente para [`Self::despachar_castigo_da_quali`].
     ///
-    /// Roda todo tick da quali e desarma no primeiro disparo (latch): o `!dq` é um só, e a
-    /// virada de sessão ainda recalcula o posto — se o jogador piorar o carro depois do
-    /// lockout, a pendência é PROMOVIDA (eol → dq), nunca rebaixada.
+    /// Roda todo tick da quali e fala uma vez POR FAIXA, promovendo enquanto o carro piora
+    /// (nada → eol → dq). Não pode ser um latch de sim/não: quando o veredito sai, a batida
+    /// ainda está acontecendo. Travar na primeira faixa cruzada dava o pior desfecho possível
+    /// — o jogador ouvia "largamos do fundo", entrava no grid dirigindo um carro que funciona,
+    /// e só ali levava o `!dq`, tendo de abandonar uma corrida que já tinha começado (medido
+    /// em 2026-08-11). Quem é desqualificado tem de ser impedido de entrar no grid.
+    ///
+    /// Só sobe, nunca desce: alcançada a faixa terminal, o fim de semana está decidido.
     pub(super) fn punir_quali_ao_vivo(&mut self, t: &IracingTelemetry) {
-        if self.quali_lockout_sent
-            || self.qualy_session_num < 0
+        if self.qualy_session_num < 0
             || t.session_num != self.qualy_session_num
             || !self.quali_wreck_armado()
         {
@@ -238,10 +246,16 @@ impl RaceMonitor {
         // sessão — foi exatamente o que aconteceu no teste de 2026-08-10: o log da fronteira
         // dizia "grave" e o castigo ao vivo nunca saiu.
         let tier = Self::tier_do_estrago(attempt)
-            .max(severity_rank(severity_label(self.score_da_batida_em_curso())));
+            .max(severity_label(self.score_da_batida_em_curso()));
         let Some(acao) = Self::acao_na_corrida(tier) else {
             return;
         };
+        // Esta faixa já foi anunciada? Então cala. Só a PROMOÇÃO volta a falar — e depois do
+        // `!dq` não há promoção possível, porque o fim de semana já acabou.
+        let ja_dito = Self::acao_na_corrida(self.quali_lockout_tier);
+        if ja_dito == Some(acao) || ja_dito == Some(CastigoDaQuali::Dq) {
+            return;
+        }
         // O número do carro vem da telemetria deste tick (o histórico pode não saber ainda).
         let idx = t.player_car_idx;
         let Some(num) = (idx >= 0 && (idx as usize) < 64)
@@ -250,18 +264,29 @@ impl RaceMonitor {
         else {
             return; // sem número ainda; tenta no próximo tick (a pendência não se perde)
         };
-        self.quali_lockout_sent = true;
+        self.quali_lockout_tier = tier;
         // A pendência só PROMOVE (dq vence eol): um lockout "grave" seguido de o jogador
         // conseguir piorar o carro não pode voltar a valer menos.
-        if self.quali_wreck_pending != Some("dq") {
+        if self.quali_wreck_pending != Some(CastigoDaQuali::Dq) {
             self.quali_wreck_pending = Some(acao);
         }
         let aviso = match acao {
-            "dq" if tier >= severity_rank("catastrófico") => "quali_catastrofico",
-            "dq" => "quali_destruido",
-            _ => "quali_grave",
+            CastigoDaQuali::Dq if tier >= Severidade::Catastrofico => "quali_catastrofico",
+            CastigoDaQuali::Dq => "quali_destruido",
+            CastigoDaQuali::Eol => "quali_grave",
         };
-        self.pending_breakdown_cmds.push(format!("!dq #{num}"));
+        // O `!dq` só sai na faixa que ACABA o fim de semana. Usá-lo em "grave" seria uma
+        // armadilha: no iRacing o `!dq` é terminal e vale o EVENTO, não a sessão, e o
+        // `!clear` é RECUSADO sobre ele — "Can't clear penalties for car with DQ scoring
+        // invalidated", medido na pista em 2026-08-10. Travar a quali com `!dq` mataria o
+        // `!eol` que viria depois: o jogador simplesmente não largaria.
+        //
+        // Em "grave", então, quem cobra é a CORRIDA (`!eol`, o fundo do grid) e quem encerra
+        // a classificação é o rádio. O jogador pode seguir rodando; o tempo dele é que não
+        // vale mais nada, porque a largada dele já está decidida.
+        if acao == CastigoDaQuali::Dq {
+            self.pending_breakdown_cmds.push(acao.comando(num));
+        }
         self.player_warning_log.push(PlayerWarning {
             tipo: TipoAvisoProprio::QualiDestruida,
             part: "",
@@ -271,7 +296,14 @@ impl RaceMonitor {
         crate::diagnostico::linha(
             "iracing",
             &format!(
-                "quali interrompida pelo estrago: !dq #{num} ao vivo, tier {tier} → corrida {acao}"
+                "quali interrompida pelo estrago: tier {} → corrida {} ({})",
+                tier.as_str(),
+                acao.as_str(),
+                if acao == CastigoDaQuali::Dq {
+                    format!("!dq #{num} ao vivo")
+                } else {
+                    "sem trava no sim, só rádio".to_string()
+                }
             ),
         );
         self.emit(
@@ -279,7 +311,7 @@ impl RaceMonitor {
             t.lap_completed,
             "quali_wreck_lockout",
             None,
-            format!("Classificação encerrada pelo estrago (tier {tier})"),
+            format!("Classificação encerrada pelo estrago ({})", tier.as_str()),
             Some(aviso.to_string()),
         );
     }
@@ -301,15 +333,15 @@ impl RaceMonitor {
             &format!(
                 "carro da quali: meatball {}, batida {}, reparo obrigatório {:.0}s → corrida {}",
                 if quali.evidence.meatball { "sim" } else { "não" },
-                worst_raw_severity(quali),
+                worst_raw_severity(quali).as_str(),
                 quali.sim_repair_required_s,
-                acao.unwrap_or("nenhum")
+                acao.map_or("nenhum", CastigoDaQuali::as_str)
             ),
         );
         // Só PROMOVE a pendência (dq > eol > nada): o lockout ao vivo pode já ter decidido, e
         // a última batida da quali pode ter piorado o carro depois dele.
         match (self.quali_wreck_pending, acao) {
-            (Some("dq"), _) | (_, None) => {}
+            (Some(CastigoDaQuali::Dq), _) | (_, None) => {}
             (_, acao) => self.quali_wreck_pending = acao,
         }
     }
@@ -339,34 +371,46 @@ impl RaceMonitor {
         else {
             return; // YAML ainda não deu o número: tenta de novo no próximo tick
         };
-        // O lockout da quali mandou `!dq` lá; se ele carregar para a corrida, o `!clear`
-        // limpa a ficha antes do castigo certo desta sessão. (Se a quali-DQ NÃO carregar, o
-        // `!clear` é inócuo — e é por isso que ele sai sempre, sem depender da resposta que
-        // só a pista dá.) No DQ de corrida o `!dq` é reafirmado em vez de confiar no arrasto.
+        // Não há `!clear` aqui, e não é esquecimento: o sim RECUSA limpar a ficha de um carro
+        // desqualificado ("Can't clear penalties for car with DQ scoring invalidated"). É por
+        // isso que o lockout da quali não usa `!dq` na faixa "grave" — se usasse, este `!eol`
+        // não teria como valer. No DQ de corrida o `!dq` é reafirmado, que é barato e cobre o
+        // caso de a pendência ter sido PROMOVIDA depois de um lockout mais brando.
         //
         // O `!eol` só existe enquanto há fila de formação. Se a largada veio antes de o YAML
         // entregar o número, o castigo NÃO some: cai na bandeira preta, que é o mecanismo já
         // provado do Loop e vale a corrida inteira. O evento registra o comando REAL, para a
         // medição não confundir um com o outro.
         let comando = match castigo {
-            "dq" => format!("!dq #{num}"),
-            _ if t.session_state < STATE_RACING => format!("!eol #{num}"),
-            _ => format!("!black #{num} {QUALI_WRECK_FALLBACK_PENALTY_S}"),
+            CastigoDaQuali::Dq => castigo.comando(num),
+            CastigoDaQuali::Eol if t.session_state < STATE_RACING => castigo.comando(num),
+            CastigoDaQuali::Eol => format!("!black #{num} {QUALI_WRECK_FALLBACK_PENALTY_S}"),
         };
         self.quali_wreck_pending = None;
         crate::diagnostico::linha(
             "iracing",
             &format!("castigo da quali enviado: {comando} (estado {})", t.session_state),
         );
-        if castigo != "dq" && self.quali_lockout_sent {
-            self.pending_breakdown_cmds.push(format!("!clear #{num}"));
-        }
+        // Arma a conferência do EFEITO. Ver [`ProvaDoCastigo`]: do lado do envio o furo do
+        // fullscreen exclusivo é indetectável, então a pergunta passa a ser se a bandeira
+        // apareceu. O `!eol` não acende bandeira nenhuma e fica marcado como sem prova.
+        self.castigo_a_confirmar = Some(ProvaDoCastigo {
+            comando: comando.clone(),
+            enviado_em_s: t.session_time,
+            prova: if comando.starts_with("!dq") {
+                FLAG_DISQUALIFY
+            } else if comando.starts_with("!black") {
+                FLAG_BLACK
+            } else {
+                0
+            },
+        });
         self.pending_breakdown_cmds.push(comando.clone());
         self.player_warning_log.push(PlayerWarning {
             tipo: TipoAvisoProprio::QualiDestruida,
             part: "",
             wear_pct: 0,
-            severidade: castigo,
+            severidade: castigo.as_str(),
         });
         self.emit(
             t.session_time,
@@ -374,8 +418,74 @@ impl RaceMonitor {
             "quali_wreck_penalty",
             None,
             format!("Carro destruído na classificação: {comando}"),
-            Some(castigo.to_string()),
+            Some(castigo.as_str().to_string()),
         );
+    }
+
+    /// Confere se o castigo despachado deixou RASTRO no simulador, e registra o que achou.
+    ///
+    /// A pergunta que o item A3.3 da vistoria fez — "o fallback de bandeira preta cobre todos
+    /// os desfechos?" — não tem resposta enquanto o único sinal disponível for o retorno do
+    /// `SendInput`, que mente no caso que interessa. Aqui a conferência é pelo outro lado: a
+    /// bandeira que o comando deveria acender no carro do jogador.
+    ///
+    /// Três desfechos, três linhas distintas no `loop.log`:
+    ///
+    /// - **confirmado** — a bandeira apareceu dentro da janela. O comando chegou.
+    /// - **sem prova** — era `!eol`, que reordena o grid sem acender nada. O único jeito de
+    ///   medir esse é comparar a posição de largada com a esperada, na captura da corrida.
+    /// - **não confirmado** — a janela fechou sem bandeira. Duas leituras possíveis, e a linha
+    ///   diz as duas: ou o comando evaporou no `SendInput`, ou o sim não sinaliza aquele
+    ///   estado por este canal. Separar as duas exige uma captura real com o carro punido.
+    ///
+    /// Não fala com o jogador de propósito. O aviso âmbar já existe para a falha DETECTÁVEL
+    /// ([`Self::note_chat_send_failure`]); um segundo aviso baseado numa hipótese ainda não
+    /// medida diria ao jogador que algo deu errado quando pode não ter dado.
+    pub(super) fn conferir_castigo_da_quali(&mut self, t: &IracingTelemetry) {
+        let Some(prova) = self.castigo_a_confirmar.as_ref() else {
+            return;
+        };
+        // Reinício/rebobinada leva o relógio para trás, e aí a janela nunca fecharia: a
+        // conta ficaria negativa para sempre e a conferência morreria pendurada. Um castigo
+        // de antes do reinício também não descreve mais nada — a corrida é outra.
+        if t.session_time < prova.enviado_em_s {
+            self.castigo_a_confirmar = None;
+            return;
+        }
+        let bandeiras = t.session_flags as u32;
+        if prova.prova != 0 && bandeiras & prova.prova != 0 {
+            crate::diagnostico::linha(
+                "iracing",
+                &format!(
+                    "castigo da quali CONFIRMADO no sim: {} (bandeira acesa {:.1} s depois do envio)",
+                    prova.comando,
+                    t.session_time - prova.enviado_em_s
+                ),
+            );
+            self.castigo_a_confirmar = None;
+            return;
+        }
+        if t.session_time - prova.enviado_em_s < JANELA_PROVA_DO_CASTIGO_S {
+            return;
+        }
+        let linha = if prova.prova == 0 {
+            format!(
+                "castigo da quali SEM PROVA POSSÍVEL: {} — o `!eol` reordena o grid e não acende \
+                 bandeira. Para saber se chegou, compare a posição de largada na captura desta \
+                 corrida com a que o grid da classificação previa.",
+                prova.comando
+            )
+        } else {
+            format!(
+                "castigo da quali NÃO CONFIRMADO: {} — {:.0} s sem a bandeira que ele deveria \
+                 acender. Ou o comando não chegou ao sim (o `SendInput` devolve sucesso com o \
+                 simulador em fullscreen exclusivo), ou o sim não sinaliza este estado pelo \
+                 `SessionFlags`. Separar as duas exige uma captura com o carro punido.",
+                prova.comando, JANELA_PROVA_DO_CASTIGO_S
+            )
+        };
+        crate::diagnostico::linha("iracing", &linha);
+        self.castigo_a_confirmar = None;
     }
 
     /// PICO ao vivo da batida em curso: registra o maior impacto da tentativa mesmo que a
@@ -433,7 +543,7 @@ impl RaceMonitor {
         // a tentativa não.
         if self.prev_session_num >= 0 && t.session_num != self.prev_session_num {
             let saindo_da_quali = self.prev_session_num == self.qualy_session_num;
-            self.pending_event = self.finalize_attempt("session_change");
+            self.pending_event = self.finalize_attempt(FimDaTentativa::SessionChange);
             if saindo_da_quali {
                 self.quali_attempt_number = self.current_attempt;
                 self.avaliar_carro_da_quali(t);
@@ -457,7 +567,7 @@ impl RaceMonitor {
             let active_raced = self
                 .attempts
                 .last()
-                .map(|a| a.status == "active" && a.evidence.raced)
+                .map(|a| a.status == StatusTentativa::Active && a.evidence.raced)
                 .unwrap_or(false);
             if active_raced && Self::restarted(&prev, &cur) {
                 reiniciou_de = self.attempts.last().map(|a| a.number);
@@ -470,7 +580,7 @@ impl RaceMonitor {
                 } else if t.session_num == self.qualy_session_num {
                     self.restarts_quali += 1;
                 }
-                self.pending_event = self.finalize_attempt("restart");
+                self.pending_event = self.finalize_attempt(FimDaTentativa::Restart);
             }
         }
         self.ensure_active(now);
@@ -496,6 +606,9 @@ impl RaceMonitor {
         // do `ensure_active` de propósito: a fila de comandos é da tentativa, e o
         // `start_attempt` a esvazia — enfileirar antes seria enfileirar no lixo.
         self.despachar_castigo_da_quali(t);
+        // E, no tique seguinte em diante, confere se ele deixou rastro. Ver A3.3 da vistoria:
+        // o retorno do `SendInput` não serve de evidência, então a evidência vira a bandeira.
+        self.conferir_castigo_da_quali(t);
 
         // 1.5) Estilo de pilotagem: acumula os inputs do jogador SÓ na pista e correndo
         // (pit/garagem/quali não contam). Vira fator de desgaste por peça no import — só o
@@ -894,7 +1007,7 @@ impl RaceMonitor {
         let flags = t.session_flags as u32;
         let prev_laps = self.attempts.last().map(|a| a.laps_completed).unwrap_or(0);
         let attempt = match self.attempts.last_mut() {
-            Some(a) if a.status == "active" => a,
+            Some(a) if a.status == StatusTentativa::Active => a,
             _ => return,
         };
         let ev = &mut attempt.evidence;

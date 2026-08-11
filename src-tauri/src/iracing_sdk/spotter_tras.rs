@@ -39,10 +39,13 @@
 //! Ver `docs/spotter-frentes/frente-a-tras.md`.
 
 use std::collections::VecDeque;
-use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use serde::Serialize;
 
+use crate::iracing_sdk::spotter_base::{
+    adiante, saltou, spotter_singleton, AUSENCIA_MAX_S, ESTADO_CORRIDA, MAX_CARROS,
+    SUP_ENTRANDO_BOX, SUP_FORA_DA_PISTA, SUP_NA_CAIXA, SUP_NA_PISTA,
+};
 use crate::iracing_sdk::CarSnapshot;
 
 /// ENTRADA — vem gente por trás, e vem mais rápido.
@@ -52,14 +55,8 @@ pub const CHAVE_LEMBRETE_ATRAS: &str = "ainda_atras";
 /// LIBERAÇÃO — o trem passou.
 pub const CHAVE_LIVRE_ATRAS: &str = "livre_atras";
 
-// ───────────────────────────── irsdk_TrkLoc ─────────────────────────────
-const SUP_FORA_DA_PISTA: i32 = 0;
-const SUP_NA_CAIXA: i32 = 1;
-const SUP_ENTRANDO_BOX: i32 = 2;
-const SUP_NA_PISTA: i32 = 3;
-
-/// `irsdk_SessionState::Racing`.
-const ESTADO_CORRIDA: i32 = 4;
+// As superfícies do `irsdk_TrkLoc` e o estado de corrida vivem em
+// [`crate::iracing_sdk::spotter_base`]: são contrato do SDK, não calibração deste módulo.
 
 // ───────────────────────────── irsdk_Flags ─────────────────────────────
 /// Bandeira azul: "vem um carro muito mais rápido, deixe passar". É literalmente o
@@ -139,15 +136,6 @@ const LEMBRETE_MAX_S: f64 = 12.0;
 /// nada porque a mediana é zero.
 const CAMPO_MIN_MS: f64 = 8.0;
 const CAMPO_MIN_CARROS: usize = 5;
-
-/// Quanto o jogador pode faltar de `cars[]` antes de contar como sumido (s). Guincho.
-const AUSENCIA_MAX_S: f64 = 1.0;
-
-/// Salto de `SessionTime` que denuncia replay, rebobinada ou troca de sessão (s).
-const SALTO_MAX_S: f64 = 5.0;
-
-/// Teto do array de carros do SDK, igual ao de `imp/util.rs`.
-const MAX_CARROS: usize = 64;
 
 /// Quantos estados encerrados o histórico guarda.
 const MAX_EPISODIOS: usize = 40;
@@ -332,15 +320,6 @@ impl Carro {
     }
 }
 
-/// Distância para a FRENTE, de `de` até `para`, em metros (0..comprimento).
-fn adiante(de_pct: f64, para_pct: f64, comprimento_m: f64) -> f64 {
-    let mut d = para_pct - de_pct;
-    if d < 0.0 {
-        d += 1.0;
-    }
-    d * comprimento_m
-}
-
 /// O carro está num lugar onde o tráfego de corrida passa por ele.
 ///
 /// A grama CONTA — quem está fora da pista precisa mais do aviso, não menos. Quem não
@@ -438,8 +417,7 @@ impl ObservadorTras {
     /// que some porque o lateral ganhou o tick é o defeito que este projeto já cometeu
     /// uma vez: nunca descarta, no máximo adia.
     pub fn observar(&mut self, a: AmostraTras<'_>) -> Option<&'static str> {
-        let salto =
-            a.tempo_s < self.ultimo_tempo_s || a.tempo_s - self.ultimo_tempo_s > SALTO_MAX_S;
+        let salto = saltou(self.ultimo_tempo_s, a.tempo_s);
         self.ultimo_tempo_s = a.tempo_s;
         if salto {
             self.zerar();
@@ -760,14 +738,7 @@ impl ObservadorTras {
 
 // ─────────────────────────── O observador global ───────────────────────────
 
-fn observador() -> &'static Mutex<ObservadorTras> {
-    static OBS: OnceLock<Mutex<ObservadorTras>> = OnceLock::new();
-    OBS.get_or_init(|| Mutex::new(ObservadorTras::novo()))
-}
-
-fn lock() -> MutexGuard<'static, ObservadorTras> {
-    observador().lock().unwrap_or_else(|e| e.into_inner())
-}
+spotter_singleton!(ObservadorTras, ObservadorTras::novo());
 
 /// Alimenta o observador global com uma amostra. Devolve a chave de fala, se houver.
 ///
@@ -836,6 +807,7 @@ pub fn aberto() -> Option<EpisodioTras> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::iracing_sdk::spotter_base::SALTO_MAX_S;
 
     /// Okayama Short — a pista da corrida que produziu este detector.
     const PISTA: f64 = 1929.0;

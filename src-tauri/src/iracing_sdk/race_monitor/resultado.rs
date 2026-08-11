@@ -58,13 +58,15 @@ pub fn build_adaptive_result(
 }
 
 // ─── Helpers de desfecho ─────────────────────────────────────────────────────
-/// Posto da severidade (0 = "nenhum", 5 = "catastrófico"). Usado para comparar
-/// batidas — pela ponte de resultado e pelo cálculo de conserto do carro.
-pub(crate) fn severity_rank(severity: &str) -> usize {
-    SEVERITIES
-        .iter()
-        .position(|s| *s == severity)
-        .map(|i| i + 1)
+/// Posto da severidade a partir da CHAVE em texto (0 = "nenhum", 5 = "catastrófico").
+///
+/// Dentro do monitor ninguém precisa disto: [`Severidade`] é `Ord` e compara sozinha.
+/// A função sobrevive para quem recebe a severidade já serializada como texto e não
+/// tem como voltar ao enum — hoje o conserto do carro no import
+/// (`commands::race::importacao`). Chave desconhecida vale 0, como antes.
+pub fn severity_rank(severity: &str) -> usize {
+    Severidade::from_key(severity)
+        .map(Severidade::rank)
         .unwrap_or(0)
 }
 
@@ -76,43 +78,30 @@ pub(crate) fn severity_rank(severity: &str) -> usize {
 /// que é o componente que separa o encostão da destruição e vale até 160 pontos, só é
 /// calculada quando a batida fecha. Ler só o pico dizia "leve" para um carro que virou
 /// sucata no muro. A batida FECHADA tem a conta inteira; o `max` fica com quem viu mais.
-pub(crate) fn worst_raw_severity(attempt: &Attempt) -> &str {
+pub(crate) fn worst_raw_severity(attempt: &Attempt) -> Severidade {
     let pico = severity_label(attempt.peak_crash_score);
     let fechada = attempt
         .crashes
         .iter()
         .filter(|c| c.had_impact)
-        .max_by_key(|c| severity_rank(&c.impact_severity))
-        .map(|c| c.impact_severity.as_str())
-        .unwrap_or("nenhum");
-    if severity_rank(pico) >= severity_rank(fechada) {
-        pico
-    } else {
-        fechada
-    }
-}
-
-pub(crate) fn status_pt(status: &str) -> &'static str {
-    match status {
-        "active" => "Ativa",
-        "finished" => "Finalizada",
-        "dnf" => "DNF",
-        "not_started" => "Não largou",
-        _ => "Desconhecido",
-    }
+        .map(|c| c.impact_severity)
+        .max()
+        .unwrap_or(Severidade::Nenhum);
+    pico.max(fechada)
 }
 
 /// Motivo do DNF: cita a PIOR batida (se houve) + como encerrou.
-pub(crate) fn build_dnf_reason(attempt: &Attempt, ev: &AttemptEvidence, ended_by: &str) -> String {
+pub(crate) fn build_dnf_reason(
+    attempt: &Attempt,
+    ev: &AttemptEvidence,
+    ended_by: FimDaTentativa,
+) -> String {
     let how = match ended_by {
-        "restart" => "reiniciou sem terminar",
-        "sim_closed" => "fechou o jogo / saiu sem terminar",
+        FimDaTentativa::Restart => "reiniciou sem terminar",
+        FimDaTentativa::SimClosed => "fechou o jogo / saiu sem terminar",
         _ => "encerrou sem terminar",
     };
-    let worst = attempt
-        .crashes
-        .iter()
-        .max_by_key(|c| severity_rank(&c.severity));
+    let worst = attempt.crashes.iter().max_by_key(|c| c.severity);
     if let Some(crash) = worst {
         let detail = crash
             .factors
@@ -122,7 +111,7 @@ pub(crate) fn build_dnf_reason(attempt: &Attempt, ev: &AttemptEvidence, ended_by
             .unwrap_or_else(|| crash.factors.join(", "));
         format!(
             "Abandonou após batida {} na volta {} ({}); {how}.",
-            crash.severity.to_uppercase(),
+            crash.severity.as_str().to_uppercase(),
             crash.lap,
             detail
         )

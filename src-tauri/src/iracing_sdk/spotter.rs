@@ -521,6 +521,39 @@ fn observador() -> &'static Mutex<Observador> {
     OBSERVADOR.get_or_init(|| Mutex::new(Observador::novo()))
 }
 
+/// Assinatura de quem quer ser avisado no INSTANTE em que um anúncio sai.
+type Emissor = Box<dyn Fn(&EventoSpotter) + Send + Sync + 'static>;
+
+static EMISSOR: OnceLock<Emissor> = OnceLock::new();
+
+/// Registra o empurrão de eventos para o app. Chamado UMA vez no boot.
+///
+/// Existe porque a entrega por POLLING é o elo frágil do spotter: o front drena o
+/// histórico num `invoke` periódico, e com a janela do webview COBERTA pelo simulador o
+/// navegador estrangula os timers do JavaScript. O evento nasce a 60 Hz aqui e chega
+/// atrasado (ou em lote, o que para uma fala de segurança é a mesma coisa que não
+/// chegar) — a perda está medida e registrada no `loop.log`, que continua tendo o evento
+/// que o jogador não ouviu.
+///
+/// O empurrão NÃO substitui o polling: o histórico continua exposto e os ids continuam
+/// monotônicos, então o front descarta o que já viu, venha por qual caminho vier. É uma
+/// segunda porta, não a troca de uma frágil por outra.
+///
+/// Toma um callback em vez de um `AppHandle` de propósito: este módulo não conhece Tauri,
+/// e não é aqui que essa dependência deve nascer. Quem sabe emitir é o `lib.rs`.
+pub fn registrar_emissor(f: impl Fn(&EventoSpotter) + Send + Sync + 'static) {
+    let _ = EMISSOR.set(Box::new(f));
+}
+
+/// Empurra o evento, se houver quem receba. Roda FORA do lock do observador: o callback
+/// atravessa a ponte do Tauri e segurar o mutex do spotter durante isso estrangularia o
+/// tique de 60 Hz.
+fn empurrar(evento: &EventoSpotter) {
+    if let Some(f) = EMISSOR.get() {
+        f(evento);
+    }
+}
+
 fn lock() -> MutexGuard<'static, Observador> {
     observador().lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -611,6 +644,19 @@ pub fn observar(t: &IracingTelemetry) {
             "spotter",
             &format!("{} @ {:.1}s (lado a lado {:.1}s)", e.chave, e.sessao_s, e.duracao_s),
         );
+        // E na LINHA DO TEMPO do rádio, que é onde ele se soma às outras bocas. Aqui a fala
+        // ainda é só decisão: quem diz se ela chegou ao ouvido é o front, com a fase `tocada`.
+        // A chave vai sem variação de propósito — o rodízio é do reprodutor.
+        crate::radio_registro::registrar(&crate::radio_registro::Registro {
+            canal: "spotter".to_string(),
+            fase: "decidida".to_string(),
+            chaves: vec![e.chave.to_string()],
+            detalhe: Some(serde_json::json!({ "lado_a_lado_s": e.duracao_s, "id": e.id })),
+            ..Default::default()
+        });
+        // E o empurrão para o app, no mesmo instante — antes que o poll do front chegue
+        // (ou deixe de chegar, com a janela coberta). Ver [`registrar_emissor`].
+        empurrar(&e);
     }
 }
 

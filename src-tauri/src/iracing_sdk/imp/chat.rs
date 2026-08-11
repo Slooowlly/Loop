@@ -130,5 +130,22 @@ pub fn send_chat_text(text: &str) -> Result<(), IracingError> {
     sleep(Duration::from_millis(150));
     begin_chat()?;
     sleep(Duration::from_millis(150));
-    type_unicode(text)
+    let resultado = type_unicode(text);
+    // O envio fica registrado mesmo quando dá "certo", e é de propósito: o furo conhecido
+    // (sim já em foco, fullscreen exclusivo) devolve sucesso e o comando não chega. A
+    // única forma de medir esse caso é cruzar esta linha com o que o sim de fato aplicou
+    // no resultado da corrida — sem ela não há como saber se o `!black` de reserva do
+    // castigo da quali cobre todos os desfechos ou se alguns evaporaram em silêncio.
+    crate::diagnostico::linha(
+        "chat",
+        &format!(
+            "comando enviado ao sim: {text} ({})",
+            if resultado.is_ok() {
+                "SendInput aceito — a chegada ao sim NÃO é confirmável daqui"
+            } else {
+                "SendInput falhou"
+            }
+        ),
+    );
+    resultado
 }

@@ -120,7 +120,7 @@ pub fn poll() -> RaceStatus {
         lap_completed: m.live_lap,
         incident_count: m.live_incident,
         crash_score: m.live_score,
-        crash_severity_now: severity_label(m.live_score).to_string(),
+        crash_severity_now: severity_label(m.live_score),
         g_force: m.live_g,
         speed_kmh: m.live_speed_kmh,
         tow_time: m.live_tow,
@@ -132,9 +132,9 @@ pub fn poll() -> RaceStatus {
             0.0
         },
         crash_progress_severity: if m.in_crash {
-            severity_label(m.crash_components.total()).to_string()
+            severity_label(m.crash_components.total())
         } else {
-            "nenhum".to_string()
+            Severidade::Nenhum
         },
         is_green: m.live_is_green,
         cars_debug: m.cars_debug.clone(),

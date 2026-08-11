@@ -24,10 +24,13 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use serde::Serialize;
 
+use crate::iracing_sdk::spotter_base::{
+    adiante, saltou, spotter_singleton, AUSENCIA_MAX_S, ESTADO_CORRIDA, JANELA_VEL_S, MAX_CARROS,
+    SUP_ENTRANDO_BOX, SUP_FORA_DA_PISTA, SUP_FORA_DO_MUNDO, SUP_NA_CAIXA, SUP_NA_PISTA,
+};
 use crate::iracing_sdk::CarSnapshot;
 
 /// A fala. Uma só chave: as variações (`carro_fora_frente_2`, `_3`) são resolvidas
@@ -44,23 +47,14 @@ pub const CHAVE_FORA_FRENTE: &str = "carro_fora_frente";
 /// contra 35% de [`CHAVE_FORA_FRENTE`]. Um carro parado tende a continuar parado.
 pub const CHAVE_PARADO_FRENTE: &str = "carro_parado_frente";
 
-// ───────────────────────────── irsdk_TrkLoc ─────────────────────────────
-const SUP_FORA_DO_MUNDO: i32 = -1;
-const SUP_FORA_DA_PISTA: i32 = 0;
-const SUP_NA_CAIXA: i32 = 1;
-const SUP_ENTRANDO_BOX: i32 = 2;
-const SUP_NA_PISTA: i32 = 3;
-
-/// `irsdk_SessionState::Racing`.
-const ESTADO_CORRIDA: i32 = 4;
-
-/// Janela para derivar a velocidade de um carro (s).
-///
-/// Não existe `CarIdxSpeed`: a velocidade dos outros sai de `Δpct × comprimento / Δt`.
-/// 0,25 s é a mesma janela (5 amostras a 20 Hz) que a análise usou, e trocá-la agora
-/// invalidaria a separação que ela produziu. Medida contra a `Speed` do próprio jogador,
-/// erra 2 km/h na mediana — irrelevante contra um limiar de 40%.
-const JANELA_VEL_S: f64 = 0.25;
+// As superfícies, o estado de corrida e a [`JANELA_VEL_S`] vivem em
+// [`crate::iracing_sdk::spotter_base`] — são contrato do SDK e infraestrutura da família,
+// não calibração deste módulo. O que a medição DESTE detector definiu está abaixo.
+//
+// Sobre a janela de velocidade, que é compartilhada mas foi medida aqui: 0,25 s são as
+// mesmas 5 amostras a 20 Hz que a análise usou, e trocá-la invalidaria a separação que ela
+// produziu. Medida contra a `Speed` do próprio jogador, erra 2 km/h na mediana —
+// irrelevante contra um limiar de 40%.
 
 /// Quanto do passado conta como "ritmo recente" (s) e em quantos baldes ele é medido.
 ///
@@ -90,20 +84,6 @@ const DIST_MAX_M: f64 = 200.0;
 /// Velocidade abaixo da qual um carro conta como parado (km/h). Só para a família de
 /// OBSERVAÇÃO — não há áudio ligado a ela (ver [`Episodio`]).
 const PARADO_KMH: f64 = 5.0;
-
-/// Salto de `SessionTime` que denuncia replay, rebobinada ou troca de sessão (s).
-const SALTO_MAX_S: f64 = 5.0;
-
-/// Quanto um carro pode faltar de `cars[]` antes de contar como sumido (s).
-///
-/// Generoso de propósito. As ausências reais medidas em Okayama duraram 145 segundos;
-/// um quadro perdido é ordens de grandeza menor, e fechar um episódio por causa dele
-/// partiria uma escapada em duas.
-const AUSENCIA_MAX_S: f64 = 1.0;
-
-/// Teto do array de carros do SDK. Casa com `IRSDK_MAX_CARS` em `imp/util.rs`, que é
-/// quem monta o array — um índice acima disto simplesmente não chega aqui.
-const MAX_CARROS: usize = 64;
 
 /// Quantos episódios encerrados o histórico guarda.
 const MAX_EPISODIOS: usize = 60;
@@ -323,15 +303,6 @@ impl Carro {
     }
 }
 
-/// Distância para a FRENTE, de `de` até `para`, em metros (0..comprimento).
-fn adiante(de_pct: f64, para_pct: f64, comprimento_m: f64) -> f64 {
-    let mut d = para_pct - de_pct;
-    if d < 0.0 {
-        d += 1.0;
-    }
-    d * comprimento_m
-}
-
 /// Distância COM SINAL, de `de` até `para`: positiva à frente, negativa atrás, sempre
 /// dentro de meia volta. É a forma certa de guardar um gap que pode inverter — e ele
 /// inverte, que é justamente o caso "o jogador passou".
@@ -399,8 +370,7 @@ impl ObservadorFrente {
     /// segurança que some para não atropelar a cadência é o defeito que este projeto já
     /// cometeu uma vez, no spotter lateral.
     pub fn observar(&mut self, a: AmostraFrente<'_>) -> Option<&'static str> {
-        let salto =
-            a.tempo_s < self.ultimo_tempo_s || a.tempo_s - self.ultimo_tempo_s > SALTO_MAX_S;
+        let salto = saltou(self.ultimo_tempo_s, a.tempo_s);
         self.ultimo_tempo_s = a.tempo_s;
         if salto {
             self.zerar();
@@ -724,14 +694,7 @@ pub fn comprimento_m() -> f64 {
     f64::from_bits(COMPRIMENTO_M.load(Ordering::Relaxed))
 }
 
-fn observador() -> &'static Mutex<ObservadorFrente> {
-    static OBS: OnceLock<Mutex<ObservadorFrente>> = OnceLock::new();
-    OBS.get_or_init(|| Mutex::new(ObservadorFrente::novo()))
-}
-
-fn lock() -> MutexGuard<'static, ObservadorFrente> {
-    observador().lock().unwrap_or_else(|e| e.into_inner())
-}
+spotter_singleton!(ObservadorFrente, ObservadorFrente::novo());
 
 /// Alimenta o observador global com uma amostra. Devolve a chave de fala, se houver.
 ///
@@ -813,6 +776,7 @@ pub fn abertos() -> Vec<Episodio> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::iracing_sdk::spotter_base::SALTO_MAX_S;
 
     /// Pista de 2369 m — Lime Rock, a mesma da corrida que calibrou tudo isto.
     const PISTA: f64 = 2369.0;

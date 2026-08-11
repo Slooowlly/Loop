@@ -35,17 +35,14 @@
 //! este módulo, os dois carros rebocados de Okayama produziram episódios de 172 e 173 s —
 //! o mesmo buraco que o `spotter_frente` já tapou uma vez. Ver [`AUSENCIA_MAX_S`].
 
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use crate::iracing_sdk::spotter_base::{
+    adiante, empurrar_com_teto, saltou_desde, spotter_singleton, AUSENCIA_MAX_S, ESTADO_CORRIDA,
+    JANELA_VEL_S, MAX_CARROS, SUP_FORA_DA_PISTA, SUP_NA_PISTA,
+};
 
 pub const CHAVE_SEGURA: &str = "segura_volta";
 pub const CHAVE_PODE_IR: &str = "pode_voltar";
 
-const SUP_FORA_DA_PISTA: i32 = 0;
-const SUP_NA_PISTA: i32 = 3;
-const ESTADO_CORRIDA: i32 = 4;
-
-/// Janela da velocidade derivada dos outros carros. A mesma dos irmãos.
-const JANELA_VEL_S: f64 = 0.25;
 /// Janela do pico de velocidade do próprio carro.
 const PICO_JANELA_S: f64 = 10.0;
 /// Só conta como retorno quem ESTAVA ANDANDO. Sem isto, os 40 carros parados na largada
@@ -76,12 +73,8 @@ const LIBERA_S: f64 = 2.0;
 /// Intervalo do lembrete enquanto o tráfego não passa.
 const LEMBRETE_S: f64 = 2.5;
 
-/// Sumiu de `cars[]` por mais que isto: guincho. O estado fecha calado.
-const AUSENCIA_MAX_S: f64 = 1.0;
-/// Salto de `session_time`: replay, rebobinada, sessão nova.
-const SALTO_MAX_S: f64 = 5.0;
-
-const MAX_CARROS: usize = 64;
+/// Teto da fila de episódios guardados para calibração.
+const MAX_EPISODIOS: usize = 60;
 
 /// Como o estado terminou. Só um deles vira fala.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,14 +143,6 @@ pub struct ObservadorVoltar {
     pendente: Option<&'static str>,
 }
 
-fn adiante(de_pct: f64, para_pct: f64, comprimento_m: f64) -> f64 {
-    let mut d = para_pct - de_pct;
-    if d < 0.0 {
-        d += 1.0;
-    }
-    d * comprimento_m
-}
-
 impl ObservadorVoltar {
     pub fn novo() -> Self {
         Self {
@@ -174,24 +159,23 @@ impl ObservadorVoltar {
 
     fn fechar(&mut self, agora_s: f64, fim: FimVolta) {
         let Some(a) = self.aberto.take() else { return };
-        self.encerrados.push(EpisodioVolta {
-            inicio_s: a.inicio_s,
-            duracao_s: agora_s - a.inicio_s,
-            carros_na_janela: a.vistos.len(),
-            pico_simultaneo: a.pico_simultaneo,
-            falas: a.falas,
-            fim: Some(fim),
-        });
-        if self.encerrados.len() > 60 {
-            self.encerrados.remove(0);
-        }
+        empurrar_com_teto(
+            &mut self.encerrados,
+            EpisodioVolta {
+                inicio_s: a.inicio_s,
+                duracao_s: agora_s - a.inicio_s,
+                carros_na_janela: a.vistos.len(),
+                pico_simultaneo: a.pico_simultaneo,
+                falas: a.falas,
+                fim: Some(fim),
+            },
+            MAX_EPISODIOS,
+        );
     }
 
     pub fn observar(&mut self, a: AmostraVoltar<'_>) -> Option<&'static str> {
-        if let Some(ant) = self.ultimo_tempo_s {
-            if a.tempo_s < ant || a.tempo_s - ant > SALTO_MAX_S {
-                self.zerar();
-            }
+        if saltou_desde(self.ultimo_tempo_s, a.tempo_s) {
+            self.zerar();
         }
         self.ultimo_tempo_s = Some(a.tempo_s);
         self.pendente = None;
@@ -380,14 +364,7 @@ impl ObservadorVoltar {
 
 // ─────────────────────────── fachada ───────────────────────────
 
-fn observador() -> &'static Mutex<ObservadorVoltar> {
-    static OBS: OnceLock<Mutex<ObservadorVoltar>> = OnceLock::new();
-    OBS.get_or_init(|| Mutex::new(ObservadorVoltar::novo()))
-}
-
-fn lock() -> MutexGuard<'static, ObservadorVoltar> {
-    observador().lock().unwrap_or_else(|e| e.into_inner())
-}
+spotter_singleton!(ObservadorVoltar, ObservadorVoltar::novo());
 
 /// Alimenta o observador global. O comprimento da pista vem de `spotter_frente`, que é
 /// quem o amostrador alimenta — um registro só, para ninguém esquecer de alimentar o outro.
@@ -424,6 +401,7 @@ pub fn confirmar_aviso() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::iracing_sdk::spotter_base::SALTO_MAX_S;
     use crate::iracing_sdk::CarSnapshot;
 
     const DT: f64 = 1.0 / 60.0;

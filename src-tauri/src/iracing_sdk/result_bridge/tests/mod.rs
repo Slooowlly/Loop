@@ -134,14 +134,14 @@ fn empty_status() -> RaceStatus {
         lap_completed: 10,
         incident_count: 0,
         crash_score: 0.0,
-        crash_severity_now: String::new(),
+        crash_severity_now: Severidade::Nenhum,
         g_force: 0.0,
         speed_kmh: 0.0,
         tow_time: 0.0,
         cars_count: 3,
         crash_in_progress: false,
         crash_progress_score: 0.0,
-        crash_progress_severity: String::new(),
+        crash_progress_severity: Severidade::Nenhum,
         is_green: true,
         cars_debug: vec![],
         attempts: vec![],
@@ -457,7 +457,9 @@ fn aiseason_links_player_to_who_hit_them() {
 }
 
 // ── Conserto do carro: o que conta como batida ───────────────────────────────
-use crate::iracing_sdk::race_monitor::{Attempt, AttemptEvidence, CrashEvent};
+use crate::iracing_sdk::race_monitor::{
+    Attempt, AttemptEvidence, CrashEvent, Severidade, StatusTentativa,
+};
 
 fn tentativa_com_reparo(
     peak: f64,
@@ -474,7 +476,7 @@ fn tentativa_com_reparo(
 fn tentativa(peak: f64, checkered: bool, crashes: Vec<CrashEvent>) -> Attempt {
     Attempt {
         number: 1,
-        status: "active".to_string(),
+        status: StatusTentativa::Active,
         started_at_session_time: 0.0,
         laps_completed: 10,
         ended_by: None,
@@ -495,13 +497,13 @@ fn tentativa(peak: f64, checkered: bool, crashes: Vec<CrashEvent>) -> Attempt {
     }
 }
 
-fn batida(score: f64, severity: &str, had_impact: bool) -> CrashEvent {
+fn batida(score: f64, severity: Severidade, had_impact: bool) -> CrashEvent {
     CrashEvent {
         session_time: 100.0,
         lap: 4,
         score,
-        severity: severity.to_string(),
-        impact_severity: severity.to_string(),
+        severity,
+        impact_severity: severity,
         had_impact,
         factors: vec![],
     }
@@ -518,7 +520,7 @@ fn severidade(attempt: Attempt) -> String {
 /// ao import como "moderado" e cobrava conserto de um fim de semana sem batida.
 #[test]
 fn perda_de_controle_sem_impacto_nao_e_batida() {
-    let a = tentativa(0.0, true, vec![batida(61.0, "moderado", false)]);
+    let a = tentativa(0.0, true, vec![batida(61.0, Severidade::Moderado, false)]);
     assert_eq!(severidade(a), "nenhum");
 }
 
@@ -539,7 +541,7 @@ fn batida_de_quem_terminou_a_corrida_chega_rebaixada() {
 /// sobre o caminho): quem bateu de verdade segue pagando.
 #[test]
 fn batida_com_impacto_continua_contando() {
-    let a = tentativa(0.0, false, vec![batida(120.0, "grave", true)]);
+    let a = tentativa(0.0, false, vec![batida(120.0, Severidade::Grave, true)]);
     assert_eq!(severidade(a), "grave");
 }
 
@@ -555,6 +557,6 @@ fn reparo_pedido_pelo_sim_sustenta_a_severidade() {
     assert_eq!(severidade(sem_sinal), "moderado");
 
     // E não cria dano onde não houve batida: sem impacto, o reparo sozinho não cobra.
-    let so_reparo = tentativa_com_reparo(0.0, true, vec![batida(61.0, "moderado", false)], 42.0);
+    let so_reparo = tentativa_com_reparo(0.0, true, vec![batida(61.0, Severidade::Moderado, false)], 42.0);
     assert_eq!(severidade(so_reparo), "nenhum");
 }

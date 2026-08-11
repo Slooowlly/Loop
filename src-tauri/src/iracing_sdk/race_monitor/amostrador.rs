@@ -68,10 +68,29 @@ pub(super) fn start_sampler() {
                                 // E, uma vez por captura, o que o SDK publica nesta build.
                                 if let Ok(vars) = crate::iracing_sdk::read_var_inventory() {
                                     crate::iracing_sdk::race_capture::record_vars(&vars);
+                                    // E cruza o que o sim publica com os canais que NÓS
+                                    // lemos por nome: um nome errado cai no `_ => {}` do
+                                    // match e o campo vale zero para sempre, sem erro
+                                    // nenhum. Aqui o silêncio vira uma linha no log.
+                                    crate::iracing_sdk::canais::conferir_inventario(&vars);
                                 }
                             }
                         }
                         lock().observe(&t);
+                        // Instante do sim para o REGISTRO DO RÁDIO. Antes do spotter de
+                        // propósito: a primeira fala de um tique tem de sair carimbada com o
+                        // tempo DESTE tique, não com o do anterior.
+                        crate::radio_registro::marcar(&t);
+                        // O PORTÃO do rádio, se ele virou. Sai daqui e não do comando que o
+                        // front consulta antes de falar, porque aquele só é chamado quando há
+                        // fala querendo sair — e a pergunta é justamente o que aconteceu no
+                        // silêncio entre duas falas. O `let` fecha o lock antes da escrita:
+                        // `registrar_transicao` faz I/O, e segurar o monitor durante ela
+                        // atrasaria o próximo tique.
+                        if tick % TICKS_PORTAO == 0 {
+                            let estado = lock().montar_estado_agora();
+                            crate::engenheiro::momento::registrar_transicao(&estado);
+                        }
                         // Spotter: a vizinhança lateral precisa ser vista a 60 Hz.
                         // A 2 Hz do overlay, um carro que entra e sai do seu lado
                         // numa freada simplesmente não teria acontecido.
@@ -107,6 +126,10 @@ pub(super) fn start_sampler() {
                         true
                     }
                     Err(error) => {
+                        // Sem telemetria não há tempo de sessão. Sem isto, uma fala dada com o
+                        // sim fechado sairia no registro carimbada com o instante da corrida
+                        // que já acabou.
+                        crate::radio_registro::desmarcar();
                         // Registra a falha UMA vez por transição e, só nesse instante,
                         // paga o diagnóstico cruzado (que varre janelas). Assim o log
                         // já nasce com a resposta — "sim fechado" ou "acesso negado com
@@ -138,10 +161,10 @@ pub(super) fn start_sampler() {
                             let active = m
                                 .attempts
                                 .last()
-                                .map(|a| a.status == "active")
+                                .map(|a| a.status == StatusTentativa::Active)
                                 .unwrap_or(false);
                             if active {
-                                m.pending_event = m.finalize_attempt("sim_closed");
+                                m.pending_event = m.finalize_attempt(FimDaTentativa::SimClosed);
                             }
                             // Fecha a captura na MESMA borda: o `history` só é útil no
                             // arquivo se for anexado antes do gzip receber o trailer.

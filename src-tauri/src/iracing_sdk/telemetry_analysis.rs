@@ -29,9 +29,7 @@ mod setores;
 mod tipos;
 
 pub use analise::analyze;
-pub use combustivel::FuelSummary;
 pub use dossie::{extract_player_race_telemetry, PlayerRaceTelemetry};
-pub use setores::SectorAnalysis;
 pub use tipos::*;
 
 #[cfg(test)]

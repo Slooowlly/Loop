@@ -102,6 +102,22 @@ impl RaceMonitor {
             voando,
         });
         if let Some(f) = fala {
+            // Na linha do tempo do rádio esta família aparece como `decidida` e nunca como
+            // `tocada`, e isso é o próprio achado: o canal existe, produz fala e não tem
+            // consumidor nenhum do lado do app. Registrar aqui é o que torna essa diferença
+            // visível num arquivo em vez de depender de alguém lembrar dela.
+            crate::radio_registro::registrar(&crate::radio_registro::Registro {
+                canal: "classificacao".to_string(),
+                fase: "decidida".to_string(),
+                chaves: f.pecas.clone(),
+                texto: f.texto.clone(),
+                detalhe: Some(serde_json::json!({
+                    "em_preparacao": em_preparacao,
+                    "voando": voando,
+                    "sujou": self.quali_sujou,
+                })),
+                ..Default::default()
+            });
             self.classificacao_log.push(f);
         }
     }
