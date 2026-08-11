@@ -289,6 +289,74 @@ pub fn tensao_ao_fim_da_temporada(
     )
 }
 
+/// O que uma temporada faz com o GATILHO DE INVERSÃO (`orders::has_inversao_trigger`),
+/// medido em vez de estimado.
+///
+/// O gatilho pede cinco coisas ao mesmo tempo: ≥ 8 duelos, sequência do N2 ≥ 5, segundo
+/// turno da temporada, ≥ 65% dos duelos com o N2, e o STATUS em "crise". As quatro
+/// primeiras descrevem uma situação concreta de pista; a quinta é uma leitura do MESMO
+/// eixo por outra régua, e "crise" mora em tensão ≥ 90.
+///
+/// Devolve `(fração de temporadas em que as QUATRO primeiras armam, tensão média nesse
+/// instante, tensão MÁXIMA já vista nele)`. É esse máximo que diz se a quinta condição é
+/// alcançável ou é aritmética morta.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn gatilho_de_inversao_na_temporada(
+    deltas: &TensaoDeltas,
+    p: f64,
+    corridas: usize,
+    amostras: usize,
+    sorteio: &mut dyn FnMut() -> f64,
+) -> (f64, f64, f64) {
+    let (mut armou, mut soma_tensao, mut maxima) = (0.0_f64, 0.0_f64, 0.0_f64);
+
+    for _ in 0..amostras {
+        let (mut seq_n2, mut seq_n1, mut tensao) = (0, 0, 0.0_f64);
+        let (mut duelos, mut vitorias_n2) = (0_i32, 0_i32);
+        let mut armou_nesta = false;
+
+        for rodada in 1..=corridas {
+            let n2_venceu = sorteio() < p;
+            duelos += 1;
+            if n2_venceu {
+                vitorias_n2 += 1;
+                seq_n2 += 1;
+                seq_n1 = 0;
+            } else {
+                seq_n1 += 1;
+                seq_n2 = 0;
+            }
+            let duel = DuelResult {
+                valid: true,
+                vencedor: Some(if n2_venceu {
+                    DuelWinner::N2
+                } else {
+                    DuelWinner::N1
+                }),
+            };
+            tensao = (tensao + delta_da_rodada(deltas, &duel, seq_n2, seq_n1)).clamp(0.0, 100.0);
+
+            // As QUATRO condições concretas, exatamente como `has_inversao_trigger` as lê.
+            let taxa = vitorias_n2 as f64 / duelos as f64;
+            if duelos >= 8 && seq_n2 >= 5 && rodada * 2 > corridas && taxa >= 0.65 {
+                if !armou_nesta {
+                    armou_nesta = true;
+                    armou += 1.0;
+                    soma_tensao += tensao;
+                }
+                maxima = maxima.max(tensao);
+            }
+        }
+    }
+
+    let media = if armou > 0.0 {
+        soma_tensao / armou
+    } else {
+        0.0
+    };
+    (armou / amostras as f64, media, maxima)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,6 +416,25 @@ mod tests {
             "o equilíbrio da calibração antiga era {medido:.3}, e precisava estar \
              acima do topo do mundo ({TAXA_N2_MUNDO_MAX}) — a régua mudou"
         );
+    }
+
+    /// Harness do GATILHO DE INVERSÃO: com que frequência as quatro condições concretas
+    /// armam, e em que tensão a equipe está quando isso acontece.
+    /// `cargo test --lib gatilho_de_inversao_medido -- --ignored --nocapture`
+    #[test]
+    #[ignore = "harness do gatilho de inversão; rodar sob demanda"]
+    fn gatilho_de_inversao_medido() {
+        eprintln!("taxa_n2 | temporadas que armam | tensao ao armar | tensao maxima");
+        for p in [TAXA_N2_MUNDO_MEDIA, TAXA_N2_MUNDO_MAX, 0.40, 0.50, 0.65, 0.80] {
+            let mut s = sorteio_semeado(4_242);
+            let (frac, media, maxima) =
+                gatilho_de_inversao_na_temporada(&TENSAO_DELTAS, p, 14, 20_000, &mut s);
+            eprintln!(
+                "  {p:5.3} |        {:6.2}%       |     {media:6.1}      |    {maxima:6.1}",
+                100.0 * frac
+            );
+        }
+        eprintln!("\n[LIMIARES] estavel<20 competitivo<40 tensao<60 reavaliacao<75 inversao<90 crise>=90");
     }
 
     /// Harness de calibração: varre candidatos e imprime o equilíbrio de cada um.

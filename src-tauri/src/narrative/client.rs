@@ -544,6 +544,38 @@ mod tests {
         );
     }
 
+    /// O host do servidor mora numa macro só, e os outros arquivos que falam com ele
+    /// (telemetria de produto, envio de log, push-to-talk) a INVOCAM em vez de recopiar
+    /// a URL.
+    ///
+    /// O modo de falha que isto fecha é o de migrar de região ou de projeto: com a URL
+    /// copiada em quatro arquivos, esquecer um quebrava só aquele recurso, em silêncio,
+    /// porque cada um falha sozinho e nenhum deles derruba o app.
+    ///
+    /// A agulha é montada com `concat!` para o próprio teste não virar a quinta cópia.
+    #[test]
+    fn o_host_do_servidor_mora_em_um_lugar_so() {
+        let agulha = concat!("run", ".app");
+        let outros = [
+            ("telemetry.rs", include_str!("../telemetry.rs")),
+            ("diagnostico.rs", include_str!("../diagnostico.rs")),
+            ("commands/ptt_voz.rs", include_str!("../commands/ptt_voz.rs")),
+        ];
+        for (nome, fonte) in outros {
+            assert!(
+                !fonte.contains(agulha),
+                "{nome} tem o host do servidor escrito à mão; use \
+                 `crate::narrative::client::host_do_servidor!()`"
+            );
+        }
+        let aqui = include_str!("client.rs").matches(agulha).count();
+        assert_eq!(
+            aqui, 1,
+            "o host aparece {aqui}x neste arquivo; só a macro `host_do_servidor!` \
+             pode escrevê-lo"
+        );
+    }
+
     /// O caso real que motivou o filtro: o modelo colou o rótulo interno como aposto.
     #[test]
     fn vazamento_em_aposto_cai_com_o_aposto_inteiro() {
