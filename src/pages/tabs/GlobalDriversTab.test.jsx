@@ -824,10 +824,14 @@ describe("GlobalDriversTab", () => {
       />,
     );
 
-    await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
+    // Espera pelo que a CATEGORIA produz, e não pela tabela. A tabela aparece antes, com o
+    // recorte ainda em "all", e esperar por ela deixava a asserção do `select` correr contra o
+    // efeito que aplica o `initialCategory`: sob carga a leitura chegava primeiro e o teste
+    // caía com "expected gt4, received all". O cabeçalho "Atualmente em GT4" só existe com a
+    // categoria ativa, então esperar por ele é esperar pela coisa certa.
+    await screen.findByText(/Atualmente em GT4/i);
     expect(screen.getByLabelText(/Categoria/i)).toHaveValue("gt4");
-    // Com a categoria ativa a tabela se parte em "atualmente" e "já passaram".
-    expect(screen.getByText(/Atualmente em GT4/i)).toBeInTheDocument();
+    await screen.findByRole("table", { name: /Ranking mundial de pilotos/i });
   });
 
   it("so rola depois de a tabela filtrada existir", async () => {
