@@ -401,6 +401,62 @@ mod tests {
         assert!(emergency_loan_amount_na_temporada(&afogada, 1).is_some());
     }
 
+    /// **O contrato numérico de UM socorro**, nas quatro grandezas que ele move: caixa para
+    /// cima pelo principal, dívida para cima por `principal × SOCORRO_TAXA`, contador em 1 e
+    /// temporada de referência carimbada.
+    ///
+    /// Ele mora aqui, e não no fim de semana completo
+    /// (`commands::race::tests::test_simulate_race_weekend_applies_crisis_finance_event`),
+    /// porque lá o mundo é sorteado a cada execução e o resultado da rodada entra ANTES do
+    /// gate. A janela em que o socorro sai é limitada dos dois lados — pelo gate de caixa em
+    /// cima e pelo cheque especial de `cashflow.rs` em baixo, que empurra a dívida além do
+    /// teto —, então rodada boa ou rodada péssima fecham o portão por motivos opostos. O
+    /// teste de lá passou a asseverar o CONTRATO ("uma das três saídas aconteceu"), que não
+    /// depende do sorteio, e o número exato ficou nesta bancada determinística.
+    #[test]
+    fn um_socorro_injeta_caixa_cria_divida_e_registra() {
+        for (categoria, classe) in DIVISOES {
+            let m = mensal(categoria, *classe);
+            let mut team = equipe_afogada(categoria, *classe, -3.0);
+            let caixa_antes = team.cash_balance;
+
+            let principal = emergency_loan_amount_na_temporada(&team, 4)
+                .expect("a equipe afogada deveria estar elegível");
+            let evento = apply_crisis_event_if_needed(&mut team, 4)
+                .expect("o socorro deveria sair para a equipe afogada");
+
+            assert_eq!(evento.kind, "emergency_loan");
+            assert!(
+                (evento.cash_delta - principal).abs() < 1.0,
+                "{categoria}/{classe:?}: caixa injetado {} contra principal {principal}",
+                evento.cash_delta
+            );
+            assert!(
+                (evento.debt_delta - principal * SOCORRO_TAXA).abs() < 1.0,
+                "{categoria}/{classe:?}: dívida criada {} contra {}",
+                evento.debt_delta,
+                principal * SOCORRO_TAXA
+            );
+            assert!(
+                (team.cash_balance - (caixa_antes + principal)).abs() < 1.0,
+                "{categoria}/{classe:?}: o caixa da equipe não subiu o principal"
+            );
+            assert!(
+                team.debt_balance > 0.0,
+                "{categoria}/{classe:?}: o socorro tem que criar dívida"
+            );
+            assert_eq!(team.socorros_na_temporada, 1);
+            assert_eq!(team.socorros_temporada_ref, 4);
+
+            // O principal é sempre da ordem de SOCORRO_PRINCIPAL_MESES, modulado por
+            // reputação: sem isso a asserção acima passaria com um principal de zero.
+            assert!(
+                principal > SOCORRO_PRINCIPAL_MESES * m * 0.8,
+                "{categoria}/{classe:?}: principal {principal} pequeno demais"
+            );
+        }
+    }
+
     /// **B50 — a dívida é TETO, não gatilho.** Este é o teste que fecha o laço medido: na
     /// política antiga a dívida acima de 750 mil ABRIA o socorro, e o socorro criava dívida.
     #[test]
