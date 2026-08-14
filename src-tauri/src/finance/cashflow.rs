@@ -24,6 +24,45 @@ pub use offseason::{
     OffseasonCompetitivenessImpact,
 };
 
+/// Piso do cheque especial, em **MESES DE OPERAÇÃO da divisão**: o quanto a equipe pode ficar
+/// negativa antes do rombo virar dívida formal. Abaixo dele o caixa é travado neste valor e a
+/// diferença entra em `debt_balance`.
+///
+/// # Ele era `-100_000.0`, absoluto, e isso desligava o socorro em quase toda a escada
+///
+/// Até 14/08/2026 este era um literal cru, sem nome e sem comentário, no único ponto de
+/// `finance/` que não tinha passado para meses de operação. Medido, ele valia:
+///
+/// | divisão | mensal | o piso, em meses |
+/// |---|---|---|
+/// | mazda_rookie | 17.480 | 5,72 |
+/// | mazda_amador | 32.709 | 3,06 |
+/// | production_challenger | 53.293 | 1,88 |
+/// | endurance:gt4 | 130.510 | 0,77 |
+/// | endurance:gt3 | 266.220 | 0,38 |
+/// | endurance:lmp2 | 356.355 | 0,28 |
+///
+/// Vinte vezes de dispersão entre as pontas, e o efeito não era estético. O socorro
+/// ([`crate::finance::events::apply_crisis_event_if_needed`]) é avaliado DEPOIS deste trecho,
+/// e o portão de necessidade dele pede caixa abaixo de `-SOCORRO_GATE_CAIXA_MESES` meses.
+/// Quando `2 × mensal` passa dos 100 mil, o caixa travado aqui fica ACIMA do portão e ele
+/// **nunca abre**. Medido no harness `medir_emprestimo_de_emergencia` (4 réplicas × 20
+/// temporadas): o braço `producao` e o braço `sem socorro` davam números idênticos em cinco
+/// das seis arenas, e o `gt3` fechava 46,16% de colapso com zero socorros concedidos.
+///
+/// A política ANTERIOR ao B50 funcionava por acidente: o portão era absoluto (-75 mil) e o
+/// piso absoluto o satisfazia. Passar o portão para meses sem passar o piso junto foi o que
+/// matou o mecanismo.
+///
+/// # Por que TRÊS meses
+///
+/// Ele precisa ficar ABAIXO do portão de necessidade, senão o socorro segue inalcançável por
+/// construção. Três meses deixam um mês de folga sobre os dois do portão, batem com
+/// [`crate::finance::events::PARAQUEDAS_MESES`] e com a faixa `pressionada` de
+/// [`crate::finance::state::FaixasDeMeses`], e ficam perto da média de 2,43 meses que a
+/// escada praticava com o valor absoluto. A rookie aperta (de 5,72 para 3) e o topo folga.
+pub const PISO_CHEQUE_ESPECIAL_MESES: f64 = 3.0;
+
 /// Fração do caixa excedente (acima da reserva de segurança) destinada a abater
 /// o principal da dívida a cada corrida.
 const DEBT_AMORTIZATION_RATE: f64 = 0.25;
@@ -298,10 +337,12 @@ pub fn apply_round_cashflow(
     team.last_round_net = summary.net;
     team.cash_balance += summary.net;
 
-    if team.cash_balance < -100_000.0 {
-        let financed_amount = -100_000.0 - team.cash_balance;
+    let piso = -PISO_CHEQUE_ESPECIAL_MESES
+        * crate::finance::state::custo_operacional_mensal(&team.categoria, team.classe.as_deref());
+    if team.cash_balance < piso {
+        let financed_amount = piso - team.cash_balance;
         team.debt_balance += financed_amount;
-        team.cash_balance = -100_000.0;
+        team.cash_balance = piso;
     }
 
     // Amortização: com dívida pendente e caixa acima da reserva de segurança,

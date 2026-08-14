@@ -7239,8 +7239,16 @@ fn medir_emprestimo_de_emergencia() {
     );
     cabecalho_saude();
 
+    println!(
+        "\n!! ATENCAO, DESDE 14/08/2026: o braco 'producao' passa pela TRAVA\n\
+         (finance::events::SOCORRO_LIGADO, hoje false), entao ele mede o socorro DESLIGADO e\n\
+         tem de bater com 'sem socorro' em toda coluna. O mecanismo como ele seria SE religado\n\
+         esta no braco 'taxa 1,00 (sem taxa)', que entra pelos portoes sem passar pela trava e\n\
+         usa o principal e a taxa da producao. E esse o par a comparar no D-12.\n"
+    );
+
     let bracos: &[(&str, Socorro)] = &[
-        ("producao (2/4/2)", Socorro::Producao),
+        ("producao (travado)", Socorro::Producao),
         ("sem socorro", Socorro::Sem),
         ("absoluta (a antiga)", Socorro::Absoluta),
         ("taxa amortizada", Socorro::Amortizada),
@@ -7503,7 +7511,13 @@ fn os_numeros_do_socorro_ainda_sao_os_da_producao() {
     afogada.cash_balance = -3.0 * mensal_gt4;
     afogada.debt_balance = 0.0;
     let antes = (afogada.cash_balance, afogada.debt_balance);
-    let evento = apply_crisis_event_if_needed(&mut afogada, 1).expect("gatilho deveria abrir");
+    // Pelo caminho SEM TRAVA de propósito: o que este guard cobra é que os números copiados
+    // aqui continuem sendo os da produção, e isso não pode depender de `SOCORRO_LIGADO` estar
+    // aberto. Com a trava fechada (o padrão desde 14/08/2026), `apply_crisis_event_if_needed`
+    // devolve `None` e o guard morreria dizendo "gatilho deveria abrir", que é justamente a
+    // pergunta errada. Ver o D-12 do backlog.
+    let evento = crate::finance::events::aplicar_socorro_sem_trava(&mut afogada, 1)
+        .expect("gatilho deveria abrir");
     let taxa = (afogada.debt_balance - antes.1) / (afogada.cash_balance - antes.0);
     assert!(
         (taxa - SOCORRO_TAXA).abs() < 1e-6,

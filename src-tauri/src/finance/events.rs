@@ -1,4 +1,4 @@
-use crate::models::team::Team;
+﻿use crate::models::team::Team;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FinanceEventOutcome {
@@ -237,11 +237,48 @@ pub fn parcela_de_paraquedas(categoria: &str, classe: Option<&str>, rodadas: f64
     total_de_paraquedas(categoria, classe) / rodadas.max(1.0)
 }
 
+/// **O socorro está DESLIGADO na produção desde 14/08/2026, e isso é decisão, não acidente.**
+///
+/// Ele já estava inerte em quase toda a escada, e ninguém sabia: o piso do cheque especial de
+/// [`crate::finance::cashflow::PISO_CHEQUE_ESPECIAL_MESES`] era absoluto (-100 mil) e travava
+/// o caixa ACIMA do portão de necessidade, que é relativo. Medido no harness
+/// `medir_emprestimo_de_emergencia`, o braço `producao` era idêntico ao braço `sem socorro`
+/// em cinco das seis arenas; só o `mazda_amador` emprestava.
+///
+/// Passar o piso para meses de operação conserta a unidade e, de quebra, RELIGARIA o socorro
+/// em cinco arenas de uma vez. Religar não é neutro: no `gt3`, o braço que empresta de verdade
+/// sobe o colapso de 46,16% para 53,04% e as vendas de 62,8 para 72,5, porque equipe socorrida
+/// segue operando em colapso em vez de ser vendida. Por isso as duas coisas foram separadas:
+/// aqui entra só o conserto do piso, com o socorro travado, e o religamento é decisão própria
+/// com medição própria (ver D-12 no `docs/backlog.md`).
+///
+/// **A trava não some com o mecanismo.** Os portões seguem em
+/// [`emergency_loan_amount_na_temporada`], testados um a um, e a aplicação segue em
+/// [`aplicar_socorro_sem_trava`], que é por onde os testes e os braços de medição do harness
+/// entram. O que esta constante desliga é só o caminho de PRODUÇÃO. Religar é trocar `false`
+/// por `true` e rodar o harness.
+pub const SOCORRO_LIGADO: bool = false;
+
 /// Aplica o socorro, se houver, e REGISTRA que ele aconteceu.
+///
+/// Este é o caminho de PRODUÇÃO, e ele respeita [`SOCORRO_LIGADO`]. Com a trava fechada
+/// devolve `None` sempre, sem tocar na equipe. Quem quer medir o mecanismo com a trava fechada
+/// chama [`aplicar_socorro_sem_trava`].
+pub fn apply_crisis_event_if_needed(
+    team: &mut Team,
+    temporada: i32,
+) -> Option<FinanceEventOutcome> {
+    if !SOCORRO_LIGADO {
+        return None;
+    }
+    aplicar_socorro_sem_trava(team, temporada)
+}
+
+/// O socorro em si, sem a trava: portões, aporte e registro.
 ///
 /// O registro é o que faz o limite por temporada existir; sem ele os portões voltariam a ser
 /// só a foto do balanço, que é o defeito original.
-pub fn apply_crisis_event_if_needed(
+pub fn aplicar_socorro_sem_trava(
     team: &mut Team,
     temporada: i32,
 ) -> Option<FinanceEventOutcome> {
@@ -401,6 +438,52 @@ mod tests {
         assert!(emergency_loan_amount_na_temporada(&afogada, 1).is_some());
     }
 
+    /// **A trava é o caminho de produção, e ela não mexe no mecanismo.**
+    ///
+    /// Com `SOCORRO_LIGADO` fechado, `apply_crisis_event_if_needed` devolve `None` para uma
+    /// equipe que os PORTÕES aprovam, e não encosta na equipe: nem caixa, nem dívida, nem
+    /// contador. É isso que separa "desligado" de "quebrado" — o mecanismo continua inteiro
+    /// logo ali, por `aplicar_socorro_sem_trava`, e religar é trocar uma constante.
+    #[test]
+    fn a_trava_desliga_a_producao_sem_desligar_o_mecanismo() {
+        let modelo = equipe_afogada("gt3", None, -3.0);
+        assert!(
+            emergency_loan_amount_na_temporada(&modelo, 1).is_some(),
+            "a equipe do teste tem que passar pelos portões, senão ele não prova nada"
+        );
+
+        // Caminho de PRODUÇÃO, com a trava como ela está hoje.
+        let mut pela_producao = modelo.clone();
+        let saiu = apply_crisis_event_if_needed(&mut pela_producao, 1);
+
+        if SOCORRO_LIGADO {
+            assert!(saiu.is_some(), "com a trava aberta o socorro tem que sair");
+            assert_eq!(pela_producao.socorros_na_temporada, 1);
+        } else {
+            assert!(saiu.is_none(), "com a trava fechada o socorro não pode sair");
+            assert_eq!(
+                pela_producao.cash_balance, modelo.cash_balance,
+                "a trava mexeu no caixa"
+            );
+            assert_eq!(
+                pela_producao.debt_balance, modelo.debt_balance,
+                "a trava mexeu na dívida"
+            );
+            assert_eq!(
+                pela_producao.socorros_na_temporada, 0,
+                "a trava carimbou o contador"
+            );
+        }
+
+        // O mecanismo, pelo caminho sem trava: sai sempre, trava aberta ou fechada.
+        let mut pelo_mecanismo = modelo.clone();
+        assert!(
+            aplicar_socorro_sem_trava(&mut pelo_mecanismo, 1).is_some(),
+            "o mecanismo tem que sair pelo caminho sem trava, independente de SOCORRO_LIGADO"
+        );
+        assert_eq!(pelo_mecanismo.socorros_na_temporada, 1);
+    }
+
     /// **O contrato numérico de UM socorro**, nas quatro grandezas que ele move: caixa para
     /// cima pelo principal, dívida para cima por `principal × SOCORRO_TAXA`, contador em 1 e
     /// temporada de referência carimbada.
@@ -422,7 +505,7 @@ mod tests {
 
             let principal = emergency_loan_amount_na_temporada(&team, 4)
                 .expect("a equipe afogada deveria estar elegível");
-            let evento = apply_crisis_event_if_needed(&mut team, 4)
+            let evento = aplicar_socorro_sem_trava(&mut team, 4)
                 .expect("o socorro deveria sair para a equipe afogada");
 
             assert_eq!(evento.kind, "emergency_loan");
@@ -493,7 +576,7 @@ mod tests {
             team.cash_balance = -3.0 * mensal("gt3", None);
             team.debt_balance = 0.0;
             assert!(
-                apply_crisis_event_if_needed(&mut team, 7).is_some(),
+                aplicar_socorro_sem_trava(&mut team, 7).is_some(),
                 "socorro {n} da temporada deveria sair"
             );
             assert_eq!(team.socorros_na_temporada, n);
@@ -502,14 +585,14 @@ mod tests {
         team.cash_balance = -3.0 * mensal("gt3", None);
         team.debt_balance = 0.0;
         assert!(
-            apply_crisis_event_if_needed(&mut team, 7).is_none(),
+            aplicar_socorro_sem_trava(&mut team, 7).is_none(),
             "o socorro além do limite saiu"
         );
 
         // Virada de temporada: o orçamento volta, sem passo de transição nenhum.
         assert_eq!(socorros_ja_tomados(&team, 8), 0);
         assert!(
-            apply_crisis_event_if_needed(&mut team, 8).is_some(),
+            aplicar_socorro_sem_trava(&mut team, 8).is_some(),
             "a temporada nova deveria reabrir o socorro"
         );
         assert_eq!(team.socorros_na_temporada, 1);
@@ -528,7 +611,7 @@ mod tests {
             // 60 rodadas: cinco temporadas de calendário cheio. Se a dívida fosse absorvente,
             // aqui apareceria.
             for rodada in 0..60 {
-                if apply_crisis_event_if_needed(&mut team, 1 + rodada / 12).is_some() {
+                if aplicar_socorro_sem_trava(&mut team, 1 + rodada / 12).is_some() {
                     socorros += 1;
                 }
             }
@@ -637,7 +720,7 @@ mod tests {
         let before_cash = team.cash_balance;
         let before_debt = team.debt_balance;
 
-        let event = apply_crisis_event_if_needed(&mut team, 1).expect("event should be applied");
+        let event = aplicar_socorro_sem_trava(&mut team, 1).expect("event should be applied");
 
         assert_eq!(event.kind, "emergency_loan");
         assert!(team.cash_balance > before_cash);

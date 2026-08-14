@@ -1206,6 +1206,18 @@ fn test_simulate_race_weekend_applies_crisis_finance_event() {
     let estourou_o_teto = team_after.debt_balance
         >= crate::finance::events::SOCORRO_TETO_DIVIDA_MESES * mensal_depois;
 
+    // A trava de produção entra aqui: com `SOCORRO_LIGADO` fechado, "ficar na janela e não ser
+    // socorrida" é o comportamento CORRETO, e o que se cobra é o oposto — que nenhum socorro
+    // tenha saído. Ver `finance::events::SOCORRO_LIGADO` e o D-12 do backlog.
+    if !crate::finance::events::SOCORRO_LIGADO {
+        assert_eq!(
+            team_after.socorros_na_temporada, 0,
+            "o socorro está travado e mesmo assim saiu um"
+        );
+        let _ = fs::remove_dir_all(base_dir);
+        return;
+    }
+
     assert!(
         socorrida || saiu_do_gate || estourou_o_teto,
         "a equipe ficou na janela do socorro e não foi socorrida: caixa {} ({:.2} meses), \
