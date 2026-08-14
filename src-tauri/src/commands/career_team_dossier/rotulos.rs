@@ -17,8 +17,12 @@ pub(super) fn format_brl(value: f64) -> String {
     format!("${grouped}")
 }
 
-pub(super) fn format_decimal_pt(value: f64, decimals: usize) -> String {
-    format!("{value:.decimals$}").replace('.', ",")
+/// Um decimal do dossiê no separador do locale ATIVO.
+///
+/// Era `format_decimal_pt` e cravava a vírgula, o que punha "2,1 vitórias" na tela em
+/// inglês. A regra mora em [`crate::common::numeros`], junto com a da ficha do piloto.
+pub(super) fn format_decimal(value: f64, decimals: usize) -> String {
+    crate::common::numeros::formatar_decimal(value, decimals)
 }
 
 pub(super) fn percentage(numerator: i32, denominator: i32) -> i32 {
@@ -80,7 +84,7 @@ pub(super) fn count_record(
         value: value.to_string(),
         rank_position: ranking.position,
         rank_total: ranking.total,
-        group_average: format_decimal_pt(ranking.average, 1),
+        group_average: format_decimal(ranking.average, 1),
     }
 }
 

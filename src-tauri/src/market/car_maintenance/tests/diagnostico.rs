@@ -228,7 +228,10 @@ fn analise_desgaste_por_peca() {
         PartType::Suspension => "Sus",
         PartType::Electronics => "Ele",
     };
-    const RISK_OPEN: f64 = 0.87; // espelha breakdown::RISK_OPEN
+    // A abertura da janela de risco, direto da FONTE. Era uma cópia manual aqui, e ela já ficou
+    // parada em 0.87 depois que a janela abriu em 0.90 — o mesmo modo de falha do harness de
+    // Monte Carlo, num arquivo que nenhuma asserção protege (isto só marca o `*` do relatório).
+    const RISK_OPEN: f64 = crate::car::breakdown::WEAR_RISK_OPEN;
 
     // Calendário neutro (tudo equilibrado) vs variado (potência→handling→aceleração).
     let neutro = [(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)];
@@ -259,7 +262,7 @@ fn analise_desgaste_por_peca() {
         for &pt in &PartType::ALL {
             print!(" {:>3}", abbr(pt));
         }
-        println!("     (peças na zona de risco ≥87%)");
+        println!("     (peças na zona de risco ≥90%)");
 
         let mut car = Car::uniform(7); // GT3 no teto → só cicla por fim-de-vida
         for r in 0..14 {
@@ -273,8 +276,8 @@ fn analise_desgaste_por_peca() {
             };
 
             // Estado PERSISTIDO no INÍCIO desta corrida = o que o pré-roll de quebra leria.
-            // "Em risco" = a peça CRUZA a zona (≥87%) DURANTE esta corrida (entrada +
-            // desgaste da corrida), não só se já entrou acima de 87%.
+            // "Em risco" = a peça CRUZA a zona (≥90%) DURANTE esta corrida (entrada +
+            // desgaste da corrida), e também a que já entrou acima de 90%.
             let cruza_zona = |pt: PartType, w: f64| w + wear_per_race(pt) >= RISK_OPEN;
             let em_risco: Vec<&str> = PartType::ALL
                 .iter()

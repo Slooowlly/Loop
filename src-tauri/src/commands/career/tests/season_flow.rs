@@ -46,7 +46,10 @@ fn test_advance_season_updates_meta_and_creates_next_season() {
         advance_season_in_base_dir(&base_dir, "career_001").expect("advance season should work");
 
     // Temporada 2 = o ano jogável + 1; o ano de partida é fonte única.
-    assert_eq!(result.new_year, crate::constants::historical_timeline::PLAYABLE_START_YEAR + 1);
+    assert_eq!(
+        result.new_year,
+        crate::constants::historical_timeline::PLAYABLE_START_YEAR + 1
+    );
     assert!(result.preseason_initialized);
     assert_eq!(
         result.preseason_total_weeks,
@@ -75,7 +78,10 @@ fn test_advance_season_updates_meta_and_creates_next_season() {
 
     assert_eq!(active_season.id, result.new_season_id);
     assert_eq!(active_season.numero, 2);
-    assert_eq!(active_season.ano, crate::constants::historical_timeline::PLAYABLE_START_YEAR + 1);
+    assert_eq!(
+        active_season.ano,
+        crate::constants::historical_timeline::PLAYABLE_START_YEAR + 1
+    );
     assert_eq!(meta.current_season, 2);
     assert_eq!(
         meta.current_year,
@@ -122,9 +128,15 @@ fn test_advance_season_succeeds_even_if_resume_context_write_fails() {
         .expect("active season query")
         .expect("active season");
 
-    assert_eq!(result.new_year, crate::constants::historical_timeline::PLAYABLE_START_YEAR + 1);
+    assert_eq!(
+        result.new_year,
+        crate::constants::historical_timeline::PLAYABLE_START_YEAR + 1
+    );
     assert_eq!(active_season.numero, 2);
-    assert_eq!(active_season.ano, crate::constants::historical_timeline::PLAYABLE_START_YEAR + 1);
+    assert_eq!(
+        active_season.ano,
+        crate::constants::historical_timeline::PLAYABLE_START_YEAR + 1
+    );
     assert!(save_dir.join("resume_context.json").is_dir());
 
     let _ = fs::remove_dir_all(base_dir);
@@ -486,9 +498,15 @@ fn test_skip_all_pending_races_allows_teamless_player_to_reach_next_preseason() 
         .expect("active season query")
         .expect("active season");
 
-    assert_eq!(result.new_year, crate::constants::historical_timeline::PLAYABLE_START_YEAR + 2);
+    assert_eq!(
+        result.new_year,
+        crate::constants::historical_timeline::PLAYABLE_START_YEAR + 2
+    );
     assert_eq!(active_season.numero, 3);
-    assert_eq!(active_season.ano, crate::constants::historical_timeline::PLAYABLE_START_YEAR + 2);
+    assert_eq!(
+        active_season.ano,
+        crate::constants::historical_timeline::PLAYABLE_START_YEAR + 2
+    );
 
     let _ = fs::remove_dir_all(base_dir);
 }
@@ -569,4 +587,113 @@ fn test_teamless_player_skip_path_keeps_special_grids_assignable() {
     }
 
     let _ = fs::remove_dir_all(base_dir);
+}
+
+// --------------------------------------------------------------------------
+// Temporadas de dois dígitos: `temporada_inicio` é coluna TEXT, então a
+// igualdade contra um parâmetro inteiro só acerta enquanto os dois lados
+// escreverem o número igual. `CAST(... AS INTEGER)` fecha isso, e é o que os
+// casos abaixo cobram com 9, 10, 12 e 26.
+// --------------------------------------------------------------------------
+
+/// Banco só com o schema real: o que interessa aqui é o tipo TEXT das colunas
+/// de vigência, e ele vem da migração.
+fn conn_com_schema_para_limpeza_9d() -> rusqlite::Connection {
+    let conn = rusqlite::Connection::open_in_memory().expect("in-memory db");
+    crate::db::migrations::run_all(&conn).expect("schema");
+    conn
+}
+
+/// Contrato Especial ativo com a temporada gravada **como texto cru**, para o
+/// teste poder escrever `'09'` e `'026'` do jeito que o banco aceita.
+fn especial_ativo_em(conn: &rusqlite::Connection, id: &str, piloto_id: &str, inicio_texto: &str) {
+    // As chaves estrangeiras de `contracts` valem nesta conexão: piloto e equipe primeiro.
+    conn.execute(
+        "INSERT OR IGNORE INTO drivers (id, nome, idade, nacionalidade)
+         VALUES (?1, 'Piloto', 28, 'BR')",
+        rusqlite::params![piloto_id],
+    )
+    .expect("insert piloto");
+    conn.execute(
+        "INSERT OR IGNORE INTO teams (id, nome, categoria)
+         VALUES ('T001', 'Equipe', 'production_challenger')",
+        [],
+    )
+    .expect("insert equipe");
+    conn.execute(
+        "INSERT INTO contracts (
+            id, piloto_id, piloto_nome, equipe_id, equipe_nome, categoria,
+            tipo, status, papel, salario, salario_anual, duracao_anos,
+            temporada_inicio, temporada_fim, created_at
+        ) VALUES (
+            ?1, ?2, 'Piloto', 'T001', 'Equipe', 'production_challenger',
+            'Especial', 'Ativo', 'Numero1', 0.0, 0.0, 1,
+            ?3, ?3, '2026-01-01T00:00:00Z'
+        )",
+        rusqlite::params![id, piloto_id, inicio_texto],
+    )
+    .expect("insert contrato especial");
+}
+
+fn status_do_contrato(conn: &rusqlite::Connection, id: &str) -> String {
+    conn.query_row(
+        "SELECT status FROM contracts WHERE id = ?1",
+        rusqlite::params![id],
+        |row| row.get(0),
+    )
+    .expect("status do contrato")
+}
+
+/// A limpeza legada 9D atinge a temporada pedida e só ela. Com comparação em
+/// texto, a temporada 9 gravada como `'09'` escapava e as demais ficavam.
+#[test]
+fn limpeza_legada_9d_compara_a_temporada_como_numero() {
+    let conn = conn_com_schema_para_limpeza_9d();
+    especial_ativo_em(&conn, "E09", "P09", "09");
+    especial_ativo_em(&conn, "E10", "P10", "10");
+    especial_ativo_em(&conn, "E12", "P12", "12");
+    especial_ativo_em(&conn, "E26", "P26", "26");
+
+    crate::commands::career::season_flow::cleanup_legacy_special_state_for_9d_transition(&conn, 9)
+        .expect("limpeza da temporada 9");
+
+    assert_eq!(
+        status_do_contrato(&conn, "E09"),
+        "Expirado",
+        "a temporada 9 gravada como '09' é a mesma temporada 9",
+    );
+    for id in ["E10", "E12", "E26"] {
+        assert_eq!(
+            status_do_contrato(&conn, id),
+            "Ativo",
+            "{id} não é da temporada 9 e não pode ser expirado junto",
+        );
+    }
+}
+
+/// O outro lado da mesma moeda: pedir a temporada 26 não pode arrastar a 9, que
+/// é a maior das quatro em ordem lexicográfica.
+#[test]
+fn limpeza_legada_9d_na_temporada_26_nao_arrasta_a_temporada_9() {
+    let conn = conn_com_schema_para_limpeza_9d();
+    especial_ativo_em(&conn, "E09", "P09", "9");
+    especial_ativo_em(&conn, "E10", "P10", "10");
+    especial_ativo_em(&conn, "E12", "P12", "12");
+    especial_ativo_em(&conn, "E26", "P26", "026");
+
+    crate::commands::career::season_flow::cleanup_legacy_special_state_for_9d_transition(&conn, 26)
+        .expect("limpeza da temporada 26");
+
+    assert_eq!(
+        status_do_contrato(&conn, "E26"),
+        "Expirado",
+        "a temporada 26 gravada como '026' é a mesma temporada 26",
+    );
+    for id in ["E09", "E10", "E12"] {
+        assert_eq!(
+            status_do_contrato(&conn, id),
+            "Ativo",
+            "{id} não é da temporada 26 e não pode ser expirado junto",
+        );
+    }
 }

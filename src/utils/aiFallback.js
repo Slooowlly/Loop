@@ -9,6 +9,8 @@
 // por idioma. Quando o texto de IA existe, ele já vem no idioma certo (o `lang` é
 // enviado ao servidor), então esta regra só vale para o caminho de fallback.
 
+// i18n-ignore-file: ESTA TABELA É a tradução. Passar as frases daqui por `t()` seria pedir a
+// tradução de dentro do caminho que existe justamente para quando a tradução não veio.
 const AI_ERROR_TEXT = {
   "pt-BR": "Erro na geração de texto.",
   "pt-PT": "Erro na geração de texto.",

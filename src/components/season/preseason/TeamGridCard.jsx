@@ -69,7 +69,7 @@ export default function TeamGridCard({ team, accent, hoveredFreeAgentCat, onOpen
         </div>
       </div>
 
-      <div className="relative divide-y divide-white/8">
+      <div className="relative divide-y divide-white/[0.08]">
         <TeamDriverRow
           driverName={team.piloto_1_nome}
           tenureSeasons={team.piloto_1_tenure_seasons}

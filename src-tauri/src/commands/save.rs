@@ -23,6 +23,22 @@ pub use comandos::*;
 pub(crate) use comum::*;
 pub(crate) use restore::*;
 
+/// Os arquivos auxiliares que viajam junto com o banco no snapshot da temporada.
+/// FONTE ÚNICA do backup e do restore: as duas listas viviam separadas, e um arquivo
+/// novo entrava no snapshot sem entrar na restauração (ou o contrário) sem nada acusar.
+pub(crate) const SIDECAR_FILES: &[&str] = &[
+    "race_results.json",
+    "resume_context.json",
+    "briefing_phrase_history.json",
+    "preseason_plan.json",
+];
+
+/// As telas pós-corrida (`race_screens/<race_id>.json`) são estado da carreira e entram
+/// no snapshot como DIRETÓRIO INTEIRO, nunca arquivo a arquivo: os IDs de corrida são
+/// reaproveitados pela linha temporal que nasce do restore, então uma tela sobrevivente
+/// do futuro abandonado voltaria a ser aberta como se fosse da corrida recém-disputada.
+pub(crate) const RACE_SCREENS_DIR: &str = "race_screens";
+
 #[derive(Debug, serde::Serialize)]
 pub struct FlushResult {
     pub last_saved: String,

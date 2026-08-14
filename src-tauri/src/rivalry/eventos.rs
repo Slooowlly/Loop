@@ -7,8 +7,7 @@ use crate::common::time::current_timestamp;
 
 use crate::db::connection::DbError;
 use crate::db::queries::rivalries::{
-    delete_rivalry, get_rivalries_for_pilot, get_rivalry_by_pair, insert_rivalry,
-    update_rivalry_axes,
+    get_rivalries_for_pilot, get_rivalry_by_pair, insert_rivalry, update_rivalry_axes,
 };
 use crate::generators::ids::{next_id, IdType};
 use crate::models::rivalry::{normalize_pair, perceived_intensity, Rivalry, RivalryType};
@@ -176,10 +175,6 @@ pub fn get_pilot_rivalries(
         })
         .collect();
     Ok(summaries)
-}
-
-pub fn remove_rivalry(conn: &Connection, rivalry_id: &str) -> Result<(), DbError> {
-    delete_rivalry(conn, rivalry_id)
 }
 
 pub(crate) fn is_rivalry_pair_constraint(err: &DbError) -> bool {

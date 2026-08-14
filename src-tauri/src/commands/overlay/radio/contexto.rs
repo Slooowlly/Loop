@@ -77,7 +77,9 @@ impl Mundo {
             .map(|(nome, _)| {
                 equipe
                     .iter()
-                    .filter(|(pid, (n, _))| n == nome && Some(pid.as_str()) != jogador_id.as_deref())
+                    .filter(|(pid, (n, _))| {
+                        n == nome && Some(pid.as_str()) != jogador_id.as_deref()
+                    })
                     .map(|(pid, _)| pid.clone())
                     .collect()
             })
@@ -111,8 +113,10 @@ impl Mundo {
             .and_then(|id| self.equipe.get(id))
             .map(|(nome, a)| (Some(nome.clone()), *a))
             .unwrap_or((None, 2));
-        let delta_pontos = match (piloto_id.and_then(|id| self.pontos.get(id)), self.pontos_jogador)
-        {
+        let delta_pontos = match (
+            piloto_id.and_then(|id| self.pontos.get(id)),
+            self.pontos_jogador,
+        ) {
             (Some(dele), Some(meu)) => Some((dele - meu).round() as i32),
             _ => None,
         };

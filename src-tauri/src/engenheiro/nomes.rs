@@ -260,7 +260,10 @@ mod tests {
         let faltando: Vec<_> = catalogo.iter().filter(|n| !faladas.contains(n)).collect();
         assert!(faltando.is_empty(), "equipes sem nome falado: {faltando:?}");
         let sobrando: Vec<_> = faladas.iter().filter(|n| !catalogo.contains(n)).collect();
-        assert!(sobrando.is_empty(), "nome falado de equipe inexistente: {sobrando:?}");
+        assert!(
+            sobrando.is_empty(),
+            "nome falado de equipe inexistente: {sobrando:?}"
+        );
     }
 
     #[test]

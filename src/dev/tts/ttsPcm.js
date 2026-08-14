@@ -1,3 +1,4 @@
+// i18n-ignore-file — bancada da POC de TTS, fora do caminho do jogador.
 // Decodificação do PCM que vem do Gemini TTS: base64 -> bytes -> Float32 mono.
 //
 // O formato documentado é PCM linear 16 bits, 24 kHz, mono, little-endian. Duas

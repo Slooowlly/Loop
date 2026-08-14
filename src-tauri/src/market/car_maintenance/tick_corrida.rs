@@ -3,6 +3,8 @@
 
 use super::*;
 
+use crate::car::breakdown::DuracaoDeProva;
+
 // ===================== Tick de manutenção por corrida =====================
 
 /// Condições REAIS da corrida que acabou, que modulam o desgaste PERSISTIDO (grade toda): a
@@ -15,10 +17,12 @@ pub struct WearConditions {
     pub track_pha: (f64, f64, f64),
     /// Clima da rodada (mesma `WeatherStory` que o iRacing roda).
     pub weather: crate::car::breakdown::Weather,
-    /// Duração REAL da etapa (min) — `CalendarEntry::duracao_corrida_min`, não a constante da
-    /// categoria (que vale 0 no Endurance). Acima do gate de enduro, o desgaste de peça (→
+    /// Duração REAL da etapa — a que sai de `CalendarEntry::duracao_efetiva`, nunca a
+    /// constante da categoria (que vale 0 no Endurance). É [`DuracaoDeProva`] e não `u16`
+    /// justamente para o zero não caber aqui: com ele, a única categoria que deveria disparar
+    /// o enduro passava batido como sprint. Acima do gate de enduro, o desgaste de peça (→
     /// custo) sobe pra grade toda; parada real alivia. Sprint (≤ gate) → sem efeito.
-    pub duracao_min: u16,
+    pub duracao: DuracaoDeProva,
 }
 
 impl WearConditions {
@@ -28,7 +32,7 @@ impl WearConditions {
         Self {
             track_pha: (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
             weather: crate::car::breakdown::Weather::NEUTRAL,
-            duracao_min: 30,
+            duracao: DuracaoDeProva::constante(30),
         }
     }
 
@@ -36,12 +40,12 @@ impl WearConditions {
     pub fn from_race(
         track_id: u32,
         weather: crate::car::breakdown::Weather,
-        duracao_min: u16,
+        duracao: DuracaoDeProva,
     ) -> Self {
         Self {
             track_pha: maintenance_demand(&[track_id]),
             weather,
-            duracao_min,
+            duracao,
         }
     }
 }
@@ -201,10 +205,11 @@ pub fn maintain_team_car_pits(
     let genuine_pits = if is_player_car {
         player_pits
     } else {
-        crate::car::breakdown::modeled_ai_pits(conditions.duracao_min)
+        conditions.duracao.paradas_modeladas_da_ia()
     };
-    let enduro_mult =
-        crate::car::breakdown::enduro_economy_wear_mult(conditions.duracao_min, genuine_pits);
+    let enduro_mult = conditions
+        .duracao
+        .mult_de_desgaste_na_economia(genuine_pits);
     if (enduro_mult - 1.0).abs() > f64::EPSILON {
         for mult in wear_mults.values_mut() {
             *mult *= enduro_mult;

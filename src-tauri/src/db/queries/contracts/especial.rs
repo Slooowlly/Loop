@@ -1,4 +1,8 @@
 //! Contratos do tipo Especial: consultas, expiração do bloco e fábrica.
+//!
+//! Vale aqui a mesma regra descrita em [`super::leitura`]: `temporada_inicio` e
+//! `temporada_fim` são colunas TEXT, e toda comparação ou ordenação por elas passa
+//! por `CAST(... AS INTEGER)`.
 
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -35,7 +39,7 @@ pub fn expire_especial_contracts(conn: &Connection, season_number: i32) -> Resul
         "UPDATE contracts SET status = 'Expirado'
          WHERE tipo = 'Especial'
            AND status = 'Ativo'
-           AND temporada_inicio = ?1
+           AND CAST(temporada_inicio AS INTEGER) = ?1
            AND categoria NOT IN ('production_challenger', 'endurance')",
         params![season_number],
     )?;
@@ -61,7 +65,7 @@ pub fn get_active_especial_contract_for_pilot(
     let mut stmt = conn.prepare(&format!(
         "SELECT {} FROM contracts
          WHERE piloto_id = ?1 AND status = 'Ativo' AND tipo = 'Especial'
-         ORDER BY temporada_inicio DESC, created_at DESC
+         ORDER BY CAST(temporada_inicio AS INTEGER) DESC, created_at DESC
          LIMIT 1",
         colunas_select_contract()
     ))?;

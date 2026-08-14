@@ -20,10 +20,18 @@ pub(crate) const DDL_AI_RACE_STORY: &str = "
     );
 ";
 
+/// Reaplica o DDL para conexões de teste in-memory que não migram, e acrescenta a coluna
+/// tardia.
+///
+/// O `ALTER` daqui não é cópia ociosa da v62: a tabela pode já existir num save antigo SEM
+/// a coluna, e aí o `CREATE ... IF NOT EXISTS` é no-op. É o mesmo motivo do `team_car`, e
+/// mover a coluna para a constante deixaria o `INSERT` de baixo (que nomeia `teams_json`)
+/// falhar em save que ainda não migrou.
 fn ensure_table(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(DDL_AI_RACE_STORY)?;
     // `teams_json` (mapa nome da equipe → cor primária, p/ o front colorir os nomes no
-    // boletim) foi adicionada depois do schema inicial. Guardado por PRAGMA.
+    // boletim) foi adicionada depois do schema inicial. Guardado por PRAGMA: a v62 aplica o
+    // MESMO ALTER pelo caminho versionado.
     crate::db::migrations::add_column_if_missing(conn, "ai_race_story", "teams_json", "TEXT")?;
     Ok(())
 }

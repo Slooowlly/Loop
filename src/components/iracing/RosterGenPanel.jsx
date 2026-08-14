@@ -192,11 +192,12 @@ function RosterGenPanel() {
     setError("");
     setResult(null);
     try {
+      // Sem `carKey`: quem decide o carro é o backend, pela categoria. O seletor de carro
+      // do painel serve só à pintura manual logo abaixo, que é escolha à mão.
       const res = await invoke("iracing_generate_roster", {
         careerId,
         categoria,
         rosterName,
-        carKey,
       });
       setResult(res);
     } catch (e) {
@@ -215,7 +216,6 @@ function RosterGenPanel() {
         careerId,
         categoria,
         rosterName,
-        carKey,
         targetTrackId: targetTrackId.trim() ? Number(targetTrackId.trim()) : null,
       });
       setSeasonResult(res);
@@ -237,7 +237,6 @@ function RosterGenPanel() {
         careerId,
         categoria,
         rosterName,
-        carKey,
         targetTrackId: null,
         testBlank: true,
       });

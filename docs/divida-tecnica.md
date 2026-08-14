@@ -229,11 +229,70 @@ Precisa de decisão sobre QUEM grava (a Sala de Estratégia, no preparo do fim d
 
 ---
 
+### `advance_transfer_window` — comando no-op removido
+
+**Removido em 11/08/2026, junto com o fechamento do F-01.**
+
+Era o item mais antigo de `SEM_CONSUMIDOR_CONHECIDO` no guard
+[`invoke-contra-generate-handler`](../scripts/tests/invoke-contra-generate-handler.test.mjs),
+classificado ali como "feature futura, esperando o F-01". O F-01 chegou, e a tela que o item
+pedia — a seção Mercado da aba Carreira — recusou ligá-lo.
+
+O motivo é que ele nunca avançou nada. `advance_transfer_window_in_base_dir` tinha o corpo
+IDÊNTICO ao de `get_transfer_window_state_in_base_dir`, e o único parâmetro que os distinguia
+(`accepted_seat_id`) era recebido como `_accepted_seat_id` e ignorado. O próprio doc-comment
+dizia: "ficou legado: apenas devolve o estado atual das ofertas, sem avançar nada". Quem avança
+o mercado é `advance_market_week` → `preseason::advance_week`, que a pré-temporada já conduz.
+
+**A lição de método:** comando registrado sem consumidor é indício de tela que falta OU de
+código morto, e as duas hipóteses se separam lendo o CORPO da função, não a lista do
+`generate_handler!`. Este passou dois anos na primeira classificação porque ninguém abriu o
+arquivo. O `roadmap.md` §3 chegou a escrever que a existência dele era "indício de que a janela
+de transferências no meio do ano existe no backend e não tem condução na UI" — o indício era
+falso, e a correção está registrada lá.
+
+---
+
+### Vistoria independente da série V (11/08/2026)
+
+A vistoria inteira está em [vistoria-independente-2026-08-11.md](vistoria-independente-2026-08-11.md),
+com o achado original, a evidência e o critério de aceite de cada id. **Aquele documento é
+histórico**: ele descreve a árvore como ela estava no dia, e não deve ser reescrito quando um item
+fecha. O que fechou está aqui.
+
+Fechado e conferido contra a árvore em 11/08/2026:
+
+| Id | O que fechou | Onde provar |
+|---|---|---|
+| V1.1 | Categoria → carro vira fonte única e passa a recusar. Acabou o `else → mx5` que exportava GT3, GT4, LMP2, Production e Endurance como Mazda MX-5 | `commands/iracing/exportavel.rs`, teste `o_catalogo_inteiro_e_mapeado_ou_recusado_explicitamente` |
+| V1.2 | O aiseason deixa de ler `duracao_corrida_min` da categoria. A sentinela `0` morre na cascata e a divergência entre etapas é recusada em vez de achatada | `exportavel::race_length_da_temporada`, `commands/iracing/temporada.rs` |
+| V1.3 / V1.4 / V8.2 | Os guards pararam de dar falso verde: o de flags varre a árvore inteira em vez de três arquivos escolhidos à mão, e o de comandos deixou de contar literal em teste e `invoke` de módulo órfão como consumidor vivo | `constants/flags_experimentais.rs`, `scripts/tests/invoke-contra-generate-handler.test.mjs` |
+| V2.1 | Save de schema mais NOVO que o binário é recusado com mensagem, no lugar de abrir e operar sobre um schema desconhecido | `db/migrations.rs::verificar_compatibilidade_do_schema` |
+| V2.2 | `preseason_plan.json` sai da transação: escreve em staging e só publica depois do commit, com `Drop` limpando o staging em qualquer saída de erro | `market/preseason/plano.rs::PreSeasonPlanStaging`, `evolution/pipeline/orquestracao.rs` |
+| V2.3 | Restauração passa a ser atômica (`substituir_preservando_anterior`) e confere a compatibilidade de schema do backup antes de tocar no banco vivo | `commands/save/restore.rs` |
+| V4.1 | `incident_catalog` guarda chave, não prosa. Migração v65, com a prosa de id fora dos 54 preservada em `incident_catalog_texto_legado` | `db/migrations/incident_catalog_chaves.rs`, teste `troca_de_locale_muda_o_texto_do_mesmo_save` |
+| V4.2 (mecânico) | As três strings PT cruas do módulo de notícias viraram chave de `rust-i18n`. O "desfalque confirmado" em minúscula foi junto | `commands/race/noticias/manchetes.rs` |
+| V4.3 | O auditor de i18n passou a varrer `.js`, com o passivo congelado em `scripts/i18nBaseline.mjs` e baseline órfã falhando o auditor | `scripts/i18nAudit.mjs`, `scripts/tests/i18n-audit-staged.test.mjs` |
+| V4.4 | O carrossel de carregamento perdeu a segunda fonte de verdade: a contagem sai do próprio locale e o teste assevera as chaves de pt-BR | `src/pages/NewCareer.jsx`, `src/utils/constants.test.js` |
+| V5.1 | As três flags de regra que escapavam (`IRACER_GATE_SHARE`, `IRACER_SALARY_SHARE`, `IRACER_TRACK_RIVALRY`) estão no inventário, e env de ambiente precisa de motivo escrito na allowlist | `constants/flags_experimentais.rs` |
+| V6.2 | `.catch(() => {})` cru proibido no caminho de corrida e nos stores; no lugar dele `bestEffort`, que registra no `loop.log` | `src/utils/bestEffort.js`, `scripts/tests/catch-vazio-no-caminho-de-corrida.test.mjs` |
+| V6.3 | CSP explícita no `tauri.conf.json` (era `null`) e o corpo da caixa de entrada deixou de ser HTML concatenado | `scripts/tests/csp-e-sink-html.test.mjs`, `src/components/news/MagazineMailbox.jsx` |
+| V7.1 / V7.3 | Política de target-dir única, em `scripts/lib/cargo-target.mjs`, e o comando documentado no CLAUDE.md deixou de criar um terceiro target dentro do repositório | `CLAUDE.md`, `scripts/release.mjs`, `scripts/tests/release-target-unico.test.mjs` |
+| V7.4 | A verificação final do release confere a estrutura do manifesto antes de ler a URL da plataforma, em vez de estourar `TypeError` depois do upload | `scripts/release.mjs`, `scripts/tests/release-manifesto-plataforma.test.mjs` |
+| V8.1 | Os fake timers saíram de `RosterGenPanel.test.jsx`. Três execuções seguidas da suíte completa em 11/08/2026, sem falha | `src/components/iracing/RosterGenPanel.test.jsx` |
+| V3.3 | Passou a existir teto de não-regressão rápido e NÃO ignorado para as duas propriedades centrais da simulação, enquanto a calibração do V3.1 segue aberta | `rookie_nao_piora_alem_do_teto_atual`, `gt3_nao_piora_alem_do_teto_atual` |
+| V9.1 (parcial) | As bancadas soltas da raiz estão gitignoradas e o dump que regravava `__curva_preview.html` a cada suíte virou opt-in por `LOOP_PREVIEW_CURVA=1`, escrevendo no temp do sistema | `.gitignore` |
+
+O que a série V deixou em aberto, e por quê, está no [backlog.md](backlog.md).
+
+---
+
 ## Pendências abertas
 
 Estão em [backlog.md](backlog.md): D-01 (fases legadas da convocação — reenquadrado, a feature
 de convocação está viva), D-02 (tabela `races` órfã — medida, exige `DROP TABLE` em migração),
-D-05 (comandos sem consumidor — 21, com o motivo de cada um congelado no guard), D-06 (TODO de
+D-05 (comandos sem consumidor — o motivo de cada um congelado no guard, **que é a contagem**; este
+arquivo dizia 21 e a lista se moveu duas vezes depois disso), D-06 (TODO de
 design) e D-10 (`planned_events` write-only no plano de pré-temporada, achado do D-09/R4 e
 separado por tocar formato de save). **D-07 e D-08 fecharam em 11/08/2026** (ver acima).
 

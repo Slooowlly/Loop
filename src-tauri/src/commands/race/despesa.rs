@@ -1065,7 +1065,10 @@ mod tests {
             antiga("🇧🇷 Brasil", 999_999).to_bits(),
             distancia_da_sede_km("🇧🇷 Brasil", 999_999).to_bits()
         );
-        assert!(pares > 1_000, "só {pares} pares — a varredura não cobriu nada");
+        assert!(
+            pares > 1_000,
+            "só {pares} pares — a varredura não cobriu nada"
+        );
     }
 
     /// Etapa em casa custa menos que etapa do outro lado do oceano — a geografia que a

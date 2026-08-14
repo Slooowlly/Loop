@@ -26,6 +26,21 @@ use std::collections::HashSet;
 #[cfg(test)]
 use crate::models::enums::{SeasonPhase, WeatherCondition};
 
+/// O teto de voltas por duração (B19) — fonte única, reexportada para quem monta etapa
+/// sintética (harness de quebra) precisar contar as MESMAS voltas que o calendário conta.
+pub(crate) use montagem::teto_de_voltas;
+
+/// `estimate_laps` para quem monta etapa sintética em teste/harness. Existe porque `montagem`
+/// é privado e a alternativa seria replicar a conta — que é justamente como o teto de 50 do
+/// B19 ficou desalinhado entre o calendário e o harness de quebra.
+#[cfg(test)]
+pub(crate) fn estimate_laps_de_teste(
+    track: &crate::constants::tracks::TrackInfo,
+    duracao_corrida_min: i32,
+) -> i32 {
+    montagem::estimate_laps(track, duracao_corrida_min)
+}
+
 pub use entry::*;
 pub use geracao::*;
 pub use janela::*;

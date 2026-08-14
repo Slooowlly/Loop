@@ -78,7 +78,7 @@ function IracingTutorialModal({ onFinish, onClose, message }) {
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabeçalho */}
-        <div className="flex items-center justify-between border-b border-white/8 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-white/[0.08] px-6 py-4">
           <div className="flex items-center gap-2">
             <span className="text-base">🤖</span>
             <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-accent-primary">
@@ -122,7 +122,7 @@ function IracingTutorialModal({ onFinish, onClose, message }) {
         </div>
 
         {/* Rodapé */}
-        <div className="flex items-center justify-between border-t border-white/8 px-6 py-4">
+        <div className="flex items-center justify-between border-t border-white/[0.08] px-6 py-4">
           {/* Indicador de passos */}
           <div className="flex items-center gap-2">
             {STEPS.map((_, i) => (

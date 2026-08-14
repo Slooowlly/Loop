@@ -360,13 +360,39 @@ mod tests {
             .to_string();
             let dano =
                 rust_i18n::t!("race.incident.latent_damage_dnf", name = "Ayrton").to_string();
-            for texto in [&atacante, &defensor, &dano] {
+            // Colisão DIRETA e o incidente inferido do resultado oficial do iRacing.
+            let colisao = rust_i18n::t!("race.incident.collision_dnf", name = "Ayrton").to_string();
+            let colisao_com = rust_i18n::t!(
+                "race.incident.collision_dnf_with",
+                name = "Ayrton",
+                other = "Alain"
+            )
+            .to_string();
+            let oficial =
+                rust_i18n::t!("race.incident.collision_with", other = "Alain").to_string();
+            for texto in [
+                &atacante,
+                &defensor,
+                &dano,
+                &colisao,
+                &colisao_com,
+                &oficial,
+            ] {
                 assert_eq!(
                     dnf_kind(None, false, Some(texto)),
                     DnfKind::Contato,
                     "[{locale}] \"{texto}\" deixou de ser lido como contato"
                 );
             }
+
+            // Fallback de PANE: a mesma exigência, do outro lado da tabela. Um abandono
+            // mecânico lido como `Desconhecido` sai do debrief e do boletim sem causa.
+            let pane = rust_i18n::t!("race.incident.mechanical_dnf", name = "Ayrton").to_string();
+            assert_eq!(
+                dnf_kind(None, false, Some(&pane)),
+                DnfKind::Mecanico,
+                "[{locale}] \"{pane}\" deixou de ser lido como pane"
+            );
         }
         rust_i18n::set_locale(&anterior);
     }

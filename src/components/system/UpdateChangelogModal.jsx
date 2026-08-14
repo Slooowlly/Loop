@@ -47,7 +47,7 @@ export default function UpdateChangelogModal() {
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={closeChangelog}
       />
-      <div className="glass-strong relative max-h-[70vh] w-[420px] overflow-y-auto rounded-2xl border border-white/12 p-6 shadow-2xl">
+      <div className="glass-strong relative max-h-[70vh] w-[420px] overflow-y-auto rounded-2xl border border-white/[0.12] p-6 shadow-2xl">
         <h3 className="mb-1 text-[15px] font-semibold text-text-primary">
           {t("updater.changelogTitle")}
         </h3>

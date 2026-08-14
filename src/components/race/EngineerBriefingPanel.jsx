@@ -1,9 +1,9 @@
 import { useTranslation } from "react-i18next";
 
 import BreakdownRiskButton from "./BreakdownRiskButton";
+import EventInterestCard from "./EventInterestCard";
 import WeatherButton from "./WeatherButton";
 import WeekendReadingPanel from "./WeekendReadingPanel";
-import { formatAudience } from "./raceEventContext";
 import { getReadableTeamColor } from "./raceGridContext";
 
 // Coluna 1 da Sala de Estratégia: condições da pista, aviso de risco de quebra e a
@@ -52,11 +52,20 @@ function EngineerBriefingPanel({
             </p>
           </div>
         </div>
-        <div className="text-right">
-          <p className="text-[10px] uppercase tracking-widest text-gray-500 font-bold">{t("nextRaceTab.labels.audience")}</p>
-          <p className="text-xl font-bold text-white">{formatAudience(briefing.audienceEstimate)}</p>
-        </div>
       </WeatherButton>
+
+      {/* Interesse do evento (F-07). O público SAIU do canto direito do card de
+          clima e virou card próprio: pendurado ali ele era um número sem tier, sem
+          escala e sem relação com o jogador, dentro de um botão que abre a previsão
+          do tempo — dois assuntos disputando a mesma caixa. Repetir o número nos
+          dois lugares diria a mesma coisa duas vezes, então o clima ficou só com o
+          clima. */}
+      <EventInterestCard
+        interestLabel={briefing.interestLabel}
+        audienceEstimate={briefing.audienceEstimate}
+        audienceRankLabel={briefing.audienceRankLabel}
+        fameSharePct={briefing.fameSharePct}
+      />
 
       {/* Risco de quebra (aviso pré-corrida) — card compacto pulsante que abre o
           detalhamento; o glow cala depois de aberto nesta corrida. */}

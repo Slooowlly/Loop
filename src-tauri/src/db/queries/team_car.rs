@@ -18,6 +18,10 @@ use crate::db::connection::DbError;
 /// A migração v62 executa esta MESMA constante: enquanto o DDL vivia em duas cópias
 /// textuais (aqui e na baseline), a coluna `unit_seed` existia de um lado só. Ver
 /// `db::migrations::migrate_v62_tabelas_de_query_sob_as_migracoes`.
+/// `unit_seed` NÃO entra nesta constante, e a razão é a baseline: ela também declara
+/// `team_car`, é um retrato congelado da v53 e não pode ser editada. O guard
+/// `ddl_das_queries_bate_com_o_da_baseline_nas_tabelas_duplicadas` exige que a constante e a
+/// baseline produzam a MESMA tabela, então a coluna tardia só pode chegar por `ALTER`.
 pub(crate) const DDL_TEAM_CAR: &str = "
     CREATE TABLE IF NOT EXISTS team_car (
         team_id    TEXT NOT NULL,
@@ -29,11 +33,19 @@ pub(crate) const DDL_TEAM_CAR: &str = "
     );
 ";
 
+/// Reaplica o DDL para conexões de teste in-memory que não migram, e acrescenta a coluna
+/// tardia.
+///
+/// O `ALTER` daqui não é cópia ociosa da v62: é o caminho por onde `unit_seed` chegou aos
+/// saves em campo ANTES de existir migração para ela, e é o que segura a leitura do carro
+/// num save que ainda não migrou. `v62_preserva_o_que_o_ensure_table_ja_tinha_criado`
+/// prende exatamente esse cenário — tentar mover a coluna para a constante quebra os dois
+/// testes de uma vez.
 fn ensure_table(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(DDL_TEAM_CAR)?;
     // Identidade da unidade (redesign 2026-07-22 §4.1). `0` = não semeado → o carregador
-    // deriva o fallback determinístico por tipo. A v62 aplica o mesmo ALTER guardado nos
-    // saves em campo; isto aqui segura as conexões de teste in-memory que não migram.
+    // deriva o fallback determinístico por tipo. Guardado por PRAGMA: a v62 aplica o MESMO
+    // ALTER pelo caminho versionado.
     crate::db::migrations::add_column_if_missing(
         conn,
         "team_car",

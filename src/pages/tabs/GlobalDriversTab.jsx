@@ -364,7 +364,7 @@ function GlobalDriversTab({ selectedDriverId, initialMetric = null, initialCateg
 
           <table className="mt-4 min-w-full text-left text-sm" aria-label={i18n.t("globalDrivers.rankingAria")}>
             <thead className="sticky top-0 z-10 bg-[#0b1524]">
-              <tr className="border-b border-white/8 text-[10px] uppercase tracking-[0.16em] text-text-muted">
+              <tr className="border-b border-white/[0.08] text-[10px] uppercase tracking-[0.16em] text-text-muted">
                 <SortableHeader label="#" sortKey="historical_rank" sort={sort} onSort={handleSort} className="py-3 pr-4" />
                 <SortableHeader label={t("globalDrivers.col.driver")} sortKey="nome" sort={sort} onSort={handleSort} />
                 <SortableHeader label={t("globalDrivers.col.status")} sortKey="status" sort={sort} onSort={handleSort} />

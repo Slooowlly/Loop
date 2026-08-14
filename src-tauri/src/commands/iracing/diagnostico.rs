@@ -39,6 +39,26 @@ pub fn iracing_log_ler() -> String {
     crate::diagnostico::ler_final(60 * 1024)
 }
 
+/// **Registra no log de diagnóstico uma falha que o FRONT engoliu.**
+///
+/// O webview não tem console na máquina do jogador: um `console.warn` ali morre no
+/// vazio, que é exatamente o buraco que fez este módulo existir. Quando o front trata
+/// uma falha como best-effort e segue em frente (a macro de bandeira que não instalou,
+/// o modo janela recusado com o simulador aberto), o rastro precisa cair no mesmo
+/// arquivo que o jogador já sabe anexar.
+///
+/// Usa [`crate::diagnostico::linha_unica`] de propósito: o front chama isto de dentro
+/// de efeito e de poll, e uma falha persistente repetiria a mesma linha até afogar o
+/// arquivo. Com a deduplicação por categoria, uma falha que se mantém escreve UMA vez,
+/// e a próxima linha daquele rótulo já é a mudança de estado.
+///
+/// Nunca falha, pela mesma razão do [`radio_registrar`]: um registro que devolve erro
+/// vira `catch` no front, e o `catch` mudo do front é o que se está tentando corrigir.
+#[tauri::command]
+pub fn diagnostico_registrar(rotulo: String, mensagem: String) {
+    crate::diagnostico::linha_unica(&format!("front:{rotulo}"), &mensagem);
+}
+
 /// Caminho do arquivo de log, para o jogador achar e anexar. `None` se o log não
 /// pôde ser criado (pasta sem permissão de escrita).
 #[tauri::command]

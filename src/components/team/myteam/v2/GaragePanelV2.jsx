@@ -39,7 +39,7 @@ function GaragePanelV2({ drivers, salaryCeiling, presence, climate, sponsorshipI
       {/* O título fecha com uma linha em vez de só respiro: espaço vazio sozinho some
           num card deste tamanho — foram 24px de folga que passaram despercebidos. A
           régua separa o cabeçalho do primeiro medidor de um jeito que se vê. */}
-      <p className="flex items-center gap-2 border-b border-white/8 pb-4 text-[10px] uppercase tracking-[0.22em] text-text-muted">
+      <p className="flex items-center gap-2 border-b border-white/[0.08] pb-4 text-[10px] uppercase tracking-[0.22em] text-text-muted">
         <Wrench size={19} strokeWidth={1.8} aria-hidden="true" className="text-accent-primary" />
         {t("myTeamTabV2.garage.title")}
       </p>
@@ -72,7 +72,7 @@ function GaragePanelV2({ drivers, salaryCeiling, presence, climate, sponsorshipI
           />
         ) : null}
 
-        <div className="flex items-start gap-3.5 border-t border-white/8 pt-4">
+        <div className="flex items-start gap-3.5 border-t border-white/[0.08] pt-4">
           <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl border ${climate.hurtsMorale ? "border-status-red/25 bg-status-red/10 text-status-red" : climate.tension >= 20 ? "border-status-yellow/25 bg-status-yellow/10 text-status-yellow" : "border-status-green/25 bg-status-green/10 text-status-green"}`}>
             <Flame size={24} strokeWidth={1.6} aria-hidden="true" />
           </span>

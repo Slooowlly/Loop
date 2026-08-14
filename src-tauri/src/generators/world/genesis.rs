@@ -8,8 +8,8 @@ use rand::Rng;
 use super::pareamento::{fill_category_grid, PlayerSlot};
 use super::tipos::{LocalIdAllocator, WorldData};
 use crate::constants::categories::{get_all_categories, get_category_config};
+use crate::generators::teams::generate_teams_for_category;
 use crate::models::driver::Driver;
-use crate::models::team::generate_teams_for_category;
 
 pub fn generate_world(
     player_name: &str,

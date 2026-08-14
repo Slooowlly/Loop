@@ -47,14 +47,27 @@ aproximada pelo retrato final da bandeirada.";
 // Adaptador do dado pendente
 // ---------------------------------------------------------------------------
 
-/// Posições ao fim de cada segmento, por piloto. `None` enquanto o campo não existir.
+/// Posições ao fim de cada segmento, por piloto.
 ///
-/// **Ponto de ligação**: quando `RaceDriverResult::posicoes_por_segmento` entrar, o corpo vira
-/// `Some(corrida.race_results.iter().map(|r| (r.pilot_id.clone(), r.posicoes_por_segmento.clone())).collect())`
-/// e todas as métricas de segmento abaixo passam a rodar sobre corrida de verdade. Nada mais muda.
+/// **LIGADO em 12/08/2026.** `RaceDriverResult::posicoes_por_segmento` já vinha preenchido de
+/// `simulation::race::motor::fechar_o_trecho` desde o pacote C, e este adaptador continuava
+/// devolvendo `None` — a matemática de segmento inteira (curva ρ, estabilização, trocas,
+/// comboio) rodava só contra entrada sintética, e a régua de B9 media a corrida pela foto da
+/// bandeirada.
+///
+/// `None` continua existindo para a corrida que não tem o dado: resultado importado do iRacing
+/// e save gravado antes do campo existir chegam com o vetor vazio, e medir cinco segmentos com
+/// menos de cinco entradas produziria número em vez de erro.
 pub fn posicoes_por_segmento(corrida: &RaceResult) -> Option<Vec<(String, Vec<i32>)>> {
-    let _ = corrida;
-    None
+    let posicoes: Vec<(String, Vec<i32>)> = corrida
+        .race_results
+        .iter()
+        .map(|r| (r.pilot_id.clone(), r.posicoes_por_segmento.clone()))
+        .collect();
+    if posicoes.is_empty() || posicoes.iter().any(|(_, p)| p.len() < SEGMENTOS) {
+        return None;
+    }
+    Some(posicoes)
 }
 
 // ---------------------------------------------------------------------------

@@ -764,6 +764,16 @@ race:
     champion_title: "%{name} is the champion of the %{season} season!"
     champion_text: "After %{rounds} intense rounds, %{name} clinches the category title. An unforgettable season has come to an end."
     other_categories_summary: "Other categories summary: %{headline}."
+    # Incident and injury headlines. The incident news BODY does not go through here: it is the
+    # incident description, already localized by the engine (`race.incident.*`) or by the
+    # database catalog. Only the title is built at this layer.
+    #
+    # News already WRITTEN does not switch language: the text is persisted in the save in the
+    # language it was generated in, same Option A as injuries. These keys apply to NEW news.
+    incident_dnf_title: "%{name} retires from the race after an incident"
+    incident_title: "%{name} caught up in an incident during the race"
+    injury_title: "Absence confirmed"
+    injury_text: "%{name} is out of the next round with a confirmed injury. The situation will be reassessed in the coming days."
   retirement:
     injury: "Retired at %{age} after a serious injury"
     # Career-ending injury news. Destaque importance: the hardest headline the world produces
@@ -785,6 +795,17 @@ race:
     contact_defender: "%{defensor} takes contact from %{atacante}"
     latent_damage_dnf: "%{name} retires with damage from an earlier collision"
     latent_damage_positions: "%{name} loses positions to damage from an earlier collision"
+    collision_dnf: "%{name} retires after a collision"
+    collision_positions: "%{name} loses %{count} positions in a collision"
+    collision_dnf_with: "%{name} retires after a collision with %{other}"
+    collision_positions_with: "%{name} loses %{count} positions in a collision with %{other}"
+    mechanical_dnf: "%{name} retires with a mechanical problem"
+    mechanical_positions: "%{name} loses %{count} positions to a mechanical problem"
+    driver_error_dnf: "%{name} retires after a driving mistake"
+    driver_error_positions: "%{name} makes a mistake and loses %{count} positions"
+    collision_with: "Collision with %{other}"
+    retired_after_incident: "Retired after an incident"
+    unknown_driver: "Driver"
 
 # Team bankruptcy (evolution/pipeline/financas.rs). Two beats: the warning at the end of
 # the first insolvent season and the sale at the end of the second. Without this copy the
@@ -1028,6 +1049,66 @@ breakdown:
   RS_E_PIT_01:
     dnf: "{driver} spun and couldn't restart"
     part: "Spin with stall"
+
+  # ── PROTOTYPE (LMP2) — added by migration v67 (2026-08-12) ──
+  PR_S_MEC_01:
+    dnf: "{driver} retires with a sequential gearbox failure – no engagement"
+    warn: "{driver} with the gearbox refusing gears – lost positions"
+    part: "Sequential gearbox – actuator"
+  PR_S_MEC_02:
+    dnf: "{driver} retires with the V8 overheating – pressure lost"
+    warn: "{driver} with engine temperature climbing – lifting on the straights"
+    part: "Engine – temperature"
+  PR_S_MEC_03:
+    dnf: "{driver} retires with an electronics failure – prototype in safe mode"
+    warn: "{driver} with an alarm flashing on the wheel – power limited"
+    part: "Electronics – prototype ECU"
+  PR_E_MEC_01:
+    dnf: "{driver} retires with a broken gearbox – prototype stopped in the run-off"
+    warn: "{driver} with the gearbox missing shifts under load"
+    part: "Sequential gearbox – gear"
+  PR_E_MEC_02:
+    dnf: "{driver} retires with an engine failure as night falls"
+    warn: "{driver} with the engine fading late in the stint"
+    part: "Engine – long-stint wear"
+  PR_E_MEC_03:
+    dnf: "{driver} retires with an electrical failure – prototype with no headlights"
+    warn: "{driver} with electrical flicker – headlights blinking"
+    part: "Electrics – alternator/headlights"
+  PR_E_MEC_04:
+    dnf: "{driver} retires with a power steering failure"
+    warn: "{driver} with heavy steering – wearing down through the stint"
+    part: "Power steering"
+  PR_E_PIT_02:
+    dnf: "{driver} runs out of fuel – miscalculated the last window"
+    part: "Fuel miscalculation"
+  PR_COL_01:
+    dnf: "{driver} retires with floor damage – prototype with no downforce"
+    warn: "{driver} with a damaged floor after contact – car is loose"
+    part: "Floor/diffuser damage"
+  PR_COL_02:
+    dnf: "{driver} retires with suspension damage after contact"
+    warn: "{driver} with the suspension compromised after contact"
+    part: "Prototype suspension bent"
+  PR_COL_03:
+    dnf: "{driver} retires with the bodywork torn off – radiator exposed"
+    warn: "{driver} with damaged bodywork – temperature climbing"
+    part: "Bodywork/air intake"
+  PR_S_ERR_01:
+    warn: "{driver} outbraked themselves and lost positions"
+    part: "Late braking"
+  PR_S_ERR_02:
+    warn: "{driver} took too much kerb and unsettled the prototype"
+    part: "Too much kerb"
+  PR_S_ERR_03:
+    dnf: "{driver} retires after a driving error – hit the barrier"
+    part: "Fatal error – hit the barrier"
+  PR_S_PIT_01:
+    dnf: "{driver} spun and couldn't restart"
+    part: "Spin with stall"
+  PR_E_PIT_01:
+    dnf: "{driver} spun and beached it in the gravel – couldn't get out"
+    part: "Beached in the gravel"
 
 # AI bulletin context engine (narrative/mod.rs). The FACTS + instructions sent to the
 # server in the active locale (the AI used to translate from PT; now they go out ready).
@@ -1331,3 +1412,151 @@ calendar:
     medio: "Medium"
     dificil: "Hard"
     lendario: "Legendary"
+
+# ── Breakdown system: the CONCRETE problem with the part (car/breakdown.rs) ──
+#
+# Key = `<part>_<mode 0..2>_<severity>`. The (part, mode, severity) triple is what the save
+# stores — `race_breakdowns` has a column for each — and the prose is derived from it at
+# display time. Bulletin voice: lowercase start (the phrase is embedded in another sentence),
+# no trailing period, em dash separating what happened from the consequence.
+car_breakdown:
+  problem:
+    engine_0_light: "overheating — lost power"
+    engine_0_heavy: "engine boiling over — stopped to cool it down"
+    engine_0_dnf: "engine blew from overheating"
+    engine_1_light: "oil pressure dropping — eased off the pace"
+    engine_1_heavy: "oil leak — long repair"
+    engine_1_dnf: "conrod let go from oil starvation"
+    engine_2_light: "misfire — stuttering"
+    engine_2_heavy: "injection failure — stopped in the pits"
+    engine_2_dnf: "ignition failure — engine died"
+    gearbox_0_light: "shifts not engaging — losing gears"
+    gearbox_0_heavy: "gearbox jamming — long stop"
+    gearbox_0_dnf: "gearbox broke"
+    gearbox_1_light: "clutch slipping — poor starts"
+    gearbox_1_heavy: "burnt clutch — into the pits"
+    gearbox_1_dnf: "clutch destroyed — no drive"
+    gearbox_2_light: "differential snappy — loose rear end"
+    gearbox_2_heavy: "differential overheating — stopped"
+    gearbox_2_dnf: "differential seized"
+    brakes_0_light: "brake fade — long pedal"
+    brakes_0_heavy: "brakes overheating — stopped"
+    brakes_0_dnf: "total brake failure"
+    brakes_1_light: "pads worn out — weak braking"
+    brakes_1_heavy: "cracked disc — into the pits"
+    brakes_1_dnf: "brake disc exploded"
+    brakes_2_light: "air in the line — spongy pedal"
+    brakes_2_heavy: "brake fluid leak — stopped"
+    brakes_2_dnf: "brake hydraulic failure"
+    suspension_0_light: "loose wishbone — imprecise car"
+    suspension_0_heavy: "cracked suspension arm — into the pits"
+    suspension_0_dnf: "suspension arm broke"
+    suspension_1_light: "damper leaking — car bouncing"
+    suspension_1_heavy: "dead damper — stopped"
+    suspension_1_dnf: "suspension collapse"
+    suspension_2_light: "alignment drifting — eating the tyres"
+    suspension_2_heavy: "wheel bearing screaming — into the pits"
+    suspension_2_dnf: "bearing locked the wheel"
+    front_wing_0_light: "front wing loose — lost downforce"
+    front_wing_0_heavy: "front flap hanging off — stopped to replace it"
+    front_wing_0_dnf: "front wing tore off"
+    front_wing_1_light: "cracked wing mount — understeering"
+    front_wing_1_heavy: "wing out of true — repair in the pits"
+    front_wing_1_dnf: "front wing structure gave way"
+    front_wing_2_light: "damaged endplate — slight aero loss"
+    front_wing_2_heavy: "flap stuck — pitting to adjust it"
+    front_wing_2_dnf: "front wing destroyed"
+    rear_wing_0_light: "rear wing loose — loose rear end"
+    rear_wing_0_heavy: "rear wing out of trim — into the pits"
+    rear_wing_0_dnf: "rear wing tore off"
+    rear_wing_1_light: "flap sticking — losing on the straights"
+    rear_wing_1_heavy: "wing mechanism jammed — stopped"
+    rear_wing_1_dnf: "rear wing collapse"
+    rear_wing_2_light: "wing mount vibrating"
+    rear_wing_2_heavy: "wing pillar giving way — repair"
+    rear_wing_2_dnf: "rear wing came away"
+    cooling_0_light: "radiator clogging — temperature climbing"
+    cooling_0_heavy: "punctured radiator — stopped to top up the water"
+    cooling_0_dnf: "total coolant loss — engine cooked"
+    cooling_1_light: "weak water pump — running hot"
+    cooling_1_heavy: "water pump failure — into the pits"
+    cooling_1_dnf: "water pump seized — fatal overheating"
+    cooling_2_light: "dirty intercooler — power loss"
+    cooling_2_heavy: "fan failing — stopped"
+    cooling_2_dnf: "cooling system collapse"
+    sidepods_0_light: "dented sidepod — slight aero loss"
+    sidepods_0_heavy: "damaged bodywork — repair"
+    sidepods_0_dnf: "sidepod tore off"
+    sidepods_1_light: "blocked air intake — temperature climbing"
+    sidepods_1_heavy: "side duct split — stopped"
+    sidepods_1_dnf: "bodywork choked the cooling"
+    sidepods_2_light: "side panel loose — vibration"
+    sidepods_2_heavy: "bodywork coming away — into the pits"
+    sidepods_2_dnf: "sidepod collapse"
+    underbody_0_light: "floor grounding out — losing performance"
+    underbody_0_heavy: "damaged floor — stopped"
+    underbody_0_dnf: "floor destroyed — car undrivable"
+    underbody_1_light: "chipped diffuser — slight downforce loss"
+    underbody_1_heavy: "broken diffuser — repair"
+    underbody_1_dnf: "diffuser tore off — all downforce gone"
+    underbody_2_light: "skids worn through — car running too low"
+    underbody_2_heavy: "plank compromised — into the pits"
+    underbody_2_dnf: "floor split open"
+    chassis_0_light: "chassis crack — car lost its edge"
+    chassis_0_heavy: "structural crack — car hard to drive"
+    chassis_0_dnf: "chassis split"
+    chassis_1_light: "loose mounting — alignment drifting"
+    chassis_1_heavy: "structural mount giving way — a lot of time lost"
+    chassis_1_dnf: "chassis structure collapsed"
+    chassis_2_light: "structural vibration — nervous car"
+    chassis_2_heavy: "heavy resonance — emergency stop"
+    chassis_2_dnf: "chassis fatigue — total failure"
+    electronics_0_light: "sensor failing — bad readings"
+    electronics_0_heavy: "loose wiring loom — stopped"
+    electronics_0_dnf: "total electrical failure"
+    electronics_1_light: "weak battery — unstable electronics"
+    electronics_1_heavy: "alternator failing — into the pits"
+    electronics_1_dnf: "electrical death — car shut down"
+    electronics_2_light: "ECU limiting power — safe mode"
+    electronics_2_heavy: "ECU rebooting — stopped"
+    electronics_2_dnf: "ECU locked up — car stopped"
+
+# iRacing race monitor (iracing_sdk/race_monitor/). See the pt-BR file for the rule that
+# constrains the wording: `dnf.after_crash` MUST carry a word from
+# `race_signals::PALAVRAS_BATIDA` ("crash" here), and the no-crash phrases must carry none.
+race_monitor:
+  outcome:
+    finished: "Took the chequered flag"
+    not_started: "Never got going"
+  ended:
+    restart: "restarted without finishing"
+    sim_closed: "closed the sim / left without finishing"
+    other: "ended without finishing"
+  dnf:
+    after_crash: "Retired after a %{severity} crash on lap %{lap} (%{detail}); %{how}."
+    after_crash_no_detail: "Retired after a %{severity} crash on lap %{lap}; %{how}."
+    plain: "DNF — %{how}."
+    with_evidence: "DNF — %{how}. %{parts}."
+    evidence_disqualified: "disqualified"
+    evidence_garage: "went to the garage"
+    evidence_off_track: "went off track"
+  severity:
+    nenhum: "NO DAMAGE"
+    leve: "LIGHT"
+    moderado: "MODERATE"
+    grave: "HEAVY"
+    destruido: "WRECKED"
+    catastrofico: "CATASTROPHIC"
+  # Crash scorer factors. The first token of each one is the CATEGORY that
+  # `merge_crash_factors` dedupes on — keep those first words distinct from each other.
+  factor:
+    incident: "incident: %{kind}"
+    incident_contact: "contact (+4x)"
+    incident_spin: "spin (+2x)"
+    incident_off: "off-track (+1x)"
+    impact: "impact %{g}g"
+    yaw: "sharp yaw snap"
+    rotation: "violent rotation (roll/pitch)"
+    off_track: "all four wheels off"
+    tow: "tow truck called"
+    sim_repair: "sim repair: %{secs}s"

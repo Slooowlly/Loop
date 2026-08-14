@@ -214,3 +214,106 @@ fn a_escada_anual_e_muito_mais_comprimida_que_a_antiga() {
         "nova {nova:.1}× vs antiga {antiga:.1}×"
     );
 }
+
+/// **A memoização não muda o número.** `custo_operacional_anual_de_referencia` passou a
+/// guardar o resultado por divisão, e a única coisa que pode dar errado nisso é a resposta
+/// mudar. A prova é a conta crua, feita aqui do zero para cada divisão do catálogo, contra a
+/// resposta memoizada — na ordem em que ela ocorre em produção: primeira chamada (fria),
+/// segunda (quente) e a conta original.
+#[test]
+fn a_memoizacao_do_anual_devolve_o_mesmo_numero_da_conta_crua() {
+    for (categoria, classe) in DIVISOES {
+        let fria = temporada::custo_operacional_anual_de_referencia(categoria, classe);
+        let quente = temporada::custo_operacional_anual_de_referencia(categoria, classe);
+        let crua = temporada::decomposicao_anual(categoria, classe).total();
+
+        assert_eq!(
+            fria,
+            quente,
+            "{categoria}{}: a segunda chamada divergiu da primeira",
+            classe.map(|c| format!(":{c}")).unwrap_or_default()
+        );
+        assert_eq!(
+            fria,
+            crua,
+            "{categoria}{}: a memoizada ({fria:.2}) divergiu da conta crua ({crua:.2})",
+            classe.map(|c| format!(":{c}")).unwrap_or_default()
+        );
+    }
+}
+
+/// A chave do memo é a DIVISÃO, e num campeonato multi-classe isso importa: se a chave
+/// perdesse a classe, a primeira classe consultada responderia pelas outras duas.
+#[test]
+fn o_memo_do_anual_e_por_divisao_e_nao_por_categoria() {
+    for (categoria, classes) in [
+        ("endurance", ["gt4", "gt3", "lmp2"].as_slice()),
+        (
+            "production_challenger",
+            ["mazda", "toyota", "bmw"].as_slice(),
+        ),
+    ] {
+        let lidos: Vec<f64> = classes
+            .iter()
+            .map(|c| temporada::custo_operacional_anual_de_referencia(categoria, Some(c)))
+            .collect();
+        for (classe, lido) in classes.iter().zip(&lidos) {
+            let crua = temporada::decomposicao_anual(categoria, Some(classe)).total();
+            assert_eq!(
+                *lido, crua,
+                "{categoria}:{classe} leu a classe errada do memo"
+            );
+        }
+        let menor = lidos.iter().cloned().fold(f64::MAX, f64::min);
+        let maior = lidos.iter().cloned().fold(f64::MIN, f64::max);
+        assert!(
+            maior > menor,
+            "{categoria}: as três classes leram o mesmo anual ({menor:.0}) — a chave do memo \
+             perdeu a classe"
+        );
+    }
+}
+
+/// A prova de que o memo de fato poupa recomputação, medida em relógio.
+///
+/// Mesma contagem dos dois lados, e a margem exigida é folgada de propósito: medido em
+/// debug, a consulta memoizada custa ~1,3 µs (um hash mais a alocação da chave da divisão)
+/// contra ~21 µs da conta crua, que monta a fatura de recorrentes e uma fatura por etapa do
+/// calendário. São ~16×; o teste cobra 4×, o que sobrevive a máquina sob carga e ainda fica
+/// vermelho se o memo sair do caminho.
+///
+/// A medição roda `RODADAS` vezes e fica com o MENOR tempo de cada lado. Mínimo é a
+/// estatística certa para relógio: ruído só empurra para cima.
+#[test]
+fn a_consulta_memoizada_poupa_recomputacao() {
+    const RODADAS: usize = 5;
+    const CHAMADAS: usize = 200;
+
+    // Esquenta, para o custo do primeiro cálculo não entrar na medição.
+    temporada::custo_operacional_anual_de_referencia("gt3", None);
+
+    let mut soma = 0.0;
+    let mut memoizado = std::time::Duration::MAX;
+    let mut cru = std::time::Duration::MAX;
+
+    for _ in 0..RODADAS {
+        let inicio = std::time::Instant::now();
+        for _ in 0..CHAMADAS {
+            soma += temporada::custo_operacional_anual_de_referencia("gt3", None);
+        }
+        memoizado = memoizado.min(inicio.elapsed());
+
+        let inicio = std::time::Instant::now();
+        for _ in 0..CHAMADAS {
+            soma += temporada::decomposicao_anual("gt3", None).total();
+        }
+        cru = cru.min(inicio.elapsed());
+    }
+
+    assert!(soma > 0.0);
+    assert!(
+        memoizado * 4 < cru,
+        "{CHAMADAS} consultas memoizadas levaram {memoizado:?} contra {cru:?} da conta crua \
+         — menos de 4× de folga, o memo parou de poupar recomputação"
+    );
+}

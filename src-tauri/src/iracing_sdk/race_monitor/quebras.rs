@@ -134,12 +134,21 @@ impl RaceMonitor {
     /// DEBUG: arma uma quebra GARANTIDA no carro do jogador pra próxima volta cruzada (motor
     /// na parede → falha forçada). Serve pra testar o disparo ao vivo ponta a ponta na pista.
     /// Devolve `true` se conseguiu armar (jogador em sessão + número conhecido).
+    ///
+    /// O desgaste vem de [`crate::car::breakdown::WEAR_QUEBRA_GARANTIDA`], que é a própria
+    /// parede. O número literal já ficou para trás uma vez: enquanto a parede era 1.05, 1.10
+    /// estava além dela e a quebra era certa; quando ela subiu para 1.20, o mesmo 1.10 virou
+    /// regime de sobreuso — ~13,5%/volta no motor —, e a ferramenta passou a prometer uma
+    /// garantia que era sorte alta, sem que nada acusasse.
     pub(super) fn arm_test_breakdown(&mut self) -> bool {
         let Some(car_num) = self.player_car_number() else {
             return false;
         };
         let mut car = crate::car::Car::uniform(3);
-        car.set_wear(crate::car::PartType::Engine, 1.10); // além da parede (105%)
+        car.set_wear(
+            crate::car::PartType::Engine,
+            crate::car::breakdown::WEAR_QUEBRA_GARANTIDA,
+        );
         let live = crate::car::breakdown::LiveBreakdown::new(&car, 1, 50.0, (1.0, 1.0, 1.0));
         let mut dir = crate::car::breakdown::BreakdownDirector::new();
         dir.add_car(car_num, live, Vec::new());
@@ -206,7 +215,8 @@ impl RaceMonitor {
             });
         }
 
-        // AVISO pessoal: peças do jogador que ENTRARAM na zona de risco (≥ 95%). Avisa cada
+        // AVISO pessoal: peças do jogador que ENTRARAM na zona de risco (≥ `RISK_OPEN`, hoje
+        // 90%, e abaixo da parede de 120%). Avisa cada
         // peça UMA vez; rearma quando ela sai da zona (troca/reparo/quebra). `danger` é dono
         // (Vec), então o borrow do diretor fecha antes de mexer no estado de aviso.
         let Some(dir) = self.breakdown.as_ref() else {
@@ -291,7 +301,11 @@ impl RaceMonitor {
         let pronta = match fala {
             Fala::Tomamos(c) => FalaDeRitmo::Tomamos(c),
             Fala::Aproximando(c) => FalaDeRitmo::Aproximando(c),
-            Fala::DeOutro { lead, tempo, dono_idx } => {
+            Fala::DeOutro {
+                lead,
+                tempo,
+                dono_idx,
+            } => {
                 // Sem número resolvido não há quem nomear, e a fala perderia o sujeito. Melhor
                 // engolir esta e deixar a próxima troca falar.
                 let num = self

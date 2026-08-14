@@ -59,7 +59,11 @@ pub enum Fala {
     Tomamos(String),
     /// A volta mais rápida é de outro. `(lead, tempo)` — o SOBRENOME entra entre os dois, e
     /// quem o resolve é quem tem o banco: aqui não se sabe o nome de ninguém.
-    DeOutro { lead: String, tempo: String, dono_idx: i32 },
+    DeOutro {
+        lead: String,
+        tempo: String,
+        dono_idx: i32,
+    },
     /// Estamos a menos de um segundo dela.
     Aproximando(String),
 }
@@ -124,8 +128,8 @@ impl Observador {
         // de carro ZERO vez nas duas provas longas. Um carro crava a melhor volta nas primeiras
         // passagens e depois só melhora a PRÓPRIA marca — como "melhorou" não era "trocou", a
         // família inteira ficava calada, com 14 peças gravadas e nenhuma chance de tocar.
-        let melhorou = self.ultima_melhor_s <= 0.0
-            || p.melhor_da_corrida_s < self.ultima_melhor_s - EPSILON_S;
+        let melhorou =
+            self.ultima_melhor_s <= 0.0 || p.melhor_da_corrida_s < self.ultima_melhor_s - EPSILON_S;
         self.ultimo_dono = p.dono_idx;
         if melhorou {
             self.ultima_melhor_s = p.melhor_da_corrida_s;

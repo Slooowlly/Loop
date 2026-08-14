@@ -33,6 +33,63 @@ export const CHAVES_DE_CONTEXTO_DE_TELA = [
   "acceptedSpecialOffer",
 ];
 
+// As chaves que guardam DADO DERIVADO DO SAVE e que `applyCareerData` NÃO sobrescreve:
+// caches de etapa, calendário, pós-corrida, mercado e o marcador de rivalidade. Elas
+// sobrevivem a um `set` de carga porque ninguém as toca, e é aí que a carreira anterior
+// vaza para a nova.
+//
+// O vazamento é invisível porque os IDs se REPETEM entre saves: R001 é a primeira etapa de
+// toda carreira e P001 o primeiro piloto. O cache de pré-corrida chaveado só por `raceId`
+// batia na carreira nova e a Sala de Estratégia abria com os favoritos e a prévia da
+// carreira antiga, sem nada acusar. Por isso os caches de etapa também carregam `careerId`
+// (ver `cacheEhDaEtapaAtual`) — a lista abaixo é o cinto, a chave é o suspensório.
+export const CHAVES_DE_CACHE_DO_SAVE = [
+  "preRaceAi",
+  "preRaceStandings",
+  "playerInterests",
+  "temporalSummary",
+  "calendarDisplayDate",
+  "displayDaysUntilNextEvent",
+  "homeCategory",
+  "lastRaceId",
+  "lastRaceEvaluation",
+  "lastRaceTelemetry",
+  "lastRaceMaintenance",
+  "lastRaceRepercussion",
+  "lastRaceWasFinale",
+  "resultIsFresh",
+  "iracingRepair",
+  "lastMarketWeekResult",
+  "transferWindow",
+  "poachOffer",
+  "championOverlay",
+  "lastSaved",
+];
+
+/// Caches locais ao save zerados, com os MESMOS valores do boot.
+///
+/// Mesma mecânica do `contextoDeTelaLimpo`: os valores saem do `initialState`, então chave
+/// nova entra de graça e o valor de reset nunca diverge do inicial.
+export function cacheDoSaveLimpo(extras = {}) {
+  const limpo = {};
+  for (const chave of CHAVES_DE_CACHE_DO_SAVE) {
+    const valor = initialState[chave];
+    limpo[chave] = Array.isArray(valor) ? [] : valor;
+  }
+  return { ...limpo, ...extras };
+}
+
+/// O cache de pré-corrida é da etapa que está na tela AGORA?
+///
+/// Vale para `preRaceStandings` e `preRaceAi`, que são gravados durante a animação de
+/// avanço e lidos pela Sala de Estratégia. A conferência é do par inteiro: `raceId` sozinho
+/// aceita o cache de outro save, porque R001 existe em toda carreira.
+export function cacheEhDaEtapaAtual(cache, { careerId, raceId } = {}) {
+  return Boolean(
+    cache && careerId && raceId && cache.careerId === careerId && cache.raceId === raceId,
+  );
+}
+
 /// Estado de contexto zerado, com os MESMOS valores do boot.
 ///
 /// Os valores saem do `initialState` de propósito: chave nova no estado entra aqui de

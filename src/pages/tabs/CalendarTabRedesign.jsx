@@ -100,13 +100,17 @@ function CalendarTabRedesign({ activeTab, raceArrivalFeedbackActive = false }) {
   function goToday() {
     const nextMonth = parseDisplayDate(nextRaceEntry?.display_date)?.month;
     setSelectedMonth(currentDateParts?.month ?? nextMonth ?? 0);
-    rootRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // A chamada é opcional, e não só o `rootRef.current`: o jsdom não implementa
+    // `scrollIntoView`, então no teste o `?.` do objeto passava e o método estourava
+    // `TypeError` fora do fluxo do React — erro não capturado que derrubava a suíte
+    // inteira com todos os casos verdes. Mesma forma do `GlobalDriversTab`.
+    rootRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   }
 
   // Abre um mês em foco (grande) e sobe a tela até o topo.
   function openMonth(target) {
     setSelectedMonth(target);
-    rootRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    rootRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   }
 
   // Clique numa etapa da lista: leva a grade até o mês dela e pisca o dia.
@@ -319,7 +323,7 @@ function CalendarTabRedesign({ activeTab, raceArrivalFeedbackActive = false }) {
             <span className="kcal text-xs uppercase italic tracking-[0.14em] text-text-secondary">
               {t("calendar.v2.nextMonths")}
             </span>
-            <span className="h-px flex-1 bg-white/8" />
+            <span className="h-px flex-1 bg-white/[0.08]" />
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {followingMonths.map((mIdx) => (

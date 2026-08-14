@@ -211,8 +211,19 @@ pub fn overlay_window_show(app: AppHandle, career_id: String) -> Result<(), Stri
 }
 
 /// Alterna o overlay entre TRAVADO (clique-atravessa, display-only) e MÓVEL
-/// (interativo: recebe o mouse pra poder arrastar). Chamado pelo botão "Mover" do
-/// app; ao terminar, volta pra travado.
+/// (interativo: recebe o mouse pra poder arrastar).
+///
+/// SEM CONSUMIDOR hoje: o botão "Mover" que chamava isto não existe mais em `src/`, e o
+/// `OverlayPositionPanel.jsx` reposiciona o overlay pelos comandos de POSE.
+///
+/// Quem alterna o clique-atravessa em produção é o VIGIA DE CURSOR do hover
+/// (`start_hover_watcher` → `watch_window`, mais acima): ele chama `set_ignore_cursor_events`
+/// a cada entrada/saída do cursor na caixa da janela. Este comando é a alavanca MANUAL
+/// paralela a ele — e, por ser manual, um `interactive` forçado por aqui vale só até o
+/// vigia reavaliar o cursor no próximo tique.
+///
+/// A alavanca fica de pé porque a correção é religar a UI, não apagá-la — o inventário
+/// congelado em `scripts/tests/invoke-contra-generate-handler.test.mjs` guarda esse estado.
 #[tauri::command]
 pub fn overlay_window_set_interactive(app: AppHandle, interactive: bool) -> Result<(), String> {
     if let Some(win) = app.get_webview_window(LABEL) {

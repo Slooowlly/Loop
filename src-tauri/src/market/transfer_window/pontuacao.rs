@@ -35,9 +35,14 @@ pub(crate) fn driver_offer_score(
 
 /// O piloto recusa cair 2+ tiers abaixo do seu nível, por qualquer salário (piso
 /// de dignidade). Subir/lateral/descer 1 tier é permitido.
+///
+/// Só a QUEDA conta: `saturating_sub` zera quando a vaga é do tier do piloto ou acima,
+/// e zero sempre passa. Este arquivo já teve um `||` com um segundo braço
+/// (`cand.tier <= seat.tier + gap-1`) que dizia exatamente a mesma coisa para todo
+/// `gap >= 1`, com o agravante de somar em `u8` sem saturar. Ficou a forma única, presa
+/// pelo teste `o_piso_de_dignidade_so_olha_a_queda`.
 pub(crate) fn passes_dignity(cfg: &WindowConfig, seat: &Seat, cand: &Candidate) -> bool {
-    cand.tier <= seat.tier + cfg.dignity_tier_gap.saturating_sub(1)
-        || cand.tier.saturating_sub(seat.tier) < cfg.dignity_tier_gap
+    cand.tier.saturating_sub(seat.tier) < cfg.dignity_tier_gap
 }
 
 /// Score da EQUIPE sobre um candidato (quem entra na shortlist / quem ela assina).

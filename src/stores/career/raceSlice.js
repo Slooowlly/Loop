@@ -8,13 +8,16 @@ import { getErrorMessage } from "./helpers";
 // reabertura de corridas salvas e a tela de resultado.
 export const createRaceSlice = (set, get) => ({
   simulateRace: async () => {
-    const { careerId, nextRace, isSimulating } = get();
+    const { careerId, nextRace, isSimulating, careerGeneration: geracao } = get();
     if (isSimulating) {
       return null;
     }
     if (!careerId || !nextRace?.id) {
       throw new Error(i18n.t("storeErrors.noPendingRace"));
     }
+    // Fim de semana inteiro simulado no Rust: a chamada demora, e no meio dela o jogador
+    // pode voltar ao menu e abrir outro save. Ver o TOKEN DE ABORTO em `career/state.js`.
+    const carreiraTrocou = () => get().careerGeneration !== geracao;
 
     set({ isSimulating: true, error: null });
 
@@ -23,6 +26,11 @@ export const createRaceSlice = (set, get) => ({
         careerId,
         raceId: nextRace.id,
       });
+
+      // Outro save assumiu enquanto a etapa rodava. O resultado é da carreira anterior:
+      // devolve a quem pediu e não escreve nada — nem `isSimulating`, que a carga nova
+      // já deixou em `false`.
+      if (carreiraTrocou()) return result;
 
       set({
         lastRaceResult: result.player_race,
@@ -43,6 +51,8 @@ export const createRaceSlice = (set, get) => ({
 
       return result;
     } catch (error) {
+      // Falha de uma etapa já superada não pinta erro na carreira que está na tela.
+      if (carreiraTrocou()) throw error;
       const message = getErrorMessage(error, i18n.t("storeErrors.simulateRace"));
       set({ isSimulating: false, error: message });
       throw error;
@@ -53,11 +63,22 @@ export const createRaceSlice = (set, get) => ({
   // corrida já foi gravado (jogador terminou/saiu). Se sim, importa e abre a tela
   // de resultado sozinha. Chamado em loop por um poller no Dashboard. Idempotente.
   pollIracingResult: async () => {
-    const { careerId, showResult, isSimulating, iracingImporting, nextRace } = get();
+    const {
+      careerId,
+      showResult,
+      isSimulating,
+      iracingImporting,
+      nextRace,
+      careerGeneration: geracao,
+    } = get();
     if (!careerId || showResult || isSimulating || iracingImporting) return;
+    // O poller do Dashboard dispara em loop; um tique pode estar em voo na troca de save.
+    // Sem o token, o resultado importado da carreira A abria a tela de resultado na B.
+    const carreiraTrocou = () => get().careerGeneration !== geracao;
     set({ iracingImporting: true });
     try {
       const payload = await invoke("iracing_auto_import_if_ready", { careerId });
+      if (carreiraTrocou()) return;
       if (payload?.race_result) {
         set({
           lastRaceResult: payload.race_result,
@@ -79,7 +100,9 @@ export const createRaceSlice = (set, get) => ({
     } catch {
       // silencioso — "ainda não pronto" não é erro; tenta de novo no próximo tick.
     } finally {
-      set({ iracingImporting: false });
+      // A bandeira é da carreira que abriu o tique. Na carreira nova ela já nasceu
+      // limpa, e escrever aqui destravaria um import que a nova nunca começou.
+      if (!carreiraTrocou()) set({ iracingImporting: false });
     }
   },
 
@@ -87,10 +110,13 @@ export const createRaceSlice = (set, get) => ({
   // clique no R{n}). Lê a tela salva no disco (resultado + avaliação + telemetria).
   // Sem tela salva (corrida antiga / outra categoria) → no-op silencioso.
   openSavedRaceScreen: async (category, rodada) => {
-    const { careerId } = get();
+    const { careerId, careerGeneration: geracao } = get();
     if (!careerId || !category || !rodada) return false;
     try {
       const screen = await invoke("get_saved_race_screen", { careerId, category, rodada });
+      // Save trocado no meio da leitura: a tela salva é da carreira anterior, e abri-la
+      // por cima da nova mostraria uma corrida que a carreira na tela nunca disputou.
+      if (get().careerGeneration !== geracao) return false;
       if (screen?.race_result) {
         set({
           lastRaceResult: screen.race_result,

@@ -77,6 +77,21 @@ impl Default for PerceptionParams {
 // ── Semente de contato (só quando o probe é o jogador) ────────────────────────
 
 /// Severidade do contato atribuído, mapeada dos tiers de colisão da simulação.
+///
+/// **Só `Dnf` e `Major` são construídos hoje.** Os dois produtores reais
+/// (`commands::iracing::corridas_salvas` e `commands::iracing::resultado`) decidem pela
+/// única evidência que o monitor entrega — o jogador correu e não viu a bandeirada, ou
+/// viu —, então `Critical` e `Minor` ficam sem produtor e os braços deles em [`deltas`]
+/// e [`label`] estão inalcançáveis em produção.
+///
+/// [`Self::Critical`] e [`Self::Minor`] ficam de pé de propósito: os quatro tiers
+/// espelham `process_collisions_rivalry`, e apagar dois deles mudaria a tabela de
+/// severidades que o motor de rivalidade compartilha. O tier fino entra quando a fase de
+/// calibração do contato der ao monitor evidência para separar batida leve de batida
+/// crítica — ver o comentário no ponto de decisão em `corridas_salvas.rs`.
+///
+/// [`deltas`]: ContactTier::deltas
+/// [`label`]: ContactTier::label
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum ContactTier {
     Critical,
@@ -199,6 +214,27 @@ impl Acc {
             self.best_fight_position = pos;
         }
     }
+
+    /// O MESMO par visto da outra ponta. Toda a métrica de par é simétrica (voltas
+    /// coladas, menor gap, trocas, posição disputada); só as ultrapassagens a favor e
+    /// contra trocam de lado, e o sinal da ordem inverte. É essa simetria que permite
+    /// varrer um par UMA vez quando as duas pontas são sonda.
+    ///
+    /// O contato não entra: é semente da SONDA (quem bateu em mim), não estado do par,
+    /// e por isso é aplicado depois da varredura, por sonda.
+    fn mirrored(&self) -> Acc {
+        Acc {
+            duel_laps: self.duel_laps.clone(),
+            closest_gap: self.closest_gap,
+            swaps: self.swaps,
+            overtakes_for: self.overtakes_against,
+            overtakes_against: self.overtakes_for,
+            late_overtakes: self.late_overtakes,
+            best_fight_position: self.best_fight_position,
+            prev_sign: -self.prev_sign,
+            contact: None,
+        }
+    }
 }
 
 // ── Núcleo ────────────────────────────────────────────────────────────────────
@@ -234,17 +270,121 @@ fn track_gap_secs(a: &CarGapPoint, b: &CarGapPoint) -> f64 {
     frac * lap_secs
 }
 
-/// Percebe as rivalidades de `probe_car_idx` numa corrida. Puro.
-pub fn perceive_rivalries(
+// ── Varredura multi-sonda ─────────────────────────────────────────────────────
+
+/// Uma sonda pedida à varredura. `contact` só existe para o probe-jogador.
+#[derive(Clone, Copy, Debug)]
+pub struct Probe {
+    pub car_idx: i32,
+    pub contact: Option<ContactSeed>,
+}
+
+impl Probe {
+    /// Sonda sem contato atribuído — o caso de qualquer IA.
+    pub fn new(car_idx: i32) -> Self {
+        Probe {
+            car_idx,
+            contact: None,
+        }
+    }
+}
+
+/// O que a varredura custou. Existe para o custo APARECER no log antes de o grid de
+/// endurance fazer doer: `snapshot_passes` é 1 por chamada, quantas sondas forem, e
+/// `pair_evaluations` é o trabalho real, que já vem com o par contado uma vez só.
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+pub struct ScanCost {
+    /// Passadas completas sobre `history.laps`. Sempre 1 (0 se não veio sonda).
+    pub snapshot_passes: usize,
+    /// Sondas efetivamente varridas (sonda repetida conta uma vez).
+    pub probes: usize,
+    /// Pares (sonda, carro) avaliados somando todos os snapshots.
+    pub pair_evaluations: usize,
+    /// Pares cujo lado espelhado saiu de graça (as duas pontas eram sonda).
+    pub mirrored_pairs: usize,
+}
+
+/// Saída da varredura multi-sonda.
+#[derive(Clone, Debug, Serialize)]
+pub struct MultiPerception {
+    /// Uma percepção por sonda ÚNICA, na ordem da primeira ocorrência em `probes`.
+    pub probes: Vec<RivalryPerception>,
+    pub cost: ScanCost,
+}
+
+/// Contexto de um snapshot, comum a todos os pares avaliados nele.
+struct SnapCtx<'a> {
+    lap: i32,
+    in_yellow: bool,
+    /// Fração da corrida já corrida neste snapshot (para "ultrapassagem tarde").
+    race_frac: f64,
+    params: &'a PerceptionParams,
+}
+
+/// Acumula UM par num snapshot, do ponto de vista de `dono`. A outra ponta lê o mesmo
+/// estado espelhado ([`Acc::mirrored`]) — nada aqui depende de quem é a sonda.
+fn acumula_par(
+    acc: &mut Acc,
+    dono: &CarGapPoint,
+    outro: &CarGapPoint,
+    in_pit: bool,
+    ctx: &SnapCtx<'_>,
+) {
+    let pos_diff = dono.position - outro.position; // <0: dono à frente
+    let sign = pos_diff.signum();
+    let adjacent = pos_diff.abs() == 1;
+    let inter_gap = track_gap_secs(dono, outro);
+
+    // ── Duelo prolongado: adjacente + colado, em verde, fora de box ──
+    if adjacent && inter_gap <= ctx.params.gap_close_secs && !ctx.in_yellow && !in_pit {
+        acc.duel_laps.insert(ctx.lap);
+        if inter_gap < acc.closest_gap {
+            acc.closest_gap = inter_gap;
+        }
+        acc.note_fight_position(dono.position.min(outro.position));
+    }
+
+    // ── Pêndulo / ultrapassagem: troca de ordem entre o par ──
+    // Uma inversão de ordem. Conta só fora de amarela/box.
+    if acc.prev_sign != 0 && sign != 0 && sign != acc.prev_sign && !ctx.in_yellow && !in_pit {
+        acc.swaps += 1;
+        // sign agora <0 → o dono passou à frente (overtake a favor DELE).
+        if sign < 0 {
+            acc.overtakes_for += 1;
+        } else {
+            acc.overtakes_against += 1;
+        }
+        if ctx.race_frac >= ctx.params.late_race_frac {
+            acc.late_overtakes += 1;
+        }
+        acc.note_fight_position(dono.position.min(outro.position));
+    }
+    if sign != 0 {
+        acc.prev_sign = sign;
+    }
+}
+
+/// Percebe as rivalidades de VÁRIAS sondas numa varredura só. Puro.
+///
+/// Uma passada sobre `history.laps` atende todas as sondas, e cada par de carros é
+/// avaliado UMA vez mesmo quando as duas pontas são sonda — o lado espelhado sai por
+/// simetria ([`Acc::mirrored`]). No lugar de `sondas × snapshots` passadas com metade
+/// do resultado jogada fora, fica uma passada com o par contado uma vez.
+///
+/// A percepção de cada sonda é IDÊNTICA à de [`perceive_rivalries`] chamada
+/// isoladamente; o teste `multi_sonda_equivale_a_uma_chamada_por_sonda` trava isso
+/// contra uma cópia literal do laço de sonda única.
+///
+/// Sonda repetida em `probes` é varrida uma vez (a primeira ocorrência manda, inclusive
+/// o contato dela) e sai uma vez do resultado.
+pub fn perceive_rivalries_multi(
     history: &RaceHistory,
-    probe_car_idx: i32,
-    contact: Option<ContactSeed>,
+    probes: &[Probe],
     params: &PerceptionParams,
-) -> RivalryPerception {
-    let is_player_probe = probe_car_idx == history.player_car_idx;
+) -> MultiPerception {
     let total_laps = history.laps.iter().map(|s| s.lap).max().unwrap_or(0);
 
-    // Máscaras de ruído.
+    // Máscaras de ruído — iguais para todas as sondas, montadas uma vez.
     let yellow: HashSet<i32> = history.yellow_laps.iter().copied().collect();
     // (car_idx, lap) das paradas de box — o gap balança nessas voltas.
     let pit: HashSet<(i32, i32)> = history
@@ -265,92 +405,153 @@ pub fn perceive_rivalries(
         .map(|c| (c.idx, c.car_number))
         .collect();
 
-    let mut accs: HashMap<i32, Acc> = HashMap::new();
+    // Ordem canônica das sondas: define qual ponta é "dona" de um par entre duas sondas.
+    let mut probe_order: Vec<i32> = Vec::with_capacity(probes.len());
+    let mut probe_rank: HashMap<i32, usize> = HashMap::with_capacity(probes.len());
+    let mut contatos: HashMap<i32, ContactSeed> = HashMap::new();
+    for p in probes {
+        if probe_rank.contains_key(&p.car_idx) {
+            continue;
+        }
+        probe_rank.insert(p.car_idx, probe_order.len());
+        probe_order.push(p.car_idx);
+        if let Some(seed) = p.contact {
+            contatos.insert(p.car_idx, seed);
+        }
+    }
+
+    let mut cost = ScanCost {
+        snapshot_passes: usize::from(!probe_order.is_empty()),
+        probes: probe_order.len(),
+        ..Default::default()
+    };
+
+    // (dono, outro) → estado do par, sempre do ponto de vista do dono.
+    let mut pares: HashMap<(i32, i32), Acc> = HashMap::new();
 
     for snap in &history.laps {
-        let in_yellow = yellow.contains(&snap.lap);
-
-        // Posição/gap do probe neste snapshot.
-        let Some(probe) = snap.cars.iter().find(|c| c.idx == probe_car_idx) else {
-            continue;
+        let ctx = SnapCtx {
+            lap: snap.lap,
+            in_yellow: yellow.contains(&snap.lap),
+            race_frac: if total_laps > 0 {
+                snap.lap as f64 / total_laps as f64
+            } else {
+                0.0
+            },
+            params,
         };
 
-        for other in &snap.cars {
-            if other.idx == probe_car_idx {
+        // Varre os carros do snapshot e trabalha a partir dos que são sonda. Procurar cada
+        // sonda com um `find` custaria outro `sondas × carros` por snapshot, e num grid de
+        // enduro essa busca sozinha passaria o trabalho de par que ela serve.
+        for dono in &snap.cars {
+            let Some(&rank) = probe_rank.get(&dono.idx) else {
                 continue;
-            }
-            let acc = accs.entry(other.idx).or_insert_with(Acc::new);
+            };
+            let probe_idx = dono.idx;
+            let dono_no_box = pit_near(probe_idx, snap.lap);
 
-            let pos_diff = probe.position - other.position; // <0: probe à frente
-            let sign = pos_diff.signum();
-            let adjacent = pos_diff.abs() == 1;
-            let inter_gap = track_gap_secs(probe, other);
-            let in_pit = pit_near(probe_car_idx, snap.lap) || pit_near(other.idx, snap.lap);
-
-            // ── Duelo prolongado: adjacente + colado, em verde, fora de box ──
-            if adjacent && inter_gap <= params.gap_close_secs && !in_yellow && !in_pit {
-                acc.duel_laps.insert(snap.lap);
-                if inter_gap < acc.closest_gap {
-                    acc.closest_gap = inter_gap;
+            for outro in &snap.cars {
+                if outro.idx == probe_idx {
+                    continue;
                 }
-                acc.note_fight_position(probe.position.min(other.position));
-            }
-
-            // ── Pêndulo / ultrapassagem: troca de ordem entre o par ──
-            if acc.prev_sign != 0 && sign != 0 && sign != acc.prev_sign {
-                // Uma inversão de ordem. Conta só fora de amarela/box.
-                if !in_yellow && !in_pit {
-                    acc.swaps += 1;
-                    // sign agora <0 → probe passou à frente (overtake a favor).
-                    if sign < 0 {
-                        acc.overtakes_for += 1;
-                    } else {
-                        acc.overtakes_against += 1;
-                    }
-                    let frac = if total_laps > 0 {
-                        snap.lap as f64 / total_laps as f64
-                    } else {
-                        0.0
-                    };
-                    if frac >= params.late_race_frac {
-                        acc.late_overtakes += 1;
-                    }
-                    acc.note_fight_position(probe.position.min(other.position));
+                // Se o outro também é sonda e veio antes na ordem, o par já foi varrido
+                // por ele — é exatamente a metade que o dedupe do chamador jogava fora.
+                if matches!(probe_rank.get(&outro.idx), Some(&r) if r < rank) {
+                    continue;
                 }
-            }
-            if sign != 0 {
-                acc.prev_sign = sign;
+                cost.pair_evaluations += 1;
+                let acc = pares.entry((probe_idx, outro.idx)).or_insert_with(Acc::new);
+                acumula_par(
+                    acc,
+                    dono,
+                    outro,
+                    dono_no_box || pit_near(outro.idx, snap.lap),
+                    &ctx,
+                );
             }
         }
     }
 
-    // Contato atribuído (só probe-jogador).
-    if let Some(seed) = contact {
-        accs.entry(seed.opponent_car_idx)
-            .or_insert_with(Acc::new)
-            .contact = Some(seed.tier);
+    // ── Espalha cada par para as pontas que são sonda ──
+    let mut por_sonda: HashMap<i32, HashMap<i32, Acc>> = probe_order
+        .iter()
+        .map(|&idx| (idx, HashMap::new()))
+        .collect();
+    for ((dono, outro), acc) in pares {
+        if probe_rank.contains_key(&outro) {
+            cost.mirrored_pairs += 1;
+            if let Some(m) = por_sonda.get_mut(&outro) {
+                m.insert(dono, acc.mirrored());
+            }
+        }
+        if let Some(m) = por_sonda.get_mut(&dono) {
+            m.insert(outro, acc);
+        }
+    }
+
+    // Contato atribuído (só o probe-jogador tem semente).
+    for (probe_idx, seed) in contatos {
+        if let Some(m) = por_sonda.get_mut(&probe_idx) {
+            m.entry(seed.opponent_car_idx)
+                .or_insert_with(Acc::new)
+                .contact = Some(seed.tier);
+        }
     }
 
     // ── Monta os ledgers com deltas projetados ──
-    let mut opponents: Vec<OpponentLedger> = accs
-        .into_iter()
-        .filter_map(|(idx, acc)| build_ledger(idx, acc, &car_number, params))
-        .collect();
+    let mut resultados: Vec<RivalryPerception> = Vec::with_capacity(probe_order.len());
+    for probe_car_idx in probe_order {
+        let accs = por_sonda.remove(&probe_car_idx).unwrap_or_default();
+        let mut opponents: Vec<OpponentLedger> = accs
+            .into_iter()
+            .filter_map(|(idx, acc)| build_ledger(idx, acc, &car_number, params))
+            .collect();
 
-    opponents.sort_by(|a, b| {
-        b.projected_perceived
-            .partial_cmp(&a.projected_perceived)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.car_idx.cmp(&b.car_idx))
-    });
+        opponents.sort_by(|a, b| {
+            b.projected_perceived
+                .partial_cmp(&a.projected_perceived)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.car_idx.cmp(&b.car_idx))
+        });
 
-    RivalryPerception {
-        probe_car_idx,
-        is_player_probe,
-        total_laps,
-        opponents,
-        params: params.clone(),
+        resultados.push(RivalryPerception {
+            probe_car_idx,
+            is_player_probe: probe_car_idx == history.player_car_idx,
+            total_laps,
+            opponents,
+            params: params.clone(),
+        });
     }
+
+    MultiPerception {
+        probes: resultados,
+        cost,
+    }
+}
+
+/// Percebe as rivalidades de `probe_car_idx` numa corrida. Puro.
+///
+/// Casca de uma sonda sobre [`perceive_rivalries_multi`] — com uma sonda só não há
+/// espelhamento, cada par é varrido do jeito direto.
+pub fn perceive_rivalries(
+    history: &RaceHistory,
+    probe_car_idx: i32,
+    contact: Option<ContactSeed>,
+    params: &PerceptionParams,
+) -> RivalryPerception {
+    let mut multi = perceive_rivalries_multi(
+        history,
+        &[Probe {
+            car_idx: probe_car_idx,
+            contact,
+        }],
+        params,
+    );
+    multi
+        .probes
+        .pop()
+        .expect("uma sonda pedida, uma percepção devolvida")
 }
 
 fn relevance_for(position: i32, params: &PerceptionParams) -> f64 {
@@ -526,6 +727,380 @@ mod tests {
 
     fn find<'a>(p: &'a RivalryPerception, idx: i32) -> Option<&'a OpponentLedger> {
         p.opponents.iter().find(|o| o.car_idx == idx)
+    }
+
+    // ── Padrão-ouro da equivalência ───────────────────────────────────────────
+
+    /// Cópia LITERAL do laço de sonda única que existia antes da varredura
+    /// multi-sonda. Não é para ser mantida bonita nem refatorada junto: é a régua
+    /// contra a qual a percepção nova se mede. Se a percepção de alguma sonda mudar,
+    /// é aqui que aparece.
+    fn perceive_referencia(
+        history: &RaceHistory,
+        probe_car_idx: i32,
+        contact: Option<ContactSeed>,
+        params: &PerceptionParams,
+    ) -> RivalryPerception {
+        let is_player_probe = probe_car_idx == history.player_car_idx;
+        let total_laps = history.laps.iter().map(|s| s.lap).max().unwrap_or(0);
+
+        let yellow: HashSet<i32> = history.yellow_laps.iter().copied().collect();
+        let pit: HashSet<(i32, i32)> = history
+            .pit_stops
+            .iter()
+            .map(|p| (p.car_idx, p.lap))
+            .collect();
+        let pit_near = |car_idx: i32, lap: i32| -> bool {
+            pit.contains(&(car_idx, lap))
+                || pit.contains(&(car_idx, lap - 1))
+                || pit.contains(&(car_idx, lap + 1))
+        };
+
+        let car_number: HashMap<i32, i32> = history
+            .cars_meta
+            .iter()
+            .map(|c| (c.idx, c.car_number))
+            .collect();
+
+        let mut accs: HashMap<i32, Acc> = HashMap::new();
+
+        for snap in &history.laps {
+            let in_yellow = yellow.contains(&snap.lap);
+            let Some(probe) = snap.cars.iter().find(|c| c.idx == probe_car_idx) else {
+                continue;
+            };
+
+            for other in &snap.cars {
+                if other.idx == probe_car_idx {
+                    continue;
+                }
+                let acc = accs.entry(other.idx).or_insert_with(Acc::new);
+
+                let pos_diff = probe.position - other.position;
+                let sign = pos_diff.signum();
+                let adjacent = pos_diff.abs() == 1;
+                let inter_gap = track_gap_secs(probe, other);
+                let in_pit = pit_near(probe_car_idx, snap.lap) || pit_near(other.idx, snap.lap);
+
+                if adjacent && inter_gap <= params.gap_close_secs && !in_yellow && !in_pit {
+                    acc.duel_laps.insert(snap.lap);
+                    if inter_gap < acc.closest_gap {
+                        acc.closest_gap = inter_gap;
+                    }
+                    acc.note_fight_position(probe.position.min(other.position));
+                }
+
+                if acc.prev_sign != 0 && sign != 0 && sign != acc.prev_sign {
+                    if !in_yellow && !in_pit {
+                        acc.swaps += 1;
+                        if sign < 0 {
+                            acc.overtakes_for += 1;
+                        } else {
+                            acc.overtakes_against += 1;
+                        }
+                        let frac = if total_laps > 0 {
+                            snap.lap as f64 / total_laps as f64
+                        } else {
+                            0.0
+                        };
+                        if frac >= params.late_race_frac {
+                            acc.late_overtakes += 1;
+                        }
+                        acc.note_fight_position(probe.position.min(other.position));
+                    }
+                }
+                if sign != 0 {
+                    acc.prev_sign = sign;
+                }
+            }
+        }
+
+        if let Some(seed) = contact {
+            accs.entry(seed.opponent_car_idx)
+                .or_insert_with(Acc::new)
+                .contact = Some(seed.tier);
+        }
+
+        let mut opponents: Vec<OpponentLedger> = accs
+            .into_iter()
+            .filter_map(|(idx, acc)| build_ledger(idx, acc, &car_number, params))
+            .collect();
+
+        opponents.sort_by(|a, b| {
+            b.projected_perceived
+                .partial_cmp(&a.projected_perceived)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.car_idx.cmp(&b.car_idx))
+        });
+
+        RivalryPerception {
+            probe_car_idx,
+            is_player_probe,
+            total_laps,
+            opponents,
+            params: params.clone(),
+        }
+    }
+
+    /// Compara duas percepções campo a campo, inclusive a ordem dos oponentes e a
+    /// prosa dos sinais (o explicador de debug faz parte do contrato).
+    fn assert_percepcao_igual(novo: &RivalryPerception, referencia: &RivalryPerception, ctx: &str) {
+        assert_eq!(novo.probe_car_idx, referencia.probe_car_idx, "{ctx}: probe");
+        assert_eq!(
+            novo.is_player_probe, referencia.is_player_probe,
+            "{ctx}: is_player_probe"
+        );
+        assert_eq!(novo.total_laps, referencia.total_laps, "{ctx}: total_laps");
+        assert_eq!(
+            novo.opponents.len(),
+            referencia.opponents.len(),
+            "{ctx}: quantidade de oponentes"
+        );
+        for (a, b) in novo.opponents.iter().zip(referencia.opponents.iter()) {
+            let onde = format!("{ctx}, oponente {}", b.car_idx);
+            assert_eq!(a.car_idx, b.car_idx, "{onde}: car_idx");
+            assert_eq!(a.car_number, b.car_number, "{onde}: car_number");
+            assert_eq!(a.duel_laps, b.duel_laps, "{onde}: duel_laps");
+            assert_eq!(
+                a.closest_gap_secs, b.closest_gap_secs,
+                "{onde}: closest_gap_secs"
+            );
+            assert_eq!(a.swaps, b.swaps, "{onde}: swaps");
+            assert_eq!(a.overtakes_for, b.overtakes_for, "{onde}: overtakes_for");
+            assert_eq!(
+                a.overtakes_against, b.overtakes_against,
+                "{onde}: overtakes_against"
+            );
+            assert_eq!(a.late_overtakes, b.late_overtakes, "{onde}: late_overtakes");
+            assert_eq!(
+                a.best_fight_position, b.best_fight_position,
+                "{onde}: best_fight_position"
+            );
+            assert_eq!(a.relevance_mult, b.relevance_mult, "{onde}: relevance_mult");
+            assert_eq!(a.historical_delta, b.historical_delta, "{onde}: historical");
+            assert_eq!(a.recent_delta, b.recent_delta, "{onde}: recent");
+            assert_eq!(
+                a.projected_perceived, b.projected_perceived,
+                "{onde}: projected"
+            );
+            assert_eq!(a.capped, b.capped, "{onde}: capped");
+            assert_eq!(a.hits.len(), b.hits.len(), "{onde}: quantidade de sinais");
+            for (ha, hb) in a.hits.iter().zip(b.hits.iter()) {
+                assert_eq!(ha.kind, hb.kind, "{onde}: kind do sinal");
+                assert_eq!(ha.detail, hb.detail, "{onde}: detail do sinal");
+                assert_eq!(
+                    ha.historical_delta, hb.historical_delta,
+                    "{onde}: historical do sinal"
+                );
+                assert_eq!(ha.recent_delta, hb.recent_delta, "{onde}: recent do sinal");
+            }
+        }
+    }
+
+    /// Gerador determinístico (sem `rand`): o cenário precisa ser o mesmo em toda
+    /// execução para a equivalência valer alguma coisa.
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn proximo(&mut self) -> u32 {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (self.0 >> 33) as u32
+        }
+    }
+
+    /// Histórico sintético denso: `n_cars` carros embaralhando de posição a cada volta,
+    /// com o progresso na pista espalhado o bastante para gerar duelos colados,
+    /// pêndulos e ultrapassagens tardias em vários pares ao mesmo tempo.
+    fn historico_denso(n_cars: i32, n_laps: i32) -> RaceHistory {
+        let mut rng = Lcg(0x5eed_1ace);
+        let mut ordem: Vec<i32> = (0..n_cars).collect();
+        let mut laps: Vec<LapSnapshot> = Vec::new();
+
+        for l in 1..=n_laps {
+            for _ in 0..3 {
+                let i = (rng.proximo() as usize) % (n_cars as usize - 1);
+                ordem.swap(i, i + 1);
+            }
+            let cars: Vec<(i32, i32, f64)> = ordem
+                .iter()
+                .enumerate()
+                .map(|(pos, &idx)| {
+                    // Espaçamento base minúsculo (vira duelo colado) com um empurrão
+                    // ocasional que joga o carro para longe na pista.
+                    let solto = (rng.proximo() % 4 == 0) as u32 as f64;
+                    let pct = 0.20 + pos as f64 * 0.0015 + solto * 0.12;
+                    (idx, pos as i32 + 1, pct)
+                })
+                .collect();
+            laps.push(snap(l, &cars));
+        }
+
+        let metas: Vec<CarMeta> = (0..n_cars).map(|i| meta(i, 100 + i)).collect();
+        history(laps, metas, 0)
+    }
+
+    fn parada(car_idx: i32, lap: i32) -> crate::iracing_sdk::tire_strategy::PitStop {
+        crate::iracing_sdk::tire_strategy::PitStop {
+            car_idx,
+            lap,
+            stationary_secs: 24.0,
+            track_wet_at_stop: false,
+        }
+    }
+
+    #[test]
+    fn multi_sonda_equivale_a_uma_chamada_por_sonda() {
+        let mut h = historico_denso(12, 30);
+        h.yellow_laps = vec![7, 8, 19];
+        h.pit_stops = vec![parada(3, 12), parada(5, 13), parada(0, 14)];
+        let params = PerceptionParams::default();
+        let contato = ContactSeed {
+            opponent_car_idx: 4,
+            tier: ContactTier::Major,
+        };
+
+        let probes: Vec<Probe> = (0..12)
+            .map(|idx| Probe {
+                car_idx: idx,
+                contact: (idx == 0).then_some(contato),
+            })
+            .collect();
+        let multi = perceive_rivalries_multi(&h, &probes, &params);
+        assert_eq!(multi.probes.len(), probes.len());
+
+        for (i, probe) in probes.iter().enumerate() {
+            let idx = probe.car_idx;
+            let referencia = perceive_referencia(&h, idx, probe.contact, &params);
+            assert_percepcao_igual(&multi.probes[i], &referencia, &format!("sonda {idx}"));
+            // E a casca de uma sonda também continua batendo com o laço antigo.
+            let uma = perceive_rivalries(&h, idx, probe.contact, &params);
+            assert_percepcao_igual(&uma, &referencia, &format!("sonda única {idx}"));
+        }
+
+        // Sanidade do cenário: equivalência de percepção vazia não prova nada.
+        let sinais: usize = multi.probes.iter().map(|p| p.opponents.len()).sum();
+        assert!(
+            sinais >= 12,
+            "cenário fraco demais para provar equivalência ({sinais} ledgers)"
+        );
+        assert!(
+            multi
+                .probes
+                .iter()
+                .flat_map(|p| p.opponents.iter())
+                .flat_map(|o| o.hits.iter())
+                .any(|hit| hit.kind == "duelo"),
+            "o cenário precisa ter pelo menos um duelo"
+        );
+    }
+
+    #[test]
+    fn sonda_repetida_e_varrida_uma_vez_so() {
+        let h = historico_denso(6, 12);
+        let params = PerceptionParams::default();
+        let repetida = perceive_rivalries_multi(
+            &h,
+            &[Probe::new(1), Probe::new(1), Probe::new(2), Probe::new(1)],
+            &params,
+        );
+        let limpa = perceive_rivalries_multi(&h, &[Probe::new(1), Probe::new(2)], &params);
+        assert_eq!(repetida.probes.len(), 2, "sonda repetida sai uma vez");
+        assert_eq!(repetida.cost.probes, 2);
+        assert_eq!(
+            repetida.cost.pair_evaluations, limpa.cost.pair_evaluations,
+            "repetir a sonda não pode custar varredura a mais"
+        );
+        for (a, b) in repetida.probes.iter().zip(limpa.probes.iter()) {
+            assert_percepcao_igual(a, b, "sonda repetida");
+        }
+    }
+
+    #[test]
+    fn lado_espelhado_troca_as_ultrapassagens_de_lado() {
+        // 10 voltas; na volta 9 o probe 0 passa o 1. Visto do 1, a mesma troca é uma
+        // ultrapassagem CONTRA.
+        let mut laps: Vec<LapSnapshot> = (1..=8)
+            .map(|l| snap(l, &[(0, 3, 0.30), (1, 2, 0.50)]))
+            .collect();
+        laps.push(snap(9, &[(0, 2, 0.30), (1, 3, 0.50)]));
+        laps.push(snap(10, &[(0, 2, 0.30), (1, 3, 0.50)]));
+        let h = history(laps, vec![meta(0, 10), meta(1, 22)], 0);
+
+        let m = perceive_rivalries_multi(
+            &h,
+            &[Probe::new(0), Probe::new(1)],
+            &PerceptionParams::default(),
+        );
+        assert_eq!(m.cost.mirrored_pairs, 1, "o par tem as duas pontas sonda");
+
+        let visto_do_0 = find(&m.probes[0], 1).expect("sonda 0 vê o 1");
+        let visto_do_1 = find(&m.probes[1], 0).expect("sonda 1 vê o 0");
+        assert_eq!(visto_do_0.overtakes_for, 1);
+        assert_eq!(visto_do_0.overtakes_against, 0);
+        assert_eq!(visto_do_1.overtakes_for, 0);
+        assert_eq!(visto_do_1.overtakes_against, 1);
+        // O resto do par é simétrico e tem que bater dos dois lados.
+        assert_eq!(visto_do_0.swaps, visto_do_1.swaps);
+        assert_eq!(visto_do_0.late_overtakes, visto_do_1.late_overtakes);
+        assert_eq!(
+            visto_do_0.best_fight_position,
+            visto_do_1.best_fight_position
+        );
+        assert_eq!(visto_do_0.historical_delta, visto_do_1.historical_delta);
+    }
+
+    #[test]
+    fn passadas_nao_crescem_com_sondas_vezes_snapshots() {
+        const CARROS: usize = 16;
+        let h = historico_denso(CARROS as i32, 40);
+        let params = PerceptionParams::default();
+        let snapshots = h.laps.len();
+
+        for n in [1usize, 2, 4, 8, CARROS] {
+            let probes: Vec<Probe> = (0..n as i32).map(Probe::new).collect();
+            let m = perceive_rivalries_multi(&h, &probes, &params);
+
+            // A prova do item: UMA passada sobre os snapshots, quantas sondas forem.
+            assert_eq!(m.cost.snapshot_passes, 1, "{n} sondas");
+            assert_eq!(m.cost.probes, n, "{n} sondas");
+
+            // O laço antigo fazia uma passada por sonda, cada uma avaliando todos os
+            // outros carros: sondas × snapshots × (carros-1).
+            let antigo = n * snapshots * (CARROS - 1);
+            // O novo desconta os pares em que as duas pontas são sonda (varridos uma vez).
+            let esperado = snapshots * (n * (CARROS - 1) - n * (n - 1) / 2);
+            assert_eq!(m.cost.pair_evaluations, esperado, "{n} sondas");
+            assert!(
+                m.cost.pair_evaluations <= antigo,
+                "{n} sondas: {} avaliações contra {antigo} do laço antigo",
+                m.cost.pair_evaluations
+            );
+        }
+
+        // Sondando o grid inteiro — o caso do import de corrida — o corte é de metade
+        // exata: todo par é avaliado uma vez e espelhado para a outra ponta.
+        let todas: Vec<Probe> = (0..CARROS as i32).map(Probe::new).collect();
+        let m = perceive_rivalries_multi(&h, &todas, &params);
+        let pares_do_grid = CARROS * (CARROS - 1) / 2;
+        assert_eq!(m.cost.pair_evaluations, snapshots * pares_do_grid);
+        assert_eq!(m.cost.mirrored_pairs, pares_do_grid);
+        assert_eq!(
+            m.cost.pair_evaluations * 2,
+            CARROS * snapshots * (CARROS - 1),
+            "metade exata do que o laço antigo avaliava"
+        );
+    }
+
+    #[test]
+    fn sem_sonda_nao_varre_nada() {
+        let h = historico_denso(6, 10);
+        let m = perceive_rivalries_multi(&h, &[], &PerceptionParams::default());
+        assert!(m.probes.is_empty());
+        assert_eq!(m.cost.snapshot_passes, 0);
+        assert_eq!(m.cost.pair_evaluations, 0);
     }
 
     #[test]

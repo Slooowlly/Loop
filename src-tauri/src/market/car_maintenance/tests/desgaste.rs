@@ -249,7 +249,7 @@ fn enduro_desgasta_mais_o_carro_e_a_parada_alivia() {
         let cond = WearConditions {
             track_pha: (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
             weather: crate::car::breakdown::Weather::NEUTRAL,
-            duracao_min,
+            duracao: crate::car::breakdown::DuracaoDeProva::constante(duracao_min),
         };
         // Carro do JOGADOR (Some) com paradas reais; estilo neutro (fator 1.0).
         maintain_team_car_pits(
@@ -308,7 +308,7 @@ fn ia_recebe_alivio_modelado_no_enduro() {
         let cond = WearConditions {
             track_pha: (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
             weather: crate::car::breakdown::Weather::NEUTRAL,
-            duracao_min,
+            duracao: crate::car::breakdown::DuracaoDeProva::constante(duracao_min),
         };
         maintain_team_car(&conn, &team, "gt3", 1, &[], cond, None).unwrap();
         team_car::get_team_car(&conn, "T")
@@ -332,4 +332,3 @@ fn ia_recebe_alivio_modelado_no_enduro() {
         enduro / sprint
     );
 }
-

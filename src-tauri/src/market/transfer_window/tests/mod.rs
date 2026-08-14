@@ -90,6 +90,38 @@ fn dignity_floor_blocks_deep_drop() {
     assert!(passes_dignity(&cfg, &seat("t4", 4, 60.0, 60.0, 1.0), &star));
 }
 
+/// O piso só olha a QUEDA, e a forma antiga com `||` dizia isso duas vezes.
+///
+/// Varre o quadrado inteiro de tiers contra a expressão que existia antes
+/// (`cand.tier <= seat.tier + gap-1 || cand.tier - seat.tier < gap`) e cobra igualdade
+/// termo a termo. Vale para todo `gap >= 1`; em `gap = 0` os dois braços realmente
+/// divergem, e a forma que ficou é a que casa com o doc ("recusa cair N+ tiers"): com
+/// zero de folga nenhuma vaga passa.
+#[test]
+fn o_piso_de_dignidade_so_olha_a_queda() {
+    for gap in 1u8..=4 {
+        let cfg = WindowConfig {
+            dignity_tier_gap: gap,
+            ..WindowConfig::default()
+        };
+        for tier_vaga in 0u8..=6 {
+            for tier_piloto in 0u8..=6 {
+                let antigo = tier_piloto <= tier_vaga + gap.saturating_sub(1)
+                    || tier_piloto.saturating_sub(tier_vaga) < gap;
+                let atual = passes_dignity(
+                    &cfg,
+                    &seat("s", tier_vaga, 60.0, 60.0, 1.0),
+                    &cand("p", 70.0, tier_piloto),
+                );
+                assert_eq!(
+                    atual, antigo,
+                    "gap {gap}: vaga tier {tier_vaga} × piloto tier {tier_piloto}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn brand_ladder_prefers_same_brand() {
     // Piloto Mazda recebe oferta Mazda Cup e Toyota Cup (mesmo tier/prestígio).

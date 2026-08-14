@@ -1,31 +1,60 @@
 name: CI
 
-# Roda a suíte completa a cada push e PR. Tudo em windows-latest porque este é o
-# alvo real do app (winapi/iRacing SDK são Windows-only) e evita ter de instalar as
-# dependências de sistema do Tauri que o Linux exigiria só para compilar o crate.
+# Roda a suíte completa. Tudo em windows-latest porque este é o alvo real do app
+# (winapi/iRacing SDK são Windows-only) e evita ter de instalar as dependências de
+# sistema do Tauri que o Linux exigiria só para compilar o crate.
+#
+# ## Quem dispara, e por que não é "qualquer push"
+#
+# B105. O `push:` sem filtro cobria TODA branch, e o `pull_request:` cobre o merge do
+# PR: uma branch interna com PR aberto rodava a suíte inteira duas vezes pelo mesmo
+# commit, em dois refs diferentes (`refs/heads/<branch>` e `refs/pull/N/merge`), então
+# nem a `concurrency` cancelava uma delas. Windows é o runner mais caro do catálogo e a
+# suíte compila o crate Rust inteiro — a rodada repetida custava o dobro para provar a
+# mesma coisa.
+#
+# A política é a padrão do GitHub para este caso: `push` só na branch que ninguém revisa
+# por PR (a `main`, que é onde o merge pousa), e `pull_request` para todo o resto. Branch
+# interna sem PR aberto fica sem CI de propósito — o PR é o gatilho, e é ele que decide
+# se o commit entra. Fork continua coberto: PR de fork dispara `pull_request` NESTE
+# repositório, sem depender de push nenhum.
 on:
   push:
+    branches:
+      - main
   pull_request:
 
-# Cancela runs antigos do mesmo ref quando um novo push chega.
+# Cancela runs antigos do mesmo ref quando um novo push chega. Fora da `main`: cada
+# commit que pousa na main merece o próprio veredito, e cancelar o run do commit
+# anterior deixaria a história com buracos.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   test:
     runs-on: windows-latest
     env:
-      # O .cargo/config.toml aponta target-dir para um caminho absoluto da máquina de
-      # dev (fora do OneDrive). No CI sobrescrevemos para um caminho dentro do
-      # workspace, para o cache de Rust (Swatinem) encontrar o target.
+      # Política única de target-dir (ver scripts/lib/cargo-target.mjs): CARGO_TARGET_DIR
+      # explícito vence, e é o que usamos aqui — o .cargo/config.toml do crate aponta para
+      # um caminho absoluto da máquina de dev, e o cache de Rust (Swatinem) precisa de um
+      # target dentro do workspace.
       CARGO_TARGET_DIR: ${{ github.workspace }}\src-tauri\target
     steps:
       - uses: actions/checkout@v4
 
+      # A MESMA maior do desenvolvimento, e o `engines` do package.json cobra isso. O CI ficou
+      # no 20 até 12/08/2026, e essa defasagem não era cosmética:
+      #
+      #   • o Node 20 saiu de suporte em 30/04/2026 e o próprio runner já avisava da
+      #     depreciação a cada execução;
+      #   • ele traz o npm 10, e o `package-lock.json` deste repo é escrito pelo npm 11. O
+      #     `npm ci` do CI morria em EUSAGE ("Missing: esbuild@0.27.7 from lock file") desde
+      #     07/08/2026, ou seja, NENHUM teste rodava aqui — nem o de frontend, nem o Rust.
+      #     Com o npm 11 o mesmo lock instala sem tocar em nada.
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Instalar dependências JS
@@ -54,5 +83,9 @@ jobs:
         with:
           workspaces: src-tauri
 
+      # De dentro do crate, e não da raiz com `--manifest-path`: é a mesma invocação que a
+      # documentação e o release usam. Aqui o CARGO_TARGET_DIR do job manda de qualquer
+      # jeito, então o que se preserva é a forma única do comando.
       - name: Testes de Rust
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        run: cargo test
+        working-directory: src-tauri

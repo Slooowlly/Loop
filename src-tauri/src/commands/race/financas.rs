@@ -328,7 +328,16 @@ pub(crate) fn calculate_team_round_finance_context_modelo(
         * coef.premio_parcial_por_ponto
         * round_operating_base
         * income_modifier;
-    let aid_income = team.parachute_payment_remaining.min(25_000.0);
+    // Paraquedas de rebaixamento (B47): a parcela é o total dividido pelas rodadas da
+    // temporada de destino, e não mais os 25 mil fixos que valiam igual em toda a escada.
+    // O saldo acaba na última etapa da temporada em qualquer divisão.
+    let aid_income =
+        team.parachute_payment_remaining
+            .min(crate::finance::events::parcela_de_paraquedas(
+                &team.categoria,
+                team.classe.as_deref(),
+                rounds_in_season,
+            ));
     // ── A DESPESA saiu do orçamento e virou conta física ─────────────────────────────
     //
     // As três linhas abaixo eram frações de `round_operating_base` — 0,62 de operação, 0,38
@@ -582,7 +591,8 @@ pub(crate) fn apply_post_race_fame(
                 crate::fame::apply_carisma_to_fame_delta(raw_midia_delta, player.atributos.carisma);
             // O mesmo portão da IA: subir de 90 para 95 custa muito mais que subir de 50
             // para 55, e é o que impede a fama do jogador de saturar na metade da carreira.
-            let new_midia = crate::fame::apply_fame_gain(player.atributos.midia, carisma_midia_delta);
+            let new_midia =
+                crate::fame::apply_fame_gain(player.atributos.midia, carisma_midia_delta);
             let _ = driver_queries::update_driver_midia(conn, &player.id, new_midia);
 
             let base_mot_delta = if player_result.is_some_and(|r| r.finish_position == 1) {

@@ -457,7 +457,7 @@ pub(super) fn build_real_team_management(
         .map(|car| car.display_level())
         .unwrap_or(1) as i32;
 
-    let efficiency_value = format_decimal_pt(points_per_season, 1);
+    let efficiency_value = format_decimal(points_per_season, 1);
     let points_int = points.round() as i32;
     // Os detalhes carregam a DATA do superlativo. Sem ela o card volta a ser um
     // número solto que o jogador não sabe se aconteceu ano passado ou na fundação.

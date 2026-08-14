@@ -218,12 +218,29 @@ impl ObservadorVoltar {
             carro.pico_kmh = (carro.pico_kmh * decaimento).max(carro.vel_kmh);
         }
 
+        // O jogador sumiu de `cars[]`? É assim que o guincho se manifesta — o array encolhe e
+        // o índice deixa de existir. Mas ele também some por um punhado de quadros com o carro
+        // FORA DA PISTA, que é exatamente a situação que este módulo existe para cobrir: o
+        // piloto rodou, está atravessado na grama e o array pisca.
+        //
+        // Quem decide o fechamento é [`AUSENCIA_MAX_S`], e é ele quem tem que decidir. Enquanto
+        // a primeira ausência fechava na hora, um piscar de um quadro destruía o episódio no
+        // meio: o estado renascia limpo no quadro seguinte, com `avisou_entrada` em falso, e o
+        // "segura" REARMAVA sobre o mesmo tráfego — enquanto o "pode voltar", que depende de
+        // `ocupou` e `avisou_entrada` do episódio antigo, morria junto e nunca saía. O piloto
+        // ouvia "segura" duas vezes e ficava esperando uma liberação que não vinha.
+        //
+        // É a mesma ordem do `spotter_tras`: mede a ausência primeiro, e só então procura o
+        // jogador. Roda ANTES do resto porque o passo 1 acima já carimbou `visto_em_s` de quem
+        // está presente neste tique.
+        self.fechar_se_ausente(a.tempo_s, a.jogador_idx);
+
         let jog = a.carros.iter().find(|c| c.idx == a.jogador_idx);
         let em_corrida = a.estado_sessao == ESTADO_CORRIDA;
 
-        // O jogador sumiu de `cars[]` (guincho) ou a sessão mudou: fecha calado.
+        // Ausente neste tique: nada a medir, e o episódio fica de pé. Quem o fecha é a linha
+        // acima, quando a ausência passar de [`AUSENCIA_MAX_S`].
         let Some(jog) = jog else {
-            self.fechar(a.tempo_s, FimVolta::SaiuDeCena);
             return None;
         };
         if !em_corrida || !a.jogador_na_pista || jog.on_pit_road {
@@ -286,12 +303,18 @@ impl ObservadorVoltar {
                 .unwrap_or(false);
             self.fechar(
                 a.tempo_s,
-                if liberou { FimVolta::Liberou } else { FimVolta::VoltouSozinho },
+                if liberou {
+                    FimVolta::Liberou
+                } else {
+                    FimVolta::VoltouSozinho
+                },
             );
             return None;
         }
 
-        let Some(ab) = self.aberto.as_mut() else { return None };
+        let Some(ab) = self.aberto.as_mut() else {
+            return None;
+        };
         for idx in &vindo {
             if !ab.vistos.contains(idx) {
                 ab.vistos.push(*idx);
@@ -331,9 +354,13 @@ impl ObservadorVoltar {
 
     /// A chave devolvida pela última [`ObservadorVoltar::observar`] virou fala de fato.
     pub fn confirmar_aviso(&mut self) {
-        let Some(chave) = self.pendente.take() else { return };
+        let Some(chave) = self.pendente.take() else {
+            return;
+        };
         let agora = self.ultimo_tempo_s.unwrap_or(0.0);
-        let Some(ab) = self.aberto.as_mut() else { return };
+        let Some(ab) = self.aberto.as_mut() else {
+            return;
+        };
         ab.falas += 1;
         ab.ultima_fala_s = agora;
         if chave == CHAVE_SEGURA {
@@ -350,12 +377,19 @@ impl ObservadorVoltar {
     }
 
     /// Fecha o estado se o jogador sumiu de `cars[]` por mais que [`AUSENCIA_MAX_S`].
+    ///
+    /// Chamada de DENTRO de [`ObservadorVoltar::observar`], e não pela fachada. Enquanto ela
+    /// rodava por fora, o `observar` já tinha fechado o episódio na primeira ausência e esta
+    /// função nunca encontrava nada para fechar — ela existia, era chamada, e não controlava
+    /// coisa nenhuma.
     fn fechar_se_ausente(&mut self, agora_s: f64, jogador_idx: i32) {
         let i = jogador_idx as usize;
         if i >= MAX_CARROS {
             return;
         }
-        let Some(visto) = self.carros[i].visto_em_s else { return };
+        let Some(visto) = self.carros[i].visto_em_s else {
+            return;
+        };
         if agora_s - visto >= AUSENCIA_MAX_S {
             self.fechar(visto, FimVolta::SaiuDeCena);
         }
@@ -379,7 +413,6 @@ pub fn observar(t: &crate::iracing_sdk::IracingTelemetry) -> Option<&'static str
             jogador_na_pista: t.on_track && !t.is_replay_playing,
             carros: &t.cars,
         });
-        obs.fechar_se_ausente(t.session_time, t.player_car_idx);
         (chave, obs.drenar_encerrados())
     };
     for e in encerrados {
@@ -428,6 +461,9 @@ mod tests {
         estado: i32,
         na_pista: bool,
         confirma: bool,
+        /// O jogador aparece em `cars[]` neste tique? Falso simula o piscar do array — o
+        /// mesmo buraco que o guincho abre, só que por alguns quadros.
+        jog_presente: bool,
         chaves: Vec<&'static str>,
     }
 
@@ -443,6 +479,7 @@ mod tests {
                 estado: ESTADO_CORRIDA,
                 na_pista: true,
                 confirma: true,
+                jog_presente: true,
                 chaves: Vec::new(),
             }
         }
@@ -458,7 +495,10 @@ mod tests {
         fn rodar(&mut self, segundos: f64) {
             let mut restante = segundos;
             while restante > 0.0 {
-                let mut cs = vec![carro(0, self.jog, self.jog_sup)];
+                let mut cs = Vec::new();
+                if self.jog_presente {
+                    cs.push(carro(0, self.jog, self.jog_sup));
+                }
                 for (i, (pct, _)) in self.outros.iter().enumerate() {
                     cs.push(carro(i as i32 + 1, *pct, SUP_NA_PISTA));
                 }
@@ -503,7 +543,12 @@ mod tests {
         c.jog_sup = SUP_FORA_DA_PISTA;
         c.jog_kmh = 30.0;
         c.rodar(1.0);
-        assert_eq!(c.chaves.first(), Some(&CHAVE_SEGURA), "chaves: {:?}", c.chaves);
+        assert_eq!(
+            c.chaves.first(),
+            Some(&CHAVE_SEGURA),
+            "chaves: {:?}",
+            c.chaves
+        );
     }
 
     #[test]
@@ -535,6 +580,73 @@ mod tests {
         let i_seg = c.chaves.iter().position(|k| *k == CHAVE_SEGURA).unwrap();
         let i_ir = c.chaves.iter().position(|k| *k == CHAVE_PODE_IR).unwrap();
         assert!(i_seg < i_ir, "liberou antes de ocupar: {:?}", c.chaves);
+    }
+
+    #[test]
+    fn um_piscar_de_cars_nao_rearma_o_segura_nem_perde_o_pode_voltar() {
+        // O jogador some de `cars[]` por alguns quadros — é o que o array faz com o carro
+        // fora da pista, que é a situação inteira deste módulo. Enquanto a primeira ausência
+        // fechava o episódio, o quadro seguinte abria um limpo: o "segura" saía de novo sobre
+        // o mesmo tráfego e o "pode voltar", que depende do episódio antigo ter ocupado e
+        // avisado, nunca chegava. O piloto ouvia o alerta duas vezes e esperava para sempre a
+        // liberação.
+        let mut c = Cena::nova();
+        c.atras(120.0, 220.0);
+        c.aquecer();
+        c.jog_sup = SUP_FORA_DA_PISTA;
+        c.jog_kmh = 20.0;
+        c.rodar(1.0);
+        assert_eq!(c.conta(CHAVE_SEGURA), 1, "chaves: {:?}", c.chaves);
+
+        // O piscar, abaixo do teto de ausência.
+        c.jog_presente = false;
+        c.rodar(AUSENCIA_MAX_S * 0.5);
+        c.jog_presente = true;
+
+        // O perseguidor passa e a janela limpa.
+        c.rodar(LIBERA_S + 2.0);
+
+        assert_eq!(
+            c.conta(CHAVE_SEGURA),
+            1,
+            "o segura rearmou depois do piscar: {:?}",
+            c.chaves
+        );
+        assert!(
+            c.conta(CHAVE_PODE_IR) >= 1,
+            "perdeu o pode voltar: {:?}",
+            c.chaves
+        );
+    }
+
+    #[test]
+    fn a_ausencia_longa_fecha_o_estado_uma_vez_so() {
+        // O outro lado da mesma moeda: guincho é ausência que não volta, e aí o episódio tem
+        // de morrer — senão fica aberto para sempre, falando sobre um carro que saiu do mundo.
+        // Quem decide é `AUSENCIA_MAX_S`, e é ele que tem de decidir nos dois sentidos.
+        let mut c = Cena::nova();
+        c.atras(120.0, 220.0);
+        c.aquecer();
+        c.jog_sup = SUP_FORA_DA_PISTA;
+        c.jog_kmh = 20.0;
+        c.rodar(1.0);
+        assert_eq!(c.conta(CHAVE_SEGURA), 1, "chaves: {:?}", c.chaves);
+        c.obs.drenar_encerrados();
+
+        c.jog_presente = false;
+        c.rodar(AUSENCIA_MAX_S + 0.5);
+
+        let fins: Vec<_> = c
+            .obs
+            .drenar_encerrados()
+            .into_iter()
+            .map(|e| e.fim)
+            .collect();
+        assert_eq!(
+            fins,
+            vec![Some(FimVolta::SaiuDeCena)],
+            "a ausência longa devia fechar exatamente um episódio"
+        );
     }
 
     #[test]
@@ -585,7 +697,12 @@ mod tests {
         c.aquecer();
         c.jog_kmh = 10.0;
         c.rodar(1.0);
-        assert_eq!(c.chaves.first(), Some(&CHAVE_SEGURA), "chaves: {:?}", c.chaves);
+        assert_eq!(
+            c.chaves.first(),
+            Some(&CHAVE_SEGURA),
+            "chaves: {:?}",
+            c.chaves
+        );
     }
 
     #[test]
@@ -598,7 +715,11 @@ mod tests {
         c.jog_sup = SUP_NA_PISTA;
         c.jog_kmh = 180.0;
         c.rodar(2.0);
-        assert!(c.conta(CHAVE_PODE_IR) == 0, "liberou sem ocupação: {:?}", c.chaves);
+        assert!(
+            c.conta(CHAVE_PODE_IR) == 0,
+            "liberou sem ocupação: {:?}",
+            c.chaves
+        );
     }
 
     #[test]
@@ -623,7 +744,10 @@ mod tests {
         c.jog_sup = SUP_FORA_DA_PISTA;
         c.jog_kmh = 20.0;
         c.rodar(0.5);
-        assert!(c.conta(CHAVE_SEGURA) > 1, "sem confirmação deveria insistir");
+        assert!(
+            c.conta(CHAVE_SEGURA) > 1,
+            "sem confirmação deveria insistir"
+        );
     }
 
     #[test]
@@ -638,6 +762,11 @@ mod tests {
         c.t += SALTO_MAX_S + 1.0;
         c.rodar(0.5);
         // Zerou: sem pico, ninguém "estava andando", e nada é dito até o mundo reencher.
-        assert_eq!(c.chaves.len(), antes, "inventou fala após o salto: {:?}", c.chaves);
+        assert_eq!(
+            c.chaves.len(),
+            antes,
+            "inventou fala após o salto: {:?}",
+            c.chaves
+        );
     }
 }

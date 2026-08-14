@@ -14,6 +14,16 @@ vi.mock("./filtroRadio", () => ({
   criarCadeiaRadio: () => ({ entrada: { connect() {} } }),
 }));
 
+// O REGISTRO DO RÁDIO, capturado em memória. Fora do shell ele já sairia calado (`estaNoTauri`
+// é falso em jsdom), e um dublê calado não deixa provar o que foi escrito — que é justamente o
+// que a abertura e o fim de uma sequência precisam demonstrar.
+const registros = vi.hoisted(() => []);
+vi.mock("./radioRegistro", () => ({
+  registrar: (canal, opcoes = {}) => registros.push({ canal, ...opcoes }),
+  estaLigado: () => true,
+  ligar: () => {},
+}));
+
 // O spotter fica calado o tempo todo: o que se testa aqui é engenheiro contra engenheiro. A
 // cessão ao spotter é outro mecanismo, e ele já existia antes desta fila.
 vi.mock("./spotterVoice", () => ({
@@ -280,6 +290,37 @@ describe("a fala longa dos momentos sem pressa", () => {
   it("sem áudio não entra na fila", async () => {
     expect(await voz.anunciarRemoto("", "audio/mpeg")).toBe(false);
     expect(tocadas).toEqual([]);
+  });
+});
+
+describe("o registro da sequência começa na peça que tocou", () => {
+  // A peça que não existe no disco é o modo de falha da família: o `.opus` some do pacote,
+  // o app pede um arquivo inexistente e a sequência segue para a próxima sem erro nenhum. A
+  // fala sai, o jogador ouve — e o registro do rádio, que ancorava a abertura no índice 0,
+  // não escrevia linha nenhuma. Ficava idêntico no arquivo a uma fala que nunca saiu, que é
+  // justamente a pergunta que o registro existe para responder.
+  //
+  // Os dois casos vivem num `it` só de propósito: o `beforeEach` deste arquivo reindexa as
+  // 3.943 peças do acervo a cada caso, e são ~7 s por vez. Um caso a mais aqui custa mais do
+  // que a separação vale.
+  const AUSENTE = "peca_inexistente_no_disco";
+
+  it("abre e fecha o registro quando alguma peça tocou, e cala quando nenhuma tocou", async () => {
+    registros.length = 0;
+    expect(await voz.falarPecas([AUSENTE, "pos_5"], { canal: "resposta" })).toBe(true);
+    // A peça que faltou não soou; a que existe, sim.
+    expect(tocadas).toEqual(["pos_5"]);
+    expect(registros.filter((r) => r.canal === "resposta").map((r) => r.desfecho)).toEqual([
+      "ok",
+      "fim",
+    ]);
+
+    // Nenhuma peça no disco: nada soou, e aí o silêncio no registro é a verdade.
+    registros.length = 0;
+    tocadas.length = 0;
+    await voz.falarPecas([AUSENTE, `${AUSENTE}_2`], { canal: "resposta" });
+    expect(tocadas).toEqual([]);
+    expect(registros.filter((r) => r.canal === "resposta")).toEqual([]);
   });
 });
 

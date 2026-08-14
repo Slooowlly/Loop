@@ -254,7 +254,10 @@ mod tests {
             categoria: Some("mazda_rookie".into()),
             ..Default::default()
         };
-        assert!(so_rotulo.vazio(), "abriu o app e fechou sem ler: nada a dizer");
+        assert!(
+            so_rotulo.vazio(),
+            "abriu o app e fechou sem ler: nada a dizer"
+        );
 
         let leu = UsoRodada {
             segundos_debriefing: 4,

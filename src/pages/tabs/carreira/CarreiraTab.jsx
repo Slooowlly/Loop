@@ -94,7 +94,7 @@ function CarreiraTab() {
             className={`rounded-2xl border px-4 py-2 text-xs font-semibold uppercase tracking-[0.13em] transition-glass ${
               secao === id
                 ? "border-accent-primary/40 bg-accent-primary/15 text-accent-primary"
-                : "border-white/8 bg-black/10 text-text-muted hover:text-text-primary"
+                : "border-white/[0.08] bg-black/10 text-text-muted hover:text-text-primary"
             }`}
           >
             {t(`carreiraTab.sections.${id}`)}

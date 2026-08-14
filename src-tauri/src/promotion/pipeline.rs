@@ -32,12 +32,10 @@ fn promotion_soft_landing_enabled() -> bool {
     crate::constants::flags_experimentais::booleana("IRACER_PROMO_SOFT_LANDING")
 }
 
-/// car_performance dos incumbentes que PERMANECEM na categoria de destino do
-/// promovido — mesma categoria (e classe, quando houver), excluindo o próprio
-/// promovido. Nesta altura do pipeline a rebaixada já saiu na troca (as trocas de
-/// categoria foram aplicadas antes do loop de deltas), então o campo é só quem fica.
 /// Nível MÉDIO do carro de cada incumbente que permanece na categoria (ou classe) de
 /// destino — a leitura de "quão desenvolvido é o campo" que o pouso da promoção usa.
+/// Nesta altura do pipeline a rebaixada já saiu na troca (as trocas de categoria foram
+/// aplicadas antes do loop de deltas), então o campo é só quem fica.
 /// Exclui o próprio promovido; time sem carro persistido (save antigo) conta como nível 1,
 /// o piso honesto — some do campo seria pior, porque justamente o lanterna é o alvo.
 fn promotion_field_levels(conn: &Connection, team: &Team) -> Result<Vec<f64>, String> {
@@ -492,15 +490,13 @@ mod tests {
                 Some("production_challenger")
             );
             assert!(up_driver.categoria_especial_ativa.is_none());
-            assert!(
-                crate::models::license::driver_has_required_license_for_division(
-                    &conn,
-                    &up_driver.id,
-                    "production_challenger",
-                    Some(class_name),
-                )
-                .expect("license query")
-            );
+            assert!(crate::licensing::driver_has_required_license_for_division(
+                &conn,
+                &up_driver.id,
+                "production_challenger",
+                Some(class_name),
+            )
+            .expect("license query"));
 
             let down_driver = driver_queries::get_driver(&conn, &format!("DOWN_{class_name}"))
                 .expect("relegated driver");
@@ -615,7 +611,7 @@ mod tests {
             assert_eq!(up_driver.categoria_atual.as_deref(), Some("endurance"));
             assert!(up_driver.categoria_especial_ativa.is_none());
             assert!(
-                crate::models::license::driver_has_required_license_for_division(
+                crate::licensing::driver_has_required_license_for_division(
                     &conn,
                     &up_driver.id,
                     "endurance",

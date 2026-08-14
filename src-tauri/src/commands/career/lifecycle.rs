@@ -84,6 +84,14 @@ pub(crate) fn create_career_in_base_dir(
                     1,
                     n,
                 )?;
+                // O ANO DO MUNDO na tabela `meta`, escrito na criação. As migrações
+                // semeiam os dois com um literal antigo, e a carreira regular nunca os
+                // reescrevia: `current_year` só era tocado pela virada de temporada (a
+                // temporada 1 inteira era jogada com o ano do seed) e `career_start_year`
+                // ficava no seed para sempre. O draft histórico já grava os dois na
+                // criação — ver `sync_draft_meta_counters`.
+                meta_queries::set_meta_value(tx, "current_year", &season.ano.to_string())?;
+                meta_queries::set_meta_value(tx, "career_start_year", &season.ano.to_string())?;
                 Ok(n)
             })
             .map_err(|e| format!("Falha ao persistir dados da carreira: {e}"))?;
@@ -145,8 +153,7 @@ pub(crate) fn load_career_in_base_dir(
     base_dir: &Path,
     career_id: &str,
 ) -> Result<CareerData, String> {
-    let career_number =
-        career_number_from_id(career_id).ok_or_else(errors::invalid_career_id)?;
+    let career_number = career_number_from_id(career_id).ok_or_else(errors::invalid_career_id)?;
     let mut config = AppConfig::load_or_default(base_dir);
     let (db, career_dir, mut meta) = open_career_resources(base_dir, career_id)?;
     let meta_path = career_dir.join("meta.json");
@@ -205,9 +212,9 @@ pub(crate) fn load_career_in_base_dir(
         let team = player_team.as_ref()?;
         compute_public_fame_share(&db.conn, &race.categoria, &team.id)
     });
-    let next_race_summary = next_race
-        .as_ref()
-        .map(|race| build_next_race_summary(race, event_interest_summary.clone(), public_fame_share));
+    let next_race_summary = next_race.as_ref().map(|race| {
+        build_next_race_summary(race, event_interest_summary.clone(), public_fame_share)
+    });
     let next_race_briefing_summary = next_race.as_ref().map(|race| {
         build_next_race_briefing_summary(&db.conn, &player.id, active_season.numero, race)
             .unwrap_or_else(|_error| empty_next_race_briefing_summary())
@@ -242,8 +249,7 @@ pub(crate) fn delete_career_in_base_dir(
     base_dir: &Path,
     career_id: &str,
 ) -> Result<String, String> {
-    let career_number =
-        career_number_from_id(career_id).ok_or_else(errors::invalid_career_id)?;
+    let career_number = career_number_from_id(career_id).ok_or_else(errors::invalid_career_id)?;
     let mut config = AppConfig::load_or_default(base_dir);
     let career_dir = config.saves_dir().join(career_id);
 
@@ -358,115 +364,6 @@ pub(crate) fn sync_meta_counters(
     Ok(())
 }
 
-// Internal diagnostic helper kept out of the production Tauri command surface.
-#[allow(dead_code)]
-pub(crate) fn verify_database(
-    app: AppHandle,
-    career_number: u32,
-) -> Result<VerifyDatabaseResponse, String> {
-    let base_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
-
-    let config = AppConfig::load_or_default(&base_dir);
-    let db_path = config.career_db_path(career_number);
-
-    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
-
-    let table_count: i64 = db
-        .conn
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|e| format!("Falha ao contar tabelas: {e}"))?;
-
-    Ok(VerifyDatabaseResponse {
-        career_number,
-        db_path: db_path.to_string_lossy().to_string(),
-        table_count,
-        status: "ok".to_string(),
-    })
-}
-
-// Internal diagnostic helper kept out of the production Tauri command surface.
-#[allow(dead_code)]
-pub(crate) fn test_create_driver(
-    app: AppHandle,
-    career_number: u32,
-    nome: String,
-    nacionalidade: String,
-    genero: String,
-    category_tier: u32,
-    difficulty: String,
-) -> Result<Driver, String> {
-    let base_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
-
-    let config = AppConfig::load_or_default(&base_dir);
-    let db_path = config.career_db_path(career_number);
-    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
-
-    let id = next_id(&db.conn, IdType::Driver).map_err(|e| format!("Falha ao gerar ID: {e}"))?;
-
-    let mut rng = rand::thread_rng();
-    let category_id = match category_tier {
-        0 => "mazda_rookie",
-        1 => "mazda_amador",
-        2 => "bmw_m2",
-        3 => "gt4",
-        4 => "gt3",
-        5 => "endurance",
-        _ => "endurance",
-    };
-    let mut existing_names = HashSet::new();
-    let mut generated = Driver::generate_for_category(
-        category_id,
-        category_tier.min(5) as u8,
-        &difficulty,
-        1,
-        &mut existing_names,
-        &mut rng,
-    );
-    let mut driver = generated
-        .pop()
-        .ok_or_else(|| "Falha ao gerar piloto de teste".to_string())?;
-    driver.id = id;
-    if !nome.trim().is_empty() {
-        driver.nome = nome;
-    }
-    if !nacionalidade.trim().is_empty() {
-        driver.nacionalidade = nacionalidade;
-    }
-    if !genero.trim().is_empty() {
-        driver.genero = genero;
-    }
-
-    driver_queries::insert_driver(&db.conn, &driver)
-        .map_err(|e| format!("Falha ao inserir piloto: {e}"))?;
-
-    Ok(driver)
-}
-
-// Internal diagnostic helper kept out of the production Tauri command surface.
-#[allow(dead_code)]
-pub(crate) fn test_list_drivers(app: AppHandle, career_number: u32) -> Result<Vec<Driver>, String> {
-    let base_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
-
-    let config = AppConfig::load_or_default(&base_dir);
-    let db_path = config.career_db_path(career_number);
-    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
-
-    driver_queries::get_all_drivers(&db.conn).map_err(|e| format!("Falha ao listar pilotos: {e}"))
-}
-
 /// REPARO DE FASE: save que ficou marcado em `JanelaConvocacao` com etapa regular
 /// pendente volta para `BlocoRegular`. Acontece quando a janela abre antes de a
 /// categoria do jogador terminar o bloco; sem isto a UI mostra a janela e esconde a
@@ -478,9 +375,12 @@ fn repair_stale_convocation_phase(
     if active_season.fase != SeasonPhase::JanelaConvocacao {
         return Ok(());
     }
-    let pending_regular_races =
-        calendar_queries::count_pending_races_in_phase(conn, &active_season.id, &SeasonPhase::BlocoRegular)
-            .map_err(|e| format!("Falha ao verificar corridas regulares pendentes: {e}"))?;
+    let pending_regular_races = calendar_queries::count_pending_races_in_phase(
+        conn,
+        &active_season.id,
+        &SeasonPhase::BlocoRegular,
+    )
+    .map_err(|e| format!("Falha ao verificar corridas regulares pendentes: {e}"))?;
     if pending_regular_races > 0 {
         season_queries::update_season_fase(conn, &active_season.id, &SeasonPhase::BlocoRegular)
             .map_err(|e| format!("Falha ao corrigir fase da temporada: {e}"))?;
@@ -631,24 +531,45 @@ const TITLE_DECIDER_MAX_GAP: i32 = 50;
 
 /// Interesse esperado da próxima corrida do jogador. Só leitura; a categoria da
 /// etapa é a fonte semântica do campeonato do evento.
+///
+/// Aqui fica só o EFEITO — a leitura da classificação. A montagem do contexto, que é a
+/// parte com regra dentro (o recorte de "decisiva pelo título" e os campos que viram
+/// `None` quando o jogador ainda não pontuou), saiu para [`next_race_interest_context`],
+/// que é pura e por isso tem teste sem banco.
 fn build_next_race_interest_summary(
     conn: &rusqlite::Connection,
     race: &crate::calendar::CalendarEntry,
     player: &Driver,
     total_rodadas: i32,
 ) -> EventInterestSummary {
-    let champ =
-        standings_queries::get_championship_context(conn, &race.categoria).unwrap_or(
-            ChampionshipContext {
-                player_position: 0,
-                gap_to_leader: 0,
-            },
-        );
+    let champ = standings_queries::get_championship_context(conn, &race.categoria).unwrap_or(
+        ChampionshipContext {
+            player_position: 0,
+            gap_to_leader: 0,
+        },
+    );
+    let ctx = next_race_interest_context(race, player, total_rodadas, &champ);
+    to_summary(&calculate_expected_event_interest(&ctx))
+}
+
+/// O contexto de interesse da próxima etapa, montado a partir do que já foi lido do banco.
+///
+/// Duas regras moram aqui, e nenhuma delas precisa de banco para ser conferida: a etapa é
+/// "decisiva pelo título" quando restam poucas rodadas E a distância para o líder é curta
+/// E o jogador já tem posição; e posição/distância só viajam preenchidas quando têm
+/// sentido — jogador fora da classificação (`player_position == 0`) manda `None`, e líder
+/// manda a distância mesmo quando ela é zero.
+pub(crate) fn next_race_interest_context(
+    race: &crate::calendar::CalendarEntry,
+    player: &Driver,
+    total_rodadas: i32,
+    champ: &ChampionshipContext,
+) -> EventInterestContext {
     let remaining = total_rodadas - race.rodada;
     let is_title_decider = remaining <= TITLE_DECIDER_MAX_REMAINING
         && champ.gap_to_leader <= TITLE_DECIDER_MAX_GAP
         && champ.player_position > 0;
-    let ctx = EventInterestContext {
+    EventInterestContext {
         categoria: race.categoria.clone(),
         season_phase: race.season_phase,
         rodada: race.rodada,
@@ -670,8 +591,7 @@ fn build_next_race_interest_summary(
         },
         is_title_decider_candidate: is_title_decider,
         thematic_slot: race.thematic_slot,
-    };
-    to_summary(&calculate_expected_event_interest(&ctx))
+    }
 }
 
 /// Cota de público do jogador (Fase 3 do Estrelato): fama do lineup da equipe dele
@@ -719,8 +639,7 @@ pub(crate) fn open_career_resources_with_repair(
     career_id: &str,
     repair_contracts: bool,
 ) -> Result<(Database, std::path::PathBuf, SaveMeta), String> {
-    let _career_number =
-        career_number_from_id(career_id).ok_or_else(errors::invalid_career_id)?;
+    let _career_number = career_number_from_id(career_id).ok_or_else(errors::invalid_career_id)?;
 
     let config = AppConfig::load_or_default(base_dir);
     let career_dir = config.saves_dir().join(career_id);
@@ -1019,8 +938,10 @@ pub(crate) fn needs_regular_contract_repair(
             return Ok(true);
         }
         // Divisão inválida, ou contrato regular numa equipe que não usa contrato regular.
-        if !categories::is_valid_competitive_division(&contract.categoria, contract.classe.as_deref())
-        {
+        if !categories::is_valid_competitive_division(
+            &contract.categoria,
+            contract.classe.as_deref(),
+        ) {
             return Ok(true);
         }
         if let Some(team) = teams_by_id.get(contract.equipe_id.as_str()) {

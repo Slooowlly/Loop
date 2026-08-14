@@ -551,9 +551,7 @@ impl ObservadorFrente {
                     TipoObstaculo::Fora if c.track_surface == SUP_NA_PISTA => {
                         Some(Desfecho::Retomou)
                     }
-                    TipoObstaculo::Parado
-                        if vel.map(|v| v >= PARADO_KMH).unwrap_or(false) =>
-                    {
+                    TipoObstaculo::Parado if vel.map(|v| v >= PARADO_KMH).unwrap_or(false) => {
                         Some(Desfecho::Retomou)
                     }
                     _ => None,
@@ -563,7 +561,7 @@ impl ObservadorFrente {
                 let mut ep = self.carros[i].episodio.take().expect("acabou de existir");
                 ep.desfecho = Some(d);
                 self.recem_encerrados.push(ep.clone());
-            self.encerrados.push_back(ep);
+                self.encerrados.push_back(ep);
                 while self.encerrados.len() > MAX_EPISODIOS {
                     self.encerrados.pop_front();
                 }
@@ -848,7 +846,10 @@ mod tests {
             self.jog_ms = jog_kmh / 3.6;
             let mut restante = segundos;
             while restante > 0.0 {
-                let carros = [carro(0, self.jog, self.sup_jogador), carro(1, self.alvo, sup)];
+                let carros = [
+                    carro(0, self.jog, self.sup_jogador),
+                    carro(1, self.alvo, sup),
+                ];
                 let a = AmostraFrente {
                     tempo_s: self.t,
                     estado_sessao: self.estado,
@@ -889,7 +890,10 @@ mod tests {
         let mut c = Cena::nova(150.0);
         c.aquecer();
         c.rodar(2.0, 200.0, 200.0, SUP_FORA_DA_PISTA);
-        assert!(c.obs.abertos().is_empty(), "limite de pista virou obstáculo");
+        assert!(
+            c.obs.abertos().is_empty(),
+            "limite de pista virou obstáculo"
+        );
         assert_eq!(c.avisos, 0);
     }
 
@@ -902,7 +906,11 @@ mod tests {
         let abertos = c.obs.abertos();
         assert_eq!(abertos.len(), 1);
         assert_eq!(abertos[0].tipo, TipoObstaculo::Fora);
-        assert!(abertos[0].pico_kmh > 150.0, "pico {:.0}", abertos[0].pico_kmh);
+        assert!(
+            abertos[0].pico_kmh > 150.0,
+            "pico {:.0}",
+            abertos[0].pico_kmh
+        );
     }
 
     #[test]
@@ -952,7 +960,12 @@ mod tests {
 
         // Segue fechando até entrar na janela de 2 a 5 s.
         c.rodar(10.0, 200.0, 0.0, SUP_NA_PISTA);
-        assert_eq!(c.chaves, vec![CHAVE_PARADO_FRENTE], "chaves: {:?}", c.chaves);
+        assert_eq!(
+            c.chaves,
+            vec![CHAVE_PARADO_FRENTE],
+            "chaves: {:?}",
+            c.chaves
+        );
         let d = c.dist_no_aviso[0];
         let tta = d / (200.0 / 3.6);
         assert!(d <= DIST_MAX_M, "avisou a {d:.0} m, acima do teto");

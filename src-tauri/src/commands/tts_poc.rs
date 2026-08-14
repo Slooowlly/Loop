@@ -116,6 +116,14 @@ fn cancelados() -> &'static Mutex<HashSet<String>> {
     CANCELADOS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
+/// Requisições EM VOO. Existe só pra decidir se um cancelamento é válido: sem isso,
+/// um `tts_poc_cancelar` com id errado (ou de uma execução já terminada) gravaria uma
+/// marca que ninguém viria consumir, e o `HashSet` de cancelados cresceria pra sempre.
+fn ativos() -> &'static Mutex<HashSet<String>> {
+    static ATIVOS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    ATIVOS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
 fn foi_cancelado(request_id: &str) -> bool {
     cancelados()
         .lock()
@@ -123,8 +131,35 @@ fn foi_cancelado(request_id: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Devolve os dois conjuntos ao estado limpo quando a execução sai de cena — por
+/// QUALQUER porta: fim normal, `return erro(...)` no meio ou pânico da thread. Antes
+/// isso era uma limpeza solta no fim de `executar`, que todos os caminhos de erro
+/// pulavam e deixavam o id preso em `cancelados` até o app fechar.
+struct BaixaDaRequisicao(String);
+
+impl Drop for BaixaDaRequisicao {
+    fn drop(&mut self) {
+        if let Ok(mut c) = cancelados().lock() {
+            c.remove(&self.0);
+        }
+        if let Ok(mut a) = ativos().lock() {
+            a.remove(&self.0);
+        }
+    }
+}
+
+/// Marca uma requisição EM VOO pra cancelamento. Id desconhecido = cancelamento
+/// inválido (digitação errada, ou a execução já acabou): vira no-op em vez de sujar
+/// o conjunto com uma marca eterna.
 #[tauri::command]
 pub fn tts_poc_cancelar(request_id: String) {
+    let em_voo = ativos()
+        .lock()
+        .map(|a| a.contains(&request_id))
+        .unwrap_or(false);
+    if !em_voo {
+        return;
+    }
     if let Ok(mut c) = cancelados().lock() {
         c.insert(request_id);
     }
@@ -183,19 +218,37 @@ pub fn tts_poc_log_caminho(app: AppHandle) -> Result<String, String> {
     Ok(caminho_log(&app)?.display().to_string())
 }
 
+/// Achata um registro em UMA linha física. JSONL é "um objeto por linha": se o front
+/// mandar o JSON indentado (ou qualquer coisa com `\n` no meio), o `writeln!` cru
+/// partiria o registro em várias linhas e o leitor devolveria cada pedaço como se
+/// fosse uma execução — todas inválidas. Emendar com ESPAÇO é seguro: entre tokens
+/// JSON o espaço em branco é irrelevante, e quebra de linha dentro de uma string JSON
+/// já seria JSON ilegal na origem.
+fn achatar_em_uma_linha(linha: &str) -> String {
+    linha
+        .lines()
+        .map(str::trim)
+        .filter(|parte| !parte.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Acrescenta UMA linha JSON ao log. Append puro: cada execução é um registro
 /// independente, então uma corrida interrompida não perde o que já mediu.
 #[tauri::command]
 pub fn tts_poc_log_registrar(app: AppHandle, linha: String) -> Result<(), String> {
     use std::io::Write;
+    let registro = achatar_em_uma_linha(&linha);
+    if registro.is_empty() {
+        return Ok(()); // nada a registrar — não suja o arquivo com linha vazia.
+    }
     let caminho = caminho_log(&app)?;
     let mut arquivo = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&caminho)
         .map_err(|e| format!("Falha ao abrir {}: {e}", caminho.display()))?;
-    writeln!(arquivo, "{}", linha.trim())
-        .map_err(|e| format!("Falha ao escrever no log: {e}"))?;
+    writeln!(arquivo, "{registro}").map_err(|e| format!("Falha ao escrever no log: {e}"))?;
     Ok(())
 }
 
@@ -298,9 +351,14 @@ pub fn tts_poc_falar(app: AppHandle, pedido: TtsPocPedido) -> Result<TtsPocInici
         origem_chave,
     };
 
-    // Limpa um cancelamento antigo com o mesmo id antes de começar.
+    // Limpa um cancelamento antigo com o mesmo id e abre o voo ANTES de soltar a thread:
+    // o front pode chamar `tts_poc_cancelar` no instante seguinte ao retorno daqui, e um
+    // id ainda não registrado como ativo faria o cancelamento ser descartado.
     if let Ok(mut c) = cancelados().lock() {
         c.remove(&pedido.request_id);
+    }
+    if let Ok(mut a) = ativos().lock() {
+        a.insert(pedido.request_id.clone());
     }
 
     let app_thread = app.clone();
@@ -315,6 +373,8 @@ fn executar(app: AppHandle, pedido: TtsPocPedido, chave: String, modelo: String,
     let t0 = Instant::now();
     let ms = |t: Instant| t.elapsed().as_secs_f64() * 1000.0;
     let request_id = pedido.request_id.clone();
+    // Dá baixa em `ativos`/`cancelados` na saída, seja ela qual for.
+    let _baixa = BaixaDaRequisicao(request_id.clone());
 
     let erro = |mensagem: String, status: Option<u16>| {
         let _ = app.emit(
@@ -490,10 +550,8 @@ fn executar(app: AppHandle, pedido: TtsPocPedido, chave: String, modelo: String,
             cancelado,
         },
     );
-
-    if let Ok(mut c) = cancelados().lock() {
-        c.remove(&request_id);
-    }
+    // A baixa em `ativos`/`cancelados` é do `_baixa` (Drop), não daqui: os `return
+    // erro(...)` acima nunca chegariam a esta linha.
 }
 
 #[cfg(test)]
@@ -552,6 +610,70 @@ mod tests {
         let mut saida = Vec::new();
         coletar_audio(&evento, &mut saida);
         assert!(saida.is_empty());
+    }
+
+    #[test]
+    fn registro_com_newline_interno_vira_uma_linha_so() {
+        // JSON indentado é o caso real: o `writeln!` cru partiria isto em 4 linhas e o
+        // leitor devolveria 4 "execuções", todas JSON inválido.
+        let indentado = "{\n  \"request_id\": \"abc\",\n  \"ms\": 12\n}";
+        let achatado = achatar_em_uma_linha(indentado);
+
+        assert!(!achatado.contains('\n'), "{achatado}");
+        assert_eq!(achatado, "{ \"request_id\": \"abc\", \"ms\": 12 }");
+        // E continua sendo JSON legível — emendar com espaço não quebra os tokens.
+        let valor: Value = serde_json::from_str(&achatado).expect("segue JSON válido");
+        assert_eq!(valor["request_id"], "abc");
+    }
+
+    #[test]
+    fn registro_vazio_ou_so_de_quebras_nao_vira_linha() {
+        assert_eq!(achatar_em_uma_linha(""), "");
+        assert_eq!(achatar_em_uma_linha("\n\n   \r\n"), "");
+    }
+
+    #[test]
+    fn registro_de_uma_linha_atravessa_intacto() {
+        let linha = r#"{"request_id":"abc","ms":12}"#;
+        assert_eq!(achatar_em_uma_linha(&format!("  {linha}  ")), linha);
+    }
+
+    /// Cancelar um id que não está em voo é no-op. Antes, qualquer id (errado, ou de
+    /// uma execução já encerrada) entrava no `HashSet` e ficava lá até o app fechar.
+    #[test]
+    #[serial_test::serial]
+    fn cancelamento_de_id_desconhecido_nao_suja_o_conjunto() {
+        cancelados().lock().unwrap().clear();
+        ativos().lock().unwrap().clear();
+
+        tts_poc_cancelar("id-que-nunca-existiu".to_string());
+
+        assert!(
+            cancelados().lock().unwrap().is_empty(),
+            "cancelamento inválido não pode deixar marca"
+        );
+        assert!(!foi_cancelado("id-que-nunca-existiu"));
+    }
+
+    /// A baixa (Drop) limpa os dois conjuntos — é ela que cobre os `return erro(...)`
+    /// que saem de `executar` no meio e nunca chegariam a uma limpeza no fim do corpo.
+    #[test]
+    #[serial_test::serial]
+    fn baixa_limpa_ativos_e_cancelados_em_qualquer_saida() {
+        cancelados().lock().unwrap().clear();
+        ativos().lock().unwrap().clear();
+
+        ativos().lock().unwrap().insert("req-1".to_string());
+        tts_poc_cancelar("req-1".to_string());
+        assert!(foi_cancelado("req-1"), "id em voo aceita cancelamento");
+
+        {
+            let _baixa = BaixaDaRequisicao("req-1".to_string());
+        } // saída da execução, por qualquer porta
+
+        assert!(!foi_cancelado("req-1"));
+        assert!(cancelados().lock().unwrap().is_empty());
+        assert!(ativos().lock().unwrap().is_empty());
     }
 
     #[test]

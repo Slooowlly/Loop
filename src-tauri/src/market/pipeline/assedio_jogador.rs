@@ -142,7 +142,9 @@ pub(crate) fn compute_player_poach_offer(
 
 /// Variante de DEBUG: relaxa os portões (fama, gap de qualidade, upgrade, caixa) e
 /// escolhe o pretendente mais RICO da categoria — pra forçar o leilão a aparecer e
-/// dar pra testar a tela mesmo num save sem o cenário raro. Só usada pelo debug.
+/// dar pra testar a tela mesmo num save sem o cenário raro. Só usada pelo debug, e por
+/// isso fora do binário de release junto com ele.
+#[cfg(debug_assertions)]
 pub(crate) fn debug_build_player_poach_offer(
     conn: &Connection,
     new_season_number: i32,
@@ -313,10 +315,7 @@ fn melhor_pretendente(
         }
     }
 
-    Ok(best.map(|(time, _, deslocado_id)| Pretendente {
-        time,
-        deslocado_id,
-    }))
+    Ok(best.map(|(time, _, deslocado_id)| Pretendente { time, deslocado_id }))
 }
 
 /// Etapa 3 — o leilão de salário: assediante contra o time atual, com o status quo como
@@ -570,8 +569,14 @@ pub(crate) fn resolve_player_poach(
             contract_queries::update_contract_status(conn, &dc.id, &ContractStatus::Rescindido)
                 .map_err(|e| format!("Falha ao rescindir deslocado: {e}"))?;
         }
+        // Mesma perda de vaga do poaching IA-vs-IA, só que quem ficou com o assento foi o
+        // jogador. O efeito é do piloto DESLOCADO — a política do jogador não muda por
+        // isso, ele não é quem perde nada aqui.
         if let Ok(mut d) = driver_queries::get_driver(conn, did) {
             d.categoria_atual = None; // agente livre LIMPO (a escada o repesca)
+            if !d.is_jogador {
+                crate::evolution::motivation::adjust_lost_seat_motivation(&mut d);
+            }
             driver_queries::update_driver(conn, &d)
                 .map_err(|e| format!("Falha ao liberar deslocado: {e}"))?;
         }
@@ -623,17 +628,34 @@ pub(crate) fn resolve_player_poach(
 /// Salário da oferta ao jogador, com o prêmio de interesse ativo aplicado quando o
 /// time cobiça o nome dele — usado no MESMO ponto pela listagem e pela assinatura,
 /// pra o que é mostrado bater com o que é assinado.
+///
+/// B22 — O TETO FINANCEIRO. A fórmula-base (faixa por tier × papel × variação da
+/// equipe) e o prêmio de interesse descrevem quanto o jogador VALE; nenhum dos dois
+/// olha o caixa de quem paga. A proposta formal da MESMA equipe passa por
+/// `calculate_offer_salary_from_money`, que fecha em `calculate_salary_ceiling` — e o
+/// resultado era uma equipe em crise ofertando pela porta passiva um salário que ela
+/// recusava na proposta formal. O valor devido sai daqui limitado pelo MESMO teto,
+/// lido da MESMA fonte financeira da vaga (`vacancy_as_finance_team`): caixa, dívida,
+/// estado financeiro e reputação. Equipe saudável não sente o teto (ele fica acima do
+/// topo da fórmula); equipe pressionada tem o prêmio aparado; equipe em crise oferta
+/// perto do piso.
 pub(super) fn player_offer_salary_with_interest(
-    tier: u8,
+    vaga: &Vacancy,
     is_n1: bool,
     skill: f64,
-    team_id: &str,
     active_interest: bool,
 ) -> f64 {
-    let base = player_offer_salary(tier, is_n1, skill, team_id);
-    if active_interest {
+    let base = player_offer_salary(vaga.category_tier, is_n1, skill, &vaga.team_id);
+    let com_premio = if active_interest {
         base * crate::fame::ACTIVE_INTEREST_SALARY_PREMIUM
     } else {
         base
-    }
+    };
+    // `.max` no piso: o teto já nasce com ele, e sem isso um `clamp` invertido viraria
+    // pânico no meio do mercado se a fonte financeira mudar de piso um dia.
+    let teto = crate::finance::salary::calculate_salary_ceiling(
+        &crate::market::team_ai::vacancy_as_finance_team(vaga),
+    )
+    .max(5_000.0);
+    com_premio.clamp(5_000.0, teto)
 }

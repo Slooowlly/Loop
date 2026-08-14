@@ -21,6 +21,12 @@ export default {
         },
         accent: {
           primary: '#58a6ff',
+          // O dourado do realce de seleção. Ele já existia no código como
+          // `accent-secondary` em seis lugares, sem nunca ter sido declarado aqui
+          // nem no `:root` — o Tailwind não gerava classe nenhuma e o realce
+          // simplesmente não aparecia. O valor vem do `shadow-[inset_...rgba(242,196,109,...)]`
+          // que estava cravado no mesmo elemento que pedia a classe morta.
+          secondary: '#f2c46d',
           hover: '#79b8ff',
           pressed: '#388bfd',
         },

@@ -34,7 +34,7 @@ function TeamCard({ team, selected, onSelect }) {
           </h3>
         </div>
         {badge ? (
-          <span className="shrink-0 rounded-full bg-white/8 px-3 py-1 text-xs text-text-secondary">
+          <span className="shrink-0 rounded-full bg-white/[0.08] px-3 py-1 text-xs text-text-secondary">
             {badge}
           </span>
         ) : null}
@@ -50,7 +50,7 @@ function TeamCard({ team, selected, onSelect }) {
         </div>
         {/* Barra "desconhecida": hachura em vez de preenchimento — o desempenho do
             carro é um mistério que só se revela correndo. */}
-        <div className="h-2.5 overflow-hidden rounded-full bg-white/8">
+        <div className="h-2.5 overflow-hidden rounded-full bg-white/[0.08]">
           <div
             className="h-full w-full opacity-40"
             style={{

@@ -693,3 +693,13 @@ fn test_invalid_season_phase_in_calendar_row_returns_error() {
     let err = get_calendar_entry_by_id(&conn, &entry.id).expect_err("invalid season phase");
     assert!(err.to_string().contains("SeasonPhase inválido"));
 }
+
+/// Toda coluna da projeção de etapa existe na tabela real.
+#[test]
+fn a_projecao_de_calendario_existe_no_schema_real() {
+    crate::db::queries::tests_projecoes::a_projecao_existe_no_schema_real(
+        "calendar",
+        "COLUNAS_CALENDAR",
+        super::mapeamento::COLUNAS_CALENDAR,
+    );
+}

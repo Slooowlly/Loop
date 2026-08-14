@@ -70,7 +70,7 @@ pub(super) fn preroll_simulated_breakdowns(
     teams: &[Team],
     wet_bias: f64,
 ) -> Option<Vec<PrerolledBreakdown>> {
-    use crate::car::breakdown::{is_enduro_duration, roll_race_breakdowns_cfg};
+    use crate::car::breakdown::roll_race_breakdowns_cfg;
     use crate::db::queries::race_breakdowns::RaceBreakdownRow;
     use crate::db::queries::team_car as tcq;
     use crate::market::car_maintenance::maintenance_demand;
@@ -89,7 +89,7 @@ pub(super) fn preroll_simulated_breakdowns(
     // Duração da ETAPA, não a constante da categoria: no Endurance ela é a sentinela 0 e o
     // gate dava falso. A simulação offline e o disparo ao vivo do iRacing precisam da MESMA
     // resposta aqui, senão as duas metades do mundo divergem justo na prova longa.
-    let is_enduro = is_enduro_duration(race_entry.duracao_efetiva_min());
+    let is_enduro = race_entry.duracao_efetiva().e_enduro();
     // Tenda de durabilidade por nível só em categoria GERIDA (teto ≥ 3); spec fica de fora.
     let apply_tent = crate::car::cost::category_ceiling(&race_entry.categoria) > 2;
     let laps = total_laps.max(1) as u32;
@@ -135,7 +135,10 @@ pub(super) fn preroll_simulated_breakdowns(
             apply_tent,
         );
         for ev in events {
-            let label = ev.problem_label().to_string();
+            let label = ev.problem_label();
+            // A chave sai do MESMO evento que a frase, aqui, onde a peça ainda é um `PartType`.
+            // Mais à frente só existe a `String` da coluna, e reconstruí-la seria adivinhação.
+            let chave = crate::car::breakdown::problem_key(ev.part, ev.problem, ev.severity);
             out.push(PrerolledBreakdown {
                 outcome: MechanicalOutcome {
                     pilot_id: driver.id.clone(),
@@ -143,6 +146,7 @@ pub(super) fn preroll_simulated_breakdowns(
                     is_dnf: ev.is_dnf(),
                     penalty_secs: ev.penalty_secs.unwrap_or(0),
                     label: label.clone(),
+                    problem_key: chave,
                 },
                 row: RaceBreakdownRow {
                     driver_id: driver.id.clone(),
@@ -459,8 +463,7 @@ pub(super) fn simulate_category_race_with_mode(
     // única do jogador (mesma seed), com viés de chuva maior (AI_WET_BIAS) — chuva embaralha
     // os grids que o jogador não corre. A corrida do JOGADOR chega com o clima já resolvido
     // sem viés (race.rs), e o rascunho histórico fica com o clima sintético do calendário.
-    let ai_race =
-        persistence_mode == RacePersistenceMode::Playable && !advance_player_round;
+    let ai_race = persistence_mode == RacePersistenceMode::Playable && !advance_player_round;
     let wet_bias = if ai_race {
         crate::commands::iracing::AI_WET_BIAS
     } else {
@@ -521,7 +524,17 @@ pub(super) fn simulate_category_race_with_mode(
         race_entry.rodada >= category.corridas_por_temporada as i32,
     );
     let mut rng = rand::thread_rng();
-    let catalog = IncidentCatalog::load(&db.conn).unwrap_or_else(|_| IncidentCatalog::empty());
+    // Catálogo que não carrega deixa a corrida inteira sem flavor text de incidente. Seguir com
+    // o catálogo vazio é a decisão certa (a etapa não pode travar por causa de texto), mas
+    // seguir CALADO não era: o `unwrap_or_else(|_| ...)` engolia o motivo, e o suporte recebia
+    // "os abandonos ficaram genéricos" sem nada no log. O erro traz o id e a coluna da linha.
+    let catalog = IncidentCatalog::load(&db.conn).unwrap_or_else(|e| {
+        crate::diagnostico::linha(
+            "catalogo",
+            &format!("incident_catalog não carregou, corrida segue sem flavor text: {e}"),
+        );
+        IncidentCatalog::empty()
+    });
 
     // QUEBRA DE PEÇA (Fase 7): pré-rola o grid inteiro sobre o desgaste REAL dos carros e deixa
     // a simulação cobrar o preço. Só na carreira jogável — o rascunho histórico reconstrói
@@ -573,8 +586,10 @@ pub(super) fn simulate_category_race_with_mode(
     };
 
     // Abandono POR QUEBRA precisa apontar pro catálogo `Mechanical`: é por esse id que o
-    // histórico de DNF e o beat de Abandono da notícia reconhecem a pane. O `dnf_reason` a
-    // simulação já gravou com a frase da peça. MESMO tratamento do import do iRacing.
+    // histórico de DNF e o beat de Abandono da notícia reconhecem a pane. O par
+    // `dnf_reason`/`dnf_reason_key` a simulação já gravou dentro do motor
+    // (`aplicar_quebras_do_segmento`), a partir do MESMO evento que gerou a linha de
+    // `race_breakdowns`. MESMO tratamento do import do iRacing.
     if applied
         .iter()
         .any(|p| p.severity == crate::car::breakdown::Severity::Dnf)

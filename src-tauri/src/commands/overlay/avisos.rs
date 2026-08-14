@@ -39,7 +39,11 @@ pub(crate) fn player_warning_msg(part_key: &str, id: usize) -> BreakdownMessage 
 /// Severidade real (`light`/`heavy`/`dnf`), e não `"warn"`: é ela que escolhe entre "dá pra
 /// seguir" e "acabou por hoje", e é ela que o card usa para decidir a cor. Um abandono pintado
 /// como aviso seria a mesma diluição que a fala evita.
-pub(crate) fn player_breakdown_msg(part_key: &str, severidade: &str, id: usize) -> BreakdownMessage {
+pub(crate) fn player_breakdown_msg(
+    part_key: &str,
+    severidade: &str,
+    id: usize,
+) -> BreakdownMessage {
     use crate::engenheiro::peca_propria as pp;
     BreakdownMessage {
         id,
@@ -47,7 +51,10 @@ pub(crate) fn player_breakdown_msg(part_key: &str, severidade: &str, id: usize) 
         text: pp::desfecho_frase(part_key, severidade, id),
         // O detalhe escrito nomeia a peça de novo, com o artigo da 3ª pessoa, porque a linha de
         // baixo do card é legenda e não fala.
-        detail: format!("problema {}", crate::engenheiro::quebra::part_com_artigo(part_key)),
+        detail: format!(
+            "problema {}",
+            crate::engenheiro::quebra::part_com_artigo(part_key)
+        ),
         // Frase INTEIRA, uma peça só — mesmo argumento do aviso: aqui o sujeito é sempre você.
         pecas: vec![pp::chave_desfecho(part_key, severidade, id)],
     }
@@ -111,7 +118,10 @@ fn registrar_primeira_consulta() {
     use std::sync::atomic::{AtomicBool, Ordering};
     static PRIMEIRA: AtomicBool = AtomicBool::new(true);
     if PRIMEIRA.swap(false, Ordering::Relaxed) {
-        crate::diagnostico::linha("overlay", "o rádio começou a consultar os avisos do nosso carro");
+        crate::diagnostico::linha(
+            "overlay",
+            "o rádio começou a consultar os avisos do nosso carro",
+        );
     }
 }
 
@@ -180,12 +190,8 @@ pub fn get_player_warnings() -> Result<Vec<BreakdownMessage>, String> {
         .map(|(i, w)| match w.tipo {
             race_monitor::TipoAvisoProprio::Peca => player_warning_msg(w.part, i),
             race_monitor::TipoAvisoProprio::Poupar => poupar_msg(i),
-            race_monitor::TipoAvisoProprio::Quebra => {
-                player_breakdown_msg(w.part, w.severidade, i)
-            }
-            race_monitor::TipoAvisoProprio::QualiDestruida => {
-                quali_destruida_msg(w.severidade, i)
-            }
+            race_monitor::TipoAvisoProprio::Quebra => player_breakdown_msg(w.part, w.severidade, i),
+            race_monitor::TipoAvisoProprio::QualiDestruida => quali_destruida_msg(w.severidade, i),
         })
         .collect();
     registrar_entrega(&out);

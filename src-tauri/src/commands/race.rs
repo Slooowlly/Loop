@@ -30,7 +30,7 @@ use crate::event_interest::{
 };
 use crate::finance::cashflow::{apply_round_cashflow, TeamRoundFinanceContext};
 use crate::finance::economy::{
-    economy_cost_modifier, economy_income_modifier, global_economic_health_for_season,
+    economy_cost_modifier, economy_income_modifier, global_economic_health_do_save,
     GlobalEconomicHealth,
 };
 use crate::finance::events::{apply_crisis_event_if_needed, debt_service_for_state};
@@ -333,7 +333,11 @@ pub(crate) fn simulate_race_weekend_in_base_dir(
                 get_category_config(&race_entry.categoria)
                     .map(|c| c.corridas_por_temporada as f64)
                     .unwrap_or(12.0),
-                global_economic_health_for_season(active_season.numero as i32),
+                // Mesma saúde macroeconômica que `persist_race_result_tx` já cobrou do caixa
+                // nesta rodada: a posição do boom/recessão dentro do ciclo é semeada pelo
+                // SAVE, então a fatura precisa passar o `career_id` para não exibir um
+                // modificador diferente do que foi debitado.
+                global_economic_health_do_save(career_id, active_season.numero as i32),
                 repair_cost,
                 repair_severity,
                 active_season.numero as i32,
@@ -589,9 +593,41 @@ pub fn get_saved_race_screen(
                     serde_json::Value::String(entry.id.clone()),
                 );
             }
+            reescrever_motivos_de_quebra_no_locale(&mut v);
             Ok(Some(v))
         }
         Err(_) => Ok(None),
+    }
+}
+
+/// Reescreve, na tela salva, o `dnf_reason` dos abandonos POR QUEBRA no idioma de AGORA.
+///
+/// A tela da corrida é um retrato JSON gravado em `race_screens/<race_id>.json` no fim do fim de
+/// semana, com o `dnf_reason` já renderizado no idioma daquele dia. Reabri-la depois de trocar o
+/// idioma do jogo mostrava o painel de quebra em inglês (`get_race_breakdowns` recompõe da
+/// trinca) e o motivo do abandono, na mesma tela, em português.
+///
+/// Age SÓ onde o retrato traz `dnf_reason_key` — abandono por quebra gravado da v68 em diante.
+/// Retrato antigo não tem a chave e sai como está: a prosa histórica não é traduzida na marra.
+/// O arquivo não é reescrito; a troca acontece na resposta.
+fn reescrever_motivos_de_quebra_no_locale(v: &mut serde_json::Value) {
+    let Some(pilotos) = v
+        .get_mut("race_result")
+        .and_then(|r| r.get_mut("race_results"))
+        .and_then(|r| r.as_array_mut())
+    else {
+        return;
+    };
+    for piloto in pilotos {
+        let Some(chave) = piloto.get("dnf_reason_key").and_then(|k| k.as_str()) else {
+            continue;
+        };
+        let Some(texto) = crate::car::breakdown::problem_text_from_key(chave) else {
+            continue;
+        };
+        if let Some(obj) = piloto.as_object_mut() {
+            obj.insert("dnf_reason".into(), serde_json::Value::String(texto));
+        }
     }
 }
 
@@ -651,6 +687,10 @@ pub fn get_race_breakdowns(
             let part_name = crate::car::PartType::from_str(&r.part)
                 .map(|pt| pt.display_name(&categoria).to_string())
                 .unwrap_or_else(|| r.part.clone());
+            // A frase sai da TRINCA gravada, no idioma de agora, e não da prosa que a coluna
+            // `label` congelou no idioma da corrida. Este painel é uma consulta ao histórico:
+            // quem trocou o jogo para inglês tem de ler a quebra em inglês.
+            let label = r.label_no_locale();
             RaceBreakdownView {
                 driver_id: r.driver_id,
                 driver_name,
@@ -659,7 +699,7 @@ pub fn get_race_breakdowns(
                 lap: r.lap,
                 severity: r.severity,
                 penalty_secs: r.penalty_secs,
-                label: r.label,
+                label,
                 is_player,
             }
         })

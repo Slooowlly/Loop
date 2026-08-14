@@ -128,8 +128,7 @@ pub(crate) fn get_drivers_by_category_in_base_dir(
     category: &str,
 ) -> Result<Vec<DriverSummary>, String> {
     let category = category.trim().to_lowercase();
-    let (db, career_dir, _) =
-        open_career_resources_read_only(base_dir, career_id)?;
+    let (db, career_dir, _) = open_career_resources_read_only(base_dir, career_id)?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao buscar temporada ativa: {e}"))?
         .ok_or_else(errors::active_season_not_found)?;
@@ -805,8 +804,10 @@ pub(crate) fn get_displaced_driver_context_in_base_dir(
             driver_ids.len() + 1
         );
 
-        let mut params: Vec<&dyn rusqlite::ToSql> =
-            driver_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+        let mut params: Vec<&dyn rusqlite::ToSql> = driver_ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::ToSql)
+            .collect();
         params.push(&player.id);
 
         let mut stmt = conn
@@ -831,8 +832,11 @@ pub(crate) fn get_displaced_driver_context_in_base_dir(
                 entrada.shared_races = corridas;
                 entrada.player_ahead = jogador_na_frente;
                 entrada.driver_ahead = ele_na_frente;
-                entrada.last_shared_season =
-                    if ultima_temporada > 0 { Some(ultima_temporada) } else { None };
+                entrada.last_shared_season = if ultima_temporada > 0 {
+                    Some(ultima_temporada)
+                } else {
+                    None
+                };
             }
         }
     }

@@ -325,7 +325,7 @@ describe("GlobalDriversTab", () => {
       "Mazda RookiePiloto Livre1",
       "Production/MazdaLenda Aposentada1",
     ]);
-    expect(within(table).getByText("Piloto Selecionado").closest("tr")).toHaveClass("bg-accent-primary/12");
+    expect(within(table).getByText("Piloto Selecionado").closest("tr")).toHaveClass("bg-accent-primary/[0.12]");
     expect(within(table).getByText("Piloto Livre").closest("tr")).toHaveClass("opacity-60");
     expect(within(table).getByText("Lenda Aposentada").closest("tr")).toHaveClass("opacity-50");
     expect(within(table).getAllByText("Lenda Aposentada")).toHaveLength(1);

@@ -73,11 +73,13 @@ function VrWriterAtivo() {
 
     let stopped = false;
     let timer = null;
+    // Já mandamos a limpeza desta parada? (mesmo latch do EngineerVrWriter)
+    let ocioso = false;
 
     const tick = async () => {
       const { data: d, assets } = sourceRef.current;
-      if (d && assets) {
-        try {
+      try {
+        if (d && assets) {
           drawTower(ctx, d, assets, VR_THEME, {
             anim,
             now: performance.now(),
@@ -85,9 +87,20 @@ function VrWriterAtivo() {
           });
           const img = ctx.getImageData(0, 0, VR_W, VR_H);
           await invoke("vr_overlay_write_frame", new Uint8Array(img.data.buffer));
-        } catch {
-          // Falha ao escrever um frame não é fatal: tenta de novo no próximo tick.
+          ocioso = false;
+        } else if (!ocioso) {
+          // Perdeu os dados ao vivo (sessão do iRacing caiu, carreira descarregada): manda
+          // UM frame transparente e para. Sem isso a última torre desenhada fica parada na
+          // memória compartilhada e o jogador enxerga, dentro do headset, um grid de dez
+          // voltas atrás com cara de agora. Uma vez só, e não um jato de transparente a
+          // 10 Hz — é o mesmo latch que o EngineerVrWriter já usa no fim da mensagem.
+          ctx.clearRect(0, 0, VR_W, VR_H);
+          const img = ctx.getImageData(0, 0, VR_W, VR_H);
+          await invoke("vr_overlay_write_frame", new Uint8Array(img.data.buffer));
+          ocioso = true;
         }
+      } catch {
+        // Falha ao escrever um frame não é fatal: tenta de novo no próximo tick.
       }
       if (stopped) return;
       // Depois do desenho: o `drawTower` já sincronizou o animador, então agora a

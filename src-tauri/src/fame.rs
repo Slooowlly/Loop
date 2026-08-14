@@ -97,7 +97,8 @@ pub fn personal_fame_floor(titulos: u32, vitorias_carreira: u32, temporadas_elit
     let por_vitorias = FAME_FLOOR_WIN_WEIGHT * (vitorias_carreira as f64).sqrt();
     let por_elite =
         (FAME_FLOOR_ELITE_SEASON_WEIGHT * temporadas_elite as f64).min(FAME_FLOOR_ELITE_SEASON_CAP);
-    (FAME_DECAY_FLOOR + por_titulos + por_vitorias + por_elite).clamp(FAME_DECAY_FLOOR, FAME_FLOOR_MAX)
+    (FAME_DECAY_FLOOR + por_titulos + por_vitorias + por_elite)
+        .clamp(FAME_DECAY_FLOOR, FAME_FLOOR_MAX)
 }
 
 /// Última posição de chegada que ainda rende fama, dado o tamanho do campo. A faixa de
@@ -445,8 +446,7 @@ mod tests {
         let mut fama_pessoal = 80.0;
         let mut fama_global = 80.0;
         for _ in 0..20 {
-            fama_pessoal =
-                decay_fame_toward(fama_pessoal, piso, FAME_DECAY_BASE_RATE, 50.0);
+            fama_pessoal = decay_fame_toward(fama_pessoal, piso, FAME_DECAY_BASE_RATE, 50.0);
             fama_global =
                 decay_fame_toward(fama_global, FAME_DECAY_FLOOR, FAME_DECAY_BASE_RATE, 50.0);
         }
@@ -463,7 +463,10 @@ mod tests {
         let gt3 = fame_category_tier_mult(4);
         let endurance = fame_category_tier_mult(6);
         assert!(rookie < gt3 && gt3 < endurance);
-        assert!(rookie < 1.0 && endurance > 1.0, "rookie={rookie}, endurance={endurance}");
+        assert!(
+            rookie < 1.0 && endurance > 1.0,
+            "rookie={rookie}, endurance={endurance}"
+        );
         // Tier fora da escada satura no topo em vez de explodir.
         assert_eq!(fame_category_tier_mult(200), endurance);
     }
@@ -590,7 +593,10 @@ mod tests_saturacao {
 
     #[test]
     fn a_fama_nunca_sai_da_faixa_de_0_a_100() {
-        assert_eq!(apply_fame_gain(99.9, 500.0).min(100.0), apply_fame_gain(99.9, 500.0));
+        assert_eq!(
+            apply_fame_gain(99.9, 500.0).min(100.0),
+            apply_fame_gain(99.9, 500.0)
+        );
         assert!(apply_fame_gain(99.9, 500.0) <= 100.0);
         assert!(apply_fame_gain(0.5, -500.0) >= 0.0);
     }

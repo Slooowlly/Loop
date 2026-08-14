@@ -17,7 +17,7 @@ export default function LeaveToMenuModal({
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
-      <div className="glass-strong relative w-[340px] rounded-2xl border border-white/12 p-6 shadow-2xl">
+      <div className="glass-strong relative w-[340px] rounded-2xl border border-white/[0.12] p-6 shadow-2xl">
         <h3 className="mb-1 text-[15px] font-semibold text-text-primary">
           {t("leaveModal.title")}
         </h3>
@@ -37,7 +37,7 @@ export default function LeaveToMenuModal({
             type="button"
             disabled={isSaving}
             onClick={onExitWithoutSave}
-            className="flex h-9 w-full items-center justify-center rounded-xl border border-white/10 bg-white/6 text-[13px] text-text-secondary transition-colors hover:bg-white/10 hover:text-text-primary disabled:opacity-50"
+            className="flex h-9 w-full items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-[13px] text-text-secondary transition-colors hover:bg-white/10 hover:text-text-primary disabled:opacity-50"
           >
             {t("leaveModal.exitNoSave")}
           </button>

@@ -1,10 +1,19 @@
 # Design — Janela de Transferências Semanal (mercado realista)
 
-**Status:** ⚠️ **Retrato histórico, conferido em 11/08/2026.** Dizia "pendente de implementação",
-e a janela está no ar: `market/transfer_window.rs`, a tabela `transfer_window` e os comandos
-`get_transfer_window_state` e `advance_transfer_window` registrados. O que falta é a **condução
-na UI**, que é o item F-01 do [backlog.md](../../backlog.md): `advance_transfer_window` não tem
-consumidor no frontend. Leia como a intenção original, e não como estado do app.
+**Status:** ⚠️ **Retrato histórico, reconferido em 11/08/2026 (segunda passada).** Dizia "pendente de
+implementação", e a janela está no ar: o motor puro em `market/transfer_window.rs` (+
+`transfer_window/`), o wiring com banco em `market/pipeline/janela.rs`, a tabela `transfer_window` e
+o comando de leitura `get_transfer_window_state`.
+
+A passada anterior deste cabeçalho dizia que faltava a **condução na UI**, pelo item F-01, porque
+`advance_transfer_window` não tinha consumidor no frontend. **As duas coisas mudaram.** O F-01 foi
+feito — a tela do mercado em temporada é `src/pages/tabs/carreira/MercadoSection.jsx` — e quem a
+escreveu recusou ligar o `advance_transfer_window` com a justificativa correta: o comando era um
+no-op, com o corpo idêntico ao do getter e o `accepted_seat_id` ignorado. **Ele foi REMOVIDO em
+11/08/2026**, e não existe mais comando de condução. Quem avança o mercado é `advance_market_week` →
+`preseason::advance_week`. O registro está em [divida-tecnica.md](../../divida-tecnica.md).
+
+Leia daqui para baixo como a intenção original, e não como estado do app.
 **Data:** 2026-06-20.
 **Substitui:** o casamento guloso vaga-por-vaga de `market/pipeline.rs::run_market` (loop sequencial: primeira equipe que oferta + piloto aceita, fecha).
 

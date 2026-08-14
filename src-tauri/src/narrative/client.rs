@@ -109,24 +109,76 @@ pub fn spawn_warmup() {
     });
 }
 
-/// O texto de `Server` e `Network` é lido em produção pelo `eprintln!("{err:?}")` dos
-/// callsites em `commands/{ai_news,world_footer,season_preview}` — é o que separa, no
-/// loop.log, "os dois provedores caíram" de "a máquina está sem rede". O `dead_code`
-/// não conta leitura via `Debug` derivado, daí o allow pontual.
+/// O detalhe de cada variante é o que separa, no `loop.log`, "os dois provedores
+/// caíram" de "a máquina está sem rede" de "o servidor mudou o formato da resposta".
+/// Quem escreve a linha é [`registrar_falha`], e o texto sai de [`StoryError::resumo`].
 #[derive(Debug)]
-#[allow(dead_code)]
 pub enum StoryError {
     /// 429 — cooldown de 10 min ou teto diário. Cai no template, silencioso.
     RateLimited,
     /// 401 — segredo inválido (não deveria acontecer em produção).
     Unauthorized,
-    /// Erro do servidor (5xx) ou resposta inesperada. Um 5xx aqui já significa que os
-    /// DOIS provedores falharam — o servidor só devolve erro depois de esgotar a cadeia.
+    /// Erro do servidor (5xx, ou qualquer status fora da faixa de sucesso). Um 5xx aqui
+    /// já significa que os DOIS provedores falharam — o servidor só devolve erro depois
+    /// de esgotar a cadeia.
     Server(String),
-    /// Falha de rede / sem internet.
+    /// Falha de rede: sem internet, conexão recusada ou o timeout de [`TIMEOUT_SECS`].
+    /// O texto guarda QUAL das três, porque a conduta de suporte é diferente em cada uma.
     Network(String),
+    /// A resposta veio, com status de sucesso, e não desserializou no formato esperado.
+    /// É a falha que MAIS confunde quando some do log: parece rede, e é contrato — o
+    /// servidor mudou um campo, ou um proxy/captive portal devolveu HTML no lugar do JSON.
+    Parse(String),
     /// Resposta vazia.
     Empty,
+}
+
+impl StoryError {
+    /// Descrição curta para o `loop.log`, com o contexto que faz a linha valer alguma
+    /// coisa: o status HTTP, a classe da falha de rede, o detalhe do parse.
+    ///
+    /// Sem dado pessoal: os detalhes vêm do `reqwest`/`serde` e citam a NOSSA URL e o
+    /// formato da resposta, nada da máquina do jogador.
+    pub fn resumo(&self) -> String {
+        match self {
+            StoryError::RateLimited => "cooldown ou teto do servidor (HTTP 429)".to_string(),
+            StoryError::Unauthorized => "segredo do app recusado (HTTP 401)".to_string(),
+            StoryError::Server(detalhe) => format!("servidor recusou ({detalhe})"),
+            StoryError::Network(detalhe) => format!("rede ({detalhe})"),
+            StoryError::Parse(detalhe) => format!("resposta ilegível ({detalhe})"),
+            StoryError::Empty => "o servidor respondeu vazio".to_string(),
+        }
+    }
+}
+
+/// Escreve UMA linha no `loop.log` para uma geração que não veio.
+///
+/// O app é uma GUI sem console na máquina do jogador: a escrita em stderr que ficava em
+/// cada callsite não tinha para onde ir, e uma matéria que caía no template não deixava
+/// rastro nenhum. Aqui a linha vai para o arquivo que o jogador consegue anexar.
+///
+/// Uma linha por falha, e só na BORDA (o callsite que decide cair no template): o
+/// `client` não loga por dentro, senão a mesma falha apareceria duas vezes.
+///
+/// `RateLimited` não passa por aqui de propósito — cooldown é operação normal do
+/// servidor, e logá-lo encheria o arquivo justamente na sessão em que o jogador está
+/// esbarrando no teto.
+pub fn registrar_falha(operacao: &str, err: &StoryError) {
+    crate::diagnostico::linha("narrative", &format!("{operacao} falhou: {}", err.resumo()));
+}
+
+/// Classifica a falha do `reqwest` antes de ela virar texto. Sem isto, "sem internet",
+/// "servidor não respondeu em 45s" e "conexão recusada" chegam ao log como a mesma
+/// mensagem crua, e o cold start do Cloud Run (que é o suspeito nº 1 de timeout) fica
+/// indistinguível de máquina offline.
+fn descrever_rede(e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        format!("timeout de {TIMEOUT_SECS}s: {e}")
+    } else if e.is_connect() {
+        format!("conexão não estabelecida: {e}")
+    } else {
+        e.to_string()
+    }
 }
 
 #[derive(Deserialize)]
@@ -161,88 +213,6 @@ pub(crate) fn aparar_frase_incompleta(texto: &str) -> String {
     }
 }
 
-/// Expressões de quarta parede que os fatos usavam para marcar o piloto do jogador e
-/// que o modelo, de tempos em tempos, copiava para dentro da matéria ("Para Fulano,
-/// piloto acompanhado pelo leitor, ..."). A origem foi corrigida na redação dos fatos
-/// (rótulos em linguagem de universo — ver `narrative.context` nos locales), mas os
-/// fatos ficam PERSISTIDOS no save: um save antigo continua enviando a redação velha.
-/// Cada entrada é (frase, substituto neutro). Ordem: da mais longa pra mais curta,
-/// senão a curta come um pedaço da longa e deixa palavra pendurada — invariante preso
-/// por teste, e não pela mão de quem acrescentar a próxima.
-///
-/// **O que faria esta camada sair:** migrar os fatos JÁ PERSISTIDOS (`ai_race_story.facts`
-/// e o cache da pré-corrida) para a redação nova. Enquanto um save antigo puder mandar a
-/// redação velha ao servidor, tirar o filtro é reabrir o vazamento — a lista só encolhe
-/// depois da migração, nunca antes.
-const FRASES_META: [(&str, &str); 9] = [
-    ("piloto acompanhado pelo leitor", "piloto"),
-    ("piloto acompanhada pelo leitor", "piloto"),
-    ("acompanhado pelo leitor", ""),
-    ("acompanhada pelo leitor", ""),
-    ("piloto do leitor", "piloto"),
-    ("driver followed by the reader", "driver"),
-    ("followed by the reader", ""),
-    ("the reader's driver", "the driver"),
-    ("reader's driver", "driver"),
-];
-
-/// Busca ASCII case-insensitive. As frases são 100% ASCII, então comparar bytes é
-/// seguro: byte ASCII nunca aparece no meio de um caractere multibyte de UTF-8, logo
-/// todo match cai em fronteira de caractere.
-fn achar_ascii_ci(texto: &str, frase: &str, a_partir_de: usize) -> Option<usize> {
-    let t = texto.as_bytes();
-    let f = frase.as_bytes();
-    if f.is_empty() || t.len() < f.len() || a_partir_de > t.len() - f.len() {
-        return None;
-    }
-    (a_partir_de..=t.len() - f.len()).find(|&i| t[i..i + f.len()].eq_ignore_ascii_case(f))
-}
-
-/// Última linha de defesa contra vazamento de meta-linguagem: remove do texto que
-/// VOLTA do servidor a família de expressões que quebram a quarta parede. Mora aqui,
-/// na saída única de rede, pelo mesmo motivo do guard de testes: endpoint novo já
-/// nasce coberto. Quando a frase é um aposto (", piloto acompanhado pelo leitor,"),
-/// cai o aposto inteiro; solta no meio da frase, entra o substituto neutro.
-pub(crate) fn remover_vazamento_meta(texto: &str) -> String {
-    let mut t = texto.to_string();
-    for (frase, neutro) in FRASES_META {
-        let mut de = 0;
-        while let Some(i) = achar_ascii_ci(&t, frase, de) {
-            let j = i + frase.len();
-            let antes = t[..i].trim_end();
-            let abre_virgula = antes.ends_with(',');
-            let abre_parentese = antes.ends_with('(');
-            // Byte onde começa a remoção de um aposto/parentético: a vírgula ou o
-            // '(' que o abre (ambos ASCII, 1 byte).
-            let corte = antes.len().saturating_sub(1);
-            let depois = t[j..].trim_start();
-            let proximo = depois.chars().next();
-            let fim_sem_espaco = t.len() - depois.len();
-            if abre_virgula
-                && matches!(proximo, Some(',' | '.' | ';' | ':' | ')' | '!' | '?') | None)
-            {
-                // Aposto entre vírgulas: some com a vírgula de abertura e a frase,
-                // a pontuação seguinte fecha a oração anterior.
-                t.replace_range(corte..fim_sem_espaco, "");
-                de = corte;
-            } else if abre_parentese && proximo == Some(')') {
-                // Parentético: "(piloto acompanhado pelo leitor)" cai inteiro.
-                let fim = fim_sem_espaco + ')'.len_utf8();
-                t.replace_range(corte..fim, "");
-                de = corte;
-            } else {
-                t.replace_range(i..j, neutro);
-                de = i + neutro.len();
-            }
-        }
-    }
-    // Cicatrizes da remoção: espaço duplo e espaço antes de pontuação.
-    while t.contains("  ") {
-        t = t.replace("  ", " ");
-    }
-    t.replace(" ,", ",").replace(" .", ".").trim().to_string()
-}
-
 /// A suíte de testes NÃO fala com o servidor de IA. Nunca.
 ///
 /// Medido em 10/08/2026, no painel de custo do servidor: 1.275 "usuários" em julho e
@@ -271,8 +241,8 @@ fn rede_de_ia_bloqueada() -> bool {
 /// apareceram no Firestore) ou sem o mapeamento de 429 (o cooldown do servidor vira
 /// "erro" genérico e o app tenta de novo em vez de esperar).
 ///
-/// A limpeza do texto NÃO entra aqui: `remover_vazamento_meta` e
-/// `aparar_frase_incompleta` valem por CAMPO, e cada resposta tem os seus.
+/// A limpeza do texto NÃO entra aqui: `aparar_frase_incompleta` vale por CAMPO, e cada
+/// resposta tem os seus.
 fn postar_ao_servidor<T: serde::de::DeserializeOwned>(
     url: &str,
     corpo: &serde_json::Value,
@@ -287,14 +257,14 @@ fn postar_ao_servidor<T: serde::de::DeserializeOwned>(
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .build()
-        .map_err(|e| StoryError::Network(e.to_string()))?;
+        .map_err(|e| StoryError::Network(descrever_rede(&e)))?;
 
     let resp = client
         .post(url)
         .header("x-app-secret", APP_SECRET)
         .json(corpo)
         .send()
-        .map_err(|e| StoryError::Network(e.to_string()))?;
+        .map_err(|e| StoryError::Network(descrever_rede(&e)))?;
 
     let status = resp.status();
     if !status.is_success() {
@@ -305,8 +275,10 @@ fn postar_ao_servidor<T: serde::de::DeserializeOwned>(
         });
     }
 
+    // Erro AQUI é de contrato, não do servidor: o status já veio de sucesso e o corpo é
+    // que não casou. Virava `Server(...)` e se confundia no log com um 5xx.
     resp.json::<T>()
-        .map_err(|e| StoryError::Server(e.to_string()))
+        .map_err(|e| StoryError::Parse(e.to_string()))
 }
 
 /// Envia os fatos curados ao servidor e devolve o boletim redigido no idioma
@@ -327,7 +299,7 @@ pub fn fetch_story(
 
     let parsed: StoryResponse = postar_ao_servidor(SERVER_URL, &body)?;
 
-    let story = aparar_frase_incompleta(&remover_vazamento_meta(&parsed.story));
+    let story = aparar_frase_incompleta(&parsed.story);
     if story.is_empty() {
         return Err(StoryError::Empty);
     }
@@ -366,9 +338,9 @@ pub fn fetch_pre_race_briefing(
 
     let parsed: PreRaceResponse = postar_ao_servidor(PRE_RACE_URL, &body)?;
 
-    let headline = remover_vazamento_meta(&parsed.headline);
-    let body = aparar_frase_incompleta(&remover_vazamento_meta(&parsed.body));
-    let team_voice = remover_vazamento_meta(&parsed.team_voice);
+    let headline = parsed.headline.trim().to_string();
+    let body = aparar_frase_incompleta(&parsed.body);
+    let team_voice = parsed.team_voice.trim().to_string();
     if headline.is_empty() || body.is_empty() || team_voice.is_empty() {
         return Err(StoryError::Empty);
     }
@@ -408,8 +380,8 @@ pub fn fetch_post_race_debrief(
 
     let parsed: PostRaceResponse = postar_ao_servidor(POST_RACE_URL, &body)?;
 
-    let headline = remover_vazamento_meta(&parsed.headline);
-    let body = aparar_frase_incompleta(&remover_vazamento_meta(&parsed.body));
+    let headline = parsed.headline.trim().to_string();
+    let body = aparar_frase_incompleta(&parsed.body);
     if headline.is_empty() || body.is_empty() {
         return Err(StoryError::Empty);
     }
@@ -447,10 +419,10 @@ pub fn fetch_season_preview(
 
     let parsed: SeasonPreviewResponse = postar_ao_servidor(SEASON_PREVIEW_URL, &body)?;
 
-    let headline = remover_vazamento_meta(&parsed.headline);
-    let standfirst = remover_vazamento_meta(&parsed.standfirst);
+    let headline = parsed.headline.trim().to_string();
+    let standfirst = parsed.standfirst.trim().to_string();
     // O corpo é o que não pode faltar; manchete/linha-fina vazias o front tolera.
-    let body = aparar_frase_incompleta(&remover_vazamento_meta(&parsed.body));
+    let body = aparar_frase_incompleta(&parsed.body);
     if body.is_empty() {
         return Err(StoryError::Empty);
     }
@@ -487,7 +459,7 @@ pub fn fetch_world_notes(
     let notes: Vec<String> = parsed
         .notes
         .into_iter()
-        .map(|s| remover_vazamento_meta(&s))
+        .map(|s| s.trim().to_string())
         .collect();
     if notes.is_empty() || notes.iter().any(|s| s.is_empty()) {
         return Err(StoryError::Empty);
@@ -518,8 +490,12 @@ mod tests {
         }
 
         assert!(bloqueado(&fetch_story("fatos", "pt-BR", "id", None)));
-        assert!(bloqueado(&fetch_pre_race_briefing("fatos", "pt-BR", "id", false)));
-        assert!(bloqueado(&fetch_post_race_debrief("fatos", "pt-BR", "id", false)));
+        assert!(bloqueado(&fetch_pre_race_briefing(
+            "fatos", "pt-BR", "id", false
+        )));
+        assert!(bloqueado(&fetch_post_race_debrief(
+            "fatos", "pt-BR", "id", false
+        )));
         assert!(bloqueado(&fetch_season_preview("fatos", "pt-BR", "id")));
         assert!(bloqueado(&fetch_world_notes("fatos", "pt-BR", "id")));
     }
@@ -559,7 +535,10 @@ mod tests {
         let outros = [
             ("telemetry.rs", include_str!("../telemetry.rs")),
             ("diagnostico.rs", include_str!("../diagnostico.rs")),
-            ("commands/ptt_voz.rs", include_str!("../commands/ptt_voz.rs")),
+            (
+                "commands/ptt_voz.rs",
+                include_str!("../commands/ptt_voz.rs"),
+            ),
         ];
         for (nome, fonte) in outros {
             assert!(
@@ -574,68 +553,5 @@ mod tests {
             "o host aparece {aqui}x neste arquivo; só a macro `host_do_servidor!` \
              pode escrevê-lo"
         );
-    }
-
-    /// O caso real que motivou o filtro: o modelo colou o rótulo interno como aposto.
-    #[test]
-    fn vazamento_em_aposto_cai_com_o_aposto_inteiro() {
-        assert_eq!(
-            remover_vazamento_meta(
-                "Para Carlos Magno, piloto acompanhado pelo leitor, a etapa terminou em P8."
-            ),
-            "Para Carlos Magno, a etapa terminou em P8."
-        );
-    }
-
-    #[test]
-    fn vazamento_no_meio_da_frase_vira_termo_neutro() {
-        assert_eq!(
-            remover_vazamento_meta("O piloto acompanhado pelo leitor cruzou em oitavo."),
-            "O piloto cruzou em oitavo."
-        );
-        assert_eq!(
-            remover_vazamento_meta("A batida do piloto do leitor custou posições."),
-            "A batida do piloto custou posições."
-        );
-    }
-
-    #[test]
-    fn vazamento_entre_parenteses_cai_com_os_parenteses() {
-        assert_eq!(
-            remover_vazamento_meta("Carlos Magno (piloto acompanhado pelo leitor) venceu."),
-            "Carlos Magno venceu."
-        );
-    }
-
-    #[test]
-    fn vazamento_em_ingles_tambem_cai() {
-        let limpo =
-            remover_vazamento_meta("For Carlos Magno, the driver followed by the reader, it ended early.");
-        assert!(!limpo.to_lowercase().contains("reader"), "{limpo}");
-    }
-
-    /// A ORDEM da lista é o que faz o filtro funcionar, e mantê-la à mão é frágil: quem
-    /// acrescentar uma frase curta no topo faz a longa nunca casar, e o vazamento volta
-    /// com meia frase pendurada ("piloto acompanhado pelo leitor" vira "piloto pelo
-    /// leitor"). O invariante é este: nenhuma entrada pode estar CONTIDA numa entrada
-    /// posterior.
-    #[test]
-    fn a_lista_de_meta_linguagem_vai_da_mais_longa_para_a_mais_curta() {
-        for (i, (curta, _)) in FRASES_META.iter().enumerate() {
-            for (longa, _) in FRASES_META.iter().skip(i + 1) {
-                assert!(
-                    !longa.contains(curta),
-                    "'{curta}' aparece antes de '{longa}', que a contém: a curta casaria \
-                     primeiro e deixaria o resto da longa no texto. Suba a mais longa."
-                );
-            }
-        }
-    }
-
-    /// Texto limpo (com acento e pontuação normais) atravessa o filtro intacto.
-    #[test]
-    fn texto_sem_meta_passa_intacto() {
-        let texto = "Miguel Sanz venceu em Interlagos com autoridade, e o pelotão sentiu.";
-        assert_eq!(remover_vazamento_meta(texto), texto);
     }
 }

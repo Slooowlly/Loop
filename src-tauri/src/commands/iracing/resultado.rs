@@ -536,7 +536,7 @@ pub(crate) fn apply_track_rivalries(
     categoria: &str,
 ) {
     use crate::iracing_sdk::rivalry_perception::{
-        perceive_rivalries, ContactSeed, ContactTier, PerceptionParams,
+        perceive_rivalries_multi, ContactSeed, ContactTier, PerceptionParams, Probe,
     };
     use crate::models::rivalry::RivalryType;
     use crate::rivalry::{apply_rivalry_event, RivalryEvent};
@@ -603,12 +603,46 @@ pub(crate) fn apply_track_rivalries(
         .iter()
         .find(|d| d.pilot_id == player_id);
 
-    let perception = perceive_rivalries(
-        history,
-        history.player_car_idx,
+    // ── UMA varredura para todas as sondas: o jogador e cada IA que apareceu na pista ──
+    //
+    // A percepção aceita QUALQUER carro-sonda, e antes disso era chamada uma vez por
+    // sonda: cada chamada varria `history.laps` inteiro contra todos os carros, e a
+    // metade do resultado era jogada fora no dedupe por par (o par A×B saía das duas
+    // pontas). `perceive_rivalries_multi` faz uma passada só e avalia cada par uma vez —
+    // o lado espelhado sai por simetria. Num enduro de 60 carros e 200 voltas isso é a
+    // diferença entre ~720 mil avaliações e ~354 mil, com uma leitura do histórico.
+    //
+    // Carros que nunca apareceram num snapshot (inscrito que não largou, número mapeado
+    // sem carro na pista) não podem ter rivalidade com ninguém: sondá-los custaria
+    // trabalho para devolver lista vazia.
+    let idxs_com_volta: std::collections::HashSet<i32> = history
+        .laps
+        .iter()
+        .flat_map(|snap| snap.cars.iter().map(|c| c.idx))
+        .collect();
+    let mut sondas_ia: Vec<i32> = driver_by_idx
+        .keys()
+        .copied()
+        .filter(|&idx| idx != history.player_car_idx && idxs_com_volta.contains(&idx))
+        .collect();
+    sondas_ia.sort_unstable(); // ordem estável de aplicação (o `driver_by_idx` é HashMap)
+
+    // O jogador é a PRIMEIRA sonda — é ele que carrega a semente de contato.
+    let mut sondas: Vec<Probe> = Vec::with_capacity(sondas_ia.len() + 1);
+    sondas.push(Probe {
+        car_idx: history.player_car_idx,
         contact,
-        &PerceptionParams::default(),
-    );
+    });
+    sondas.extend(sondas_ia.iter().copied().map(Probe::new));
+
+    let varredura_em = std::time::Instant::now();
+    let varredura = perceive_rivalries_multi(history, &sondas, &PerceptionParams::default());
+    let varredura_ms = varredura_em.elapsed().as_millis();
+    // A sonda do jogador é a primeira por construção; num best-effort que roda DEPOIS do
+    // import persistido, sair calado é melhor que derrubar tudo se isso um dia mudar.
+    let Some(perception) = varredura.probes.first() else {
+        return;
+    };
 
     for opp in &perception.opponents {
         let Some(opp_id) = driver_by_idx.get(&opp.car_idx) else {
@@ -708,51 +742,31 @@ pub(crate) fn apply_track_rivalries(
         }
     }
 
-    // Rivalidade IA-vs-IA: o motor de percepção aceita QUALQUER carro-sonda, não só o jogador.
-    // Alimenta o ledger de rivalidade também entre as IAs, pra a "novela" emergir do grid
-    // inteiro (piloto larga → vira rival → dá título → ex-time em crise), e não só ao redor do
-    // jogador. Sem contato atribuído (só o jogador tem a semente do monitor) e SEM episódio (o
-    // arco recapitulado é player-facing). Dedupe por par normalizado — o ledger é simétrico
-    // (`normalize_pair`), então cada par de IA é aplicado UMA vez (o outro lado repetiria e
-    // dobraria os deltas). Pares que envolvem o jogador já vieram do probe-jogador acima.
+    // Rivalidade IA-vs-IA: alimenta o ledger de rivalidade também entre as IAs, pra a
+    // "novela" emergir do grid inteiro (piloto larga → vira rival → dá título → ex-time em
+    // crise), e não só ao redor do jogador. Sem contato atribuído (só o jogador tem a semente
+    // do monitor) e SEM episódio (o arco recapitulado é player-facing). Dedupe por par
+    // normalizado — o ledger é simétrico (`normalize_pair`), então cada par de IA é aplicado
+    // UMA vez (o outro lado repetiria e dobraria os deltas). Pares que envolvem o jogador já
+    // vieram do probe-jogador acima.
     //
-    // CUSTO, medido pelo que o laço faz: uma passada de percepção por carro-sonda, e cada
-    // passada varre todos os snapshots contra todos os carros — O(carros² × voltas). Num
-    // grid de 20 em sprint isso é ruído; num enduro de 60 carros e 200 voltas são ~720 mil
-    // comparações, e a metade é jogada fora, porque o par (A,B) é calculado das duas
-    // pontas e o dedupe descarta a segunda. Cortar essa metade exige uma percepção que
-    // aceite VÁRIAS sondas numa varredura só, e isso é dentro de
-    // `iracing_sdk/rivalry_perception.rs` — outra frente. Aqui fica o que dá para fazer
-    // deste lado: sondar só quem realmente apareceu na corrida, e MEDIR, para a conta
-    // aparecer no log antes de o enduro fazer doer.
+    // A percepção de todas as sondas já veio da varredura única lá em cima; o que sobra aqui
+    // é aplicar. O custo continua sendo MEDIDO e logado: é o único lugar em que a conta
+    // aparece antes de alguém sentir.
     let comecou_em = std::time::Instant::now();
     let mut seen_ai_pairs: std::collections::HashSet<(String, String)> =
         std::collections::HashSet::new();
-    // Carros que aparecem em algum snapshot. Quem nunca apareceu (inscrito que não largou,
-    // número mapeado sem carro na pista) não pode ter rivalidade com ninguém, e sondá-lo
-    // custaria uma varredura inteira do histórico para devolver lista vazia.
-    let idxs_com_volta: std::collections::HashSet<i32> = history
-        .laps
-        .iter()
-        .flat_map(|snap| snap.cars.iter().map(|c| c.idx))
-        .collect();
-    let ai_idxs: Vec<i32> = driver_by_idx
-        .keys()
-        .copied()
-        .filter(|&idx| idx != history.player_car_idx && idxs_com_volta.contains(&idx))
-        .collect();
-    let sondas = ai_idxs.len();
     let mut pares_aplicados = 0usize;
     let mut falhas = 0usize;
-    for probe_idx in ai_idxs {
+    // A primeira sonda é o jogador, já aplicada acima com episódio.
+    for probe_perception in varredura.probes.iter().skip(1) {
+        let probe_idx = probe_perception.probe_car_idx;
         let Some(probe_id) = driver_by_idx.get(&probe_idx) else {
             continue;
         };
         if *probe_id == player_id {
             continue;
         }
-        let probe_perception =
-            perceive_rivalries(history, probe_idx, None, &PerceptionParams::default());
         for opp in &probe_perception.opponents {
             let Some(opp_id) = driver_by_idx.get(&opp.car_idx) else {
                 continue;
@@ -800,14 +814,20 @@ pub(crate) fn apply_track_rivalries(
             }
         }
     }
-    // A conta do laço, sempre — é o único lugar em que o custo quadrático aparece antes de
-    // alguém sentir. `sondas` e `voltas` são os dois fatores que o multiplicam.
+    // A conta da varredura e a da aplicação, sempre. `snapshot_passes` é o número que o item
+    // A5.6 existia para derrubar: era uma passada por sonda, agora é uma só, e o log prova.
+    let custo = varredura.cost;
     crate::diagnostico::linha(
         "iracing",
         &format!(
-            "rivalidade IA×IA: {sondas} sondas × {} snapshots → {pares_aplicados} pares, \
-             {falhas} falhas, {} ms",
+            "rivalidade de pista: {} sondas em {} passada(s) de {} snapshots \
+             ({} pares avaliados, {} espelhados, {varredura_ms} ms) → \
+             {pares_aplicados} pares IA×IA aplicados, {falhas} falhas, {} ms",
+            custo.probes,
+            custo.snapshot_passes,
             history.laps.len(),
+            custo.pair_evaluations,
+            custo.mirrored_pairs,
             comecou_em.elapsed().as_millis()
         ),
     );

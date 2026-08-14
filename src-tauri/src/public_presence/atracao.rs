@@ -81,7 +81,8 @@ pub fn competitividade(posicao_campeonato: u32, equipes_na_categoria: u32, forma
 
 /// Multiplicador de competitividade aplicado à presença do lineup.
 fn multiplicador_competitividade(competitividade: f64) -> f64 {
-    COMPETITIVIDADE_MIN + competitividade.clamp(0.0, 1.0) * (COMPETITIVIDADE_MAX - COMPETITIVIDADE_MIN)
+    COMPETITIVIDADE_MIN
+        + competitividade.clamp(0.0, 1.0) * (COMPETITIVIDADE_MAX - COMPETITIVIDADE_MIN)
 }
 
 /// Termo de HISTÓRIA: títulos da equipe, côncavo e com teto.
@@ -117,7 +118,11 @@ pub fn appeal_from_presence(
 ) -> f64 {
     let comp = competitividade(posicao_campeonato, equipes_na_categoria, forma_recente);
     let esportivo = presenca_do_lineup.clamp(0.0, 100.0) * multiplicador_competitividade(comp);
-    let local = if equipe_local { BONUS_EQUIPE_LOCAL } else { 0.0 };
+    let local = if equipe_local {
+        BONUS_EQUIPE_LOCAL
+    } else {
+        0.0
+    };
     (esportivo + local + termo_de_historia(titulos_da_equipe)).clamp(0.0, 100.0)
 }
 
@@ -173,7 +178,10 @@ pub fn team_audience_appeal_from_presence(
 ) -> f64 {
     let forma = ((team.morale - MORAL_MIN) / (MORAL_MAX - MORAL_MIN)).clamp(0.0, 1.0);
     let local = !pais_da_pista.trim().is_empty()
-        && team.pais_sede.trim().eq_ignore_ascii_case(pais_da_pista.trim());
+        && team
+            .pais_sede
+            .trim()
+            .eq_ignore_ascii_case(pais_da_pista.trim());
     appeal_from_presence(
         presenca_do_lineup,
         posicao_campeonato,
@@ -289,9 +297,7 @@ mod tests {
 
         let mut local = base.clone();
         local.equipe_local = true;
-        assert!(
-            (compute_team_audience_appeal(&local) - neutra - BONUS_EQUIPE_LOCAL).abs() < 1e-9
-        );
+        assert!((compute_team_audience_appeal(&local) - neutra - BONUS_EQUIPE_LOCAL).abs() < 1e-9);
 
         let mut tradicional = base.clone();
         tradicional.titulos_da_equipe = 9;

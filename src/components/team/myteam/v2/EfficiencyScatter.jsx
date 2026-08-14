@@ -62,7 +62,7 @@ function EfficiencyScatter({ teams, playerTeamId }) {
           largura de fallback dentro de uma coluna muito mais larga. */}
       <div ref={measureRef} className="min-w-0">
         {!scatter.hasData ? (
-          <p className="rounded-2xl border border-white/8 bg-black/10 px-4 py-8 text-center text-xs leading-5 text-text-secondary">
+          <p className="rounded-2xl border border-white/[0.08] bg-black/10 px-4 py-8 text-center text-xs leading-5 text-text-secondary">
             {scatter.reason === "noPoints" ? t("myTeamTabV2.scatter.emptyNoPoints") : t("myTeamTabV2.scatter.empty")}
           </p>
         ) : (
@@ -261,7 +261,7 @@ function ScatterReading({ t, scatter, player }) {
   const Icone = VERDICT_ICON[verdict] ?? Minus;
 
   return (
-    <div className="flex flex-col justify-center gap-4 rounded-2xl border border-white/8 bg-black/10 p-4">
+    <div className="flex flex-col justify-center gap-4 rounded-2xl border border-white/[0.08] bg-black/10 p-4">
       <div className="flex items-start gap-3" data-testid="scatter-reading">
         <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl border ${VERDICT_TILE[verdict] ?? VERDICT_TILE.onPar}`}>
           <Icone size={22} strokeWidth={1.7} aria-hidden="true" />
@@ -278,7 +278,7 @@ function ScatterReading({ t, scatter, player }) {
         </div>
       </div>
 
-      <div className="space-y-3 border-t border-white/8 pt-3.5">
+      <div className="space-y-3 border-t border-white/[0.08] pt-3.5">
         {scatter.best ? (
           <TeamLine label={t("myTeamTabV2.scatter.bestLabel")} point={scatter.best} tone="text-status-green" />
         ) : null}
@@ -286,7 +286,7 @@ function ScatterReading({ t, scatter, player }) {
           <TeamLine label={t("myTeamTabV2.scatter.worstLabel")} point={scatter.worst} tone="text-status-red" />
         ) : null}
 
-        <div className="space-y-2 border-t border-white/8 pt-3">
+        <div className="space-y-2 border-t border-white/[0.08] pt-3">
           <RankLine
             icon={ListOrdered}
             label={t("myTeamTabV2.scatter.rankLabel")}

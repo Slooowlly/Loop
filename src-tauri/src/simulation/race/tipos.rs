@@ -68,6 +68,10 @@ pub struct MechanicalOutcome {
     pub penalty_secs: u32,
     /// Frase do problema ("motor fundiu por superaquecimento") — vira o `dnf_reason` no abandono.
     pub label: String,
+    /// A CHAVE de i18n da mesma frase (`car::breakdown::problem_key`) — vira o `dnf_reason_key`
+    /// no abandono. Anda junto do `label` porque é ela, e não a prosa, que sobrevive à troca de
+    /// idioma do jogo. Vazia só para peça que esta versão não reconhece mais.
+    pub problem_key: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +107,9 @@ pub struct RaceState {
     pub current_position: i32,
     pub incidents: Vec<IncidentResult>,
     pub dnf_reason: Option<String>,
+    /// Chave de i18n do motivo, quando o abandono veio do sistema de QUEBRA. Ver
+    /// [`RaceDriverResult::dnf_reason_key`].
+    pub dnf_reason_key: Option<String>,
     pub dnf_segment: Option<RaceSegment>,
     /// Danos latentes pós-colisão aguardando manifestação.
     pub pending_damage: Vec<PendingDamage>,
@@ -172,7 +179,24 @@ pub struct RaceDriverResult {
     pub total_race_time_ms: f64,
     pub gap_to_winner_ms: f64,
     pub is_dnf: bool,
+    /// O motivo do abandono como ele foi RENDERIZADO no idioma da corrida.
+    ///
+    /// Continua sendo a única coisa que existe para abandono que não é quebra (batida, erro de
+    /// pilotagem, pane do catálogo de incidentes) e para todo save anterior à v68. Ver
+    /// [`RaceDriverResult::dnf_reason_key`] e [`RaceDriverResult::dnf_reason_no_locale`].
     pub dnf_reason: Option<String>,
+    /// A CHAVE de i18n do motivo, quando o abandono veio do sistema de QUEBRA.
+    ///
+    /// **É ela que atravessa o save, não a prosa.** Até 12/08/2026 o `dnf_reason` de uma quebra
+    /// era gravado no idioma ativo na hora da corrida e ficava assim para sempre: quem jogava em
+    /// pt-BR e trocava para en-US via o histórico estruturado da quebra em inglês
+    /// (`RaceBreakdownRow::label_no_locale` já recompunha) e o motivo do resultado, ao lado,
+    /// congelado em português.
+    ///
+    /// `None` em três casos, todos legítimos: abandono que NÃO é quebra, linha gravada antes da
+    /// v68, e peça que esta versão não conhece mais. Nos três a leitura cai no `dnf_reason`.
+    #[serde(default)]
+    pub dnf_reason_key: Option<String>,
     pub dnf_segment: Option<String>,
     #[serde(default)]
     pub incidents_count: i32,
@@ -242,6 +266,32 @@ pub struct RaceDriverResult {
     /// Rótulo da estratégia escolhida pela equipe (ex.: `"1-parada-cedo"`).
     #[serde(default)]
     pub estrategia_id: String,
+}
+
+impl RaceDriverResult {
+    /// Carimba o abandono POR QUEBRA: a frase no idioma de agora E a chave que a recompõe depois.
+    ///
+    /// **Ponto único de escrita do par.** Os dois campos existem justamente porque um sozinho não
+    /// serve — só a prosa congela no idioma da corrida, só a chave deixa sem texto o save cuja
+    /// peça esta versão não conhece mais. Escrever `dnf_reason` de uma quebra por fora deste
+    /// método é o bug que a v68 veio fechar, e é o que a guarda
+    /// `scripts/tests/dnf-de-quebra-guarda-chave.test.mjs` procura.
+    pub fn marcar_dnf_de_quebra(&mut self, label: String, chave: Option<String>) {
+        self.dnf_reason = Some(label);
+        self.dnf_reason_key = chave;
+    }
+
+    /// O motivo do abandono no idioma de AGORA.
+    ///
+    /// Recompõe da chave quando ela existe e o locale a conhece; cai na prosa gravada em todo o
+    /// resto — abandono que não é quebra, save anterior à v68, peça que saiu do jogo. Nunca tenta
+    /// traduzir a prosa histórica: texto antigo sai como está.
+    pub fn dnf_reason_no_locale(&self) -> Option<String> {
+        self.dnf_reason_key
+            .as_deref()
+            .and_then(crate::car::breakdown::problem_text_from_key)
+            .or_else(|| self.dnf_reason.clone())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

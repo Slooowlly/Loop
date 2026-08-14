@@ -494,7 +494,7 @@ fn peca_sadia_nunca_quebra_num_sprint() {
 }
 
 #[test]
-fn nenhuma_quebra_abaixo_de_95_por_cento() {
+fn nenhuma_quebra_abaixo_do_limiar_de_risco() {
     for w in [0.0, 0.5, 0.80, 0.90, 0.94] {
         let car = car_with(PartType::Engine, w);
         for seed in 0..200 {
@@ -511,7 +511,7 @@ fn nenhuma_quebra_abaixo_de_95_por_cento() {
             ) {
                 assert!(
                     ev.wear_at_fail >= RISK_OPEN,
-                    "quebra a {:.3} < 95% (peça entrou {w})",
+                    "quebra a {:.3} < RISK_OPEN ({RISK_OPEN}) (peça entrou {w})",
                     ev.wear_at_fail
                 );
             }
@@ -806,14 +806,24 @@ fn comando_black_para_penalidade_dq_para_dnf() {
     assert!(dnf.is_dnf());
 }
 
+/// `#[serial]` porque o locale é global do processo: o rótulo do motor é asseverado em PT, e um
+/// caso que troque para en-US rodando junto derrubaria este.
 #[test]
+#[serial_test::serial]
 fn catalogo_de_problemas_cobre_todas_as_pecas_e_severidades() {
-    // Toda combinação (peça × modo × severidade) devolve uma frase não-vazia e o modo
-    // além do range faz wrap (nunca entra no braço impossível de panic).
+    // Toda combinação (peça × modo × severidade) devolve uma frase não-vazia, o modo além do
+    // range faz wrap (nunca entra no braço impossível de panic) e a CHAVE nunca vaza para a
+    // tela — chave crua é o sintoma de linha faltando no locale.
     for &pt in &PartType::ALL {
         for mode in 0..(FAILURE_MODES + 2) {
             for sev in [Severity::Light, Severity::Heavy, Severity::Dnf] {
-                assert!(!problem_text(pt, mode, sev).is_empty());
+                let texto = problem_text(pt, mode, sev);
+                assert!(!texto.is_empty());
+                assert!(
+                    !texto.starts_with("car_breakdown."),
+                    "chave crua vazou para {} modo {mode}: {texto}",
+                    pt.as_str()
+                );
             }
         }
     }
@@ -829,6 +839,89 @@ fn catalogo_de_problemas_cobre_todas_as_pecas_e_severidades() {
         problem: 0,
     };
     assert_eq!(ev.problem_label(), "motor fundiu por superaquecimento");
+}
+
+/// **As 99 frases existem nos DOIS locales, e são frases diferentes.**
+///
+/// É a guarda que sustenta a decisão de tirar a prosa do `.rs`: sem linha no locale não há mais
+/// para onde cair, e o jogador leria a chave crua. Ela também prende a segunda metade do
+/// problema — uma linha copiada do pt-BR para o en-US passa na paridade de CHAVES do
+/// `lib.rs::locales_tem_as_mesmas_chaves_e_nada_vazio` e ainda assim entrega português a quem
+/// joga em inglês.
+///
+/// `#[serial]` porque troca o locale, que é global do processo.
+#[test]
+#[serial_test::serial]
+fn toda_frase_de_problema_existe_nos_dois_locales() {
+    let anterior = rust_i18n::locale().to_string();
+    let mut faltando = Vec::new();
+    let mut iguais = Vec::new();
+
+    for &pt in &PartType::ALL {
+        for mode in 0..FAILURE_MODES {
+            for sev in [Severity::Light, Severity::Heavy, Severity::Dnf] {
+                let chave = crate::car::breakdown::problem_key(pt, mode, sev);
+                rust_i18n::set_locale("pt-BR");
+                let pt_txt = problem_text(pt, mode, sev);
+                rust_i18n::set_locale("en-US");
+                let en_txt = problem_text(pt, mode, sev);
+                for (locale, txt) in [("pt-BR", &pt_txt), ("en-US", &en_txt)] {
+                    if *txt == chave {
+                        faltando.push(format!("{locale}: {chave}"));
+                    }
+                }
+                if pt_txt == en_txt {
+                    iguais.push(chave);
+                }
+            }
+        }
+    }
+    rust_i18n::set_locale(&anterior);
+
+    assert!(
+        faltando.is_empty(),
+        "frase de quebra sem linha no locale (o jogador leria a chave crua):\n{}",
+        faltando.join("\n")
+    );
+    assert!(
+        iguais.is_empty(),
+        "frase idêntica nos dois locales — o en-US não foi traduzido:\n{}",
+        iguais.join("\n")
+    );
+    // 11 peças × 3 modos × 3 severidades. O número está em prosa no arquivo do locale; aqui
+    // ele é medido.
+    assert_eq!(PartType::ALL.len() * FAILURE_MODES as usize * 3, 99);
+}
+
+/// **A trinca persistida reconstrói a frase — é o que autoriza guardar chave e não prosa.**
+///
+/// `race_breakdowns` grava `part`/`problem`/`severity` em colunas próprias; a frase sai delas.
+/// Um save com `problem` fora da faixa (coluna INTEGER, sem trava no banco) tem de continuar
+/// resolvendo, e não virar uma chave que não existe em locale nenhum.
+#[test]
+#[serial_test::serial]
+fn a_trinca_persistida_reconstroi_a_frase_no_locale_ativo() {
+    use crate::car::breakdown::{problem_key, Severity as S};
+    let anterior = rust_i18n::locale().to_string();
+
+    // Modo fora da faixa dobra para dentro dela: 3 → 0, 7 → 1.
+    assert_eq!(
+        problem_key(PartType::Engine, 3, S::Dnf),
+        problem_key(PartType::Engine, 0, S::Dnf)
+    );
+    assert_eq!(
+        problem_key(PartType::Engine, 7, S::Dnf),
+        problem_key(PartType::Engine, 1, S::Dnf)
+    );
+
+    rust_i18n::set_locale("pt-BR");
+    let pt = problem_text(PartType::Gearbox, 0, S::Dnf);
+    rust_i18n::set_locale("en-US");
+    let en = problem_text(PartType::Gearbox, 0, S::Dnf);
+    rust_i18n::set_locale(&anterior);
+
+    assert_eq!(pt, "câmbio quebrou");
+    assert_eq!(en, "gearbox broke");
 }
 
 #[test]
@@ -1283,7 +1376,7 @@ fn protecao_reduz_quebras_do_jogador_em_time_fraco() {
     );
     // Banda sã: protege de verdade, mas sem tornar o jogador quase-imune (a frota
     // sintética é arbitrária; o valor fino se calibra no wiring com desgaste real). Com a
-    // janela de risco alargada (RISK_OPEN 0.87), o mesmo alívio de 5% cobre proporção menor
+    // janela de risco alargada (RISK_OPEN 0.90), o mesmo alívio de 5% cobre proporção menor
     // da zona → a redução relativa cai de ~20% pra ~19%; a banda acompanha.
     assert!(
         protegido < sem * 85 / 100,
@@ -1479,21 +1572,26 @@ fn enduro_rampa_agrava_o_fim_da_corrida() {
 
 // -------- Economia do enduro (custo + alívio de parada) --------
 
+/// Uma duração de prova para os testes, direto do literal. Zero não passa por aqui — é o
+/// mesmo `constante` que o código de produção usa para o padrão de sprint.
+fn dur(minutos: u16) -> DuracaoDeProva {
+    DuracaoDeProva::constante(minutos)
+}
+
 #[test]
 fn gate_de_enduro_por_duracao() {
-    assert!(!is_enduro_duration(30));
-    assert!(!is_enduro_duration(40)); // no gate ainda é sprint
-    assert!(is_enduro_duration(41));
-    assert!(is_enduro_duration(60));
+    assert!(!dur(30).e_enduro());
+    assert!(!dur(40).e_enduro()); // no gate ainda é sprint
+    assert!(dur(41).e_enduro());
+    assert!(dur(60).e_enduro());
 }
 
 /// A sentinela `duracao_corrida_min = 0` não constrói uma [`DuracaoDeProva`]. É o que
 /// impede o próximo call site de repetir o erro que tratou uma prova de 6 horas como
-/// sprint: a forma `u16` responde `false` para o zero, a forma tipada se recusa a existir.
+/// sprint: não existe mais forma livre que aceite `u16` cru, então ou o chamador tem uma
+/// duração conhecida, ou não alcança o gate.
 #[test]
 fn a_sentinela_de_duracao_nao_constroi_o_tipo() {
-    use crate::car::breakdown::DuracaoDeProva;
-
     assert!(
         DuracaoDeProva::nova(0).is_none(),
         "0 é a SENTINELA, não sprint"
@@ -1502,32 +1600,29 @@ fn a_sentinela_de_duracao_nao_constroi_o_tipo() {
         DuracaoDeProva::nova(360).map(DuracaoDeProva::minutos),
         Some(360)
     );
-
-    // A forma tipada e a forma livre concordam em tudo que NÃO é a sentinela — a migração
-    // dos call sites de `commands/` não pode mudar número nenhum.
     for min in [1u16, 15, 30, 40, 41, 60, 80, 120, 180, 240, 360] {
-        let d = DuracaoDeProva::nova(min).expect("não é sentinela");
-        assert_eq!(d.e_enduro(), is_enduro_duration(min), "{min} min");
         assert_eq!(
-            d.paradas_modeladas_da_ia(),
-            crate::car::breakdown::modeled_ai_pits(min),
-            "{min} min"
+            DuracaoDeProva::nova(min).map(DuracaoDeProva::minutos),
+            Some(min),
+            "{min} min não é sentinela"
         );
-        for pits in [0u32, 1, 4, 12] {
-            assert_eq!(
-                d.mult_de_desgaste_na_economia(pits),
-                enduro_economy_wear_mult(min, pits),
-                "{min} min com {pits} paradas"
-            );
-        }
     }
+}
+
+/// A porta de literal também recusa o zero — ela existe para o padrão de sprint e para os
+/// testes, e um zero ali seria a sentinela voltando pela janela. Em contexto `const` isso é
+/// erro de compilação; fora dele, o pânico que este teste cobra.
+#[test]
+#[should_panic(expected = "sentinela")]
+fn a_porta_de_literal_recusa_a_sentinela() {
+    let _ = DuracaoDeProva::constante(0);
 }
 
 #[test]
 fn sprint_nao_tem_sobrecusto_de_peca() {
-    for d in [0u16, 15, 25, 30, 40] {
+    for d in [15u16, 25, 30, 40] {
         assert!(
-            (enduro_economy_wear_mult(d, 0) - 1.0).abs() < 1e-9,
+            (dur(d).mult_de_desgaste_na_economia(0) - 1.0).abs() < 1e-9,
             "sprint {d}min deveria ser 1.0"
         );
     }
@@ -1538,8 +1633,8 @@ fn sprint_nao_tem_sobrecusto_de_peca() {
 /// sobre o joelho, então nenhum deles se moveu quando o teto entrou.
 #[test]
 fn enduro_custa_mais_e_escala_com_a_duracao_ate_o_joelho() {
-    let m60 = enduro_economy_wear_mult(60, 0);
-    let m80 = enduro_economy_wear_mult(80, 0);
+    let m60 = dur(60).mult_de_desgaste_na_economia(0);
+    let m80 = dur(80).mult_de_desgaste_na_economia(0);
     assert!(
         (m60 - 2.0).abs() < 1e-9,
         "60min sem parada deveria ser 2.0×, deu {m60}"
@@ -1555,17 +1650,17 @@ fn enduro_custa_mais_e_escala_com_a_duracao_ate_o_joelho() {
     // Passado o joelho, o sobrecusto para. Isso é o teto trabalhando, não um bug de
     // arredondamento: ver `o_teto_do_sobrecusto_sai_da_peca_mais_fragil`.
     assert!(
-        (enduro_economy_wear_mult(360, 0) - m80).abs() < 1e-9,
+        (dur(360).mult_de_desgaste_na_economia(0) - m80).abs() < 1e-9,
         "acima do joelho o sobrecusto não cresce mais"
     );
 }
 
 #[test]
 fn parada_alivia_o_sobrecusto_com_teto_de_30() {
-    let base = enduro_economy_wear_mult(60, 0); // 2.0
-    let uma = enduro_economy_wear_mult(60, 1); // −10% do sobrecusto
-    let tres = enduro_economy_wear_mult(60, 3); // −30% (teto)
-    let cinco = enduro_economy_wear_mult(60, 5); // ainda −30% (teto)
+    let base = dur(60).mult_de_desgaste_na_economia(0); // 2.0
+    let uma = dur(60).mult_de_desgaste_na_economia(1); // −10% do sobrecusto
+    let tres = dur(60).mult_de_desgaste_na_economia(3); // −30% (teto)
+    let cinco = dur(60).mult_de_desgaste_na_economia(5); // ainda −30% (teto)
     assert!(
         uma < base && tres < uma,
         "cada parada deveria aliviar ({base} → {uma} → {tres})"
@@ -1585,9 +1680,13 @@ fn parada_alivia_o_sobrecusto_com_teto_de_30() {
 
 #[test]
 fn paradas_da_ia_sao_modeladas_pela_duracao() {
-    assert_eq!(modeled_ai_pits(30), 0, "sprint: sem parada modelada");
-    assert_eq!(modeled_ai_pits(60), 2, "60min ≈ 2 stints");
-    assert_eq!(modeled_ai_pits(90), 3);
+    assert_eq!(
+        dur(30).paradas_modeladas_da_ia(),
+        0,
+        "sprint: sem parada modelada"
+    );
+    assert_eq!(dur(60).paradas_modeladas_da_ia(), 2, "60min ≈ 2 stints");
+    assert_eq!(dur(90).paradas_modeladas_da_ia(), 3);
 }
 
 // -------- Tenda de durabilidade por NÍVEL (§4.8) --------
@@ -1706,10 +1805,13 @@ fn categoria_spec_ignora_a_tenda_de_nivel() {
 /// e pede o harness de economia.
 #[test]
 fn sobrecusto_de_enduro_nas_duracoes_reais_do_calendario() {
-    use crate::car::breakdown::{enduro_economy_wear_mult, modeled_ai_pits};
     use crate::car::wear::wear_per_race;
 
-    let mult_de = |min: u16| enduro_economy_wear_mult(min, modeled_ai_pits(min));
+    let mult_de = |min: u16| {
+        let d = dur(min);
+        d.mult_de_desgaste_na_economia(d.paradas_modeladas_da_ia())
+    };
+    let sem_parada = |min: u16| dur(min).mult_de_desgaste_na_economia(0);
     let vidas_de_motor = |min: u16| wear_per_race(PartType::Engine) * mult_de(min);
 
     // Sprint não paga nada: o gate é o que separa os dois mundos.
@@ -1738,17 +1840,17 @@ fn sobrecusto_de_enduro_nas_duracoes_reais_do_calendario() {
             vidas_de_motor(duracao)
         );
         assert!(
-            wear_per_race(PartType::Engine) * enduro_economy_wear_mult(duracao, 0) <= 1.0,
+            wear_per_race(PartType::Engine) * sem_parada(duracao) <= 1.0,
             "{duracao} min SEM parada consome {:.2} vidas de motor",
-            wear_per_race(PartType::Engine) * enduro_economy_wear_mult(duracao, 0)
+            wear_per_race(PartType::Engine) * sem_parada(duracao)
         );
     }
 
     // O alívio de parada continua sem alcançar as provas longas: ele satura em 3 paradas
     // enquanto uma prova de 6 horas modela 12. Não é o alívio que segura o desgaste.
     assert_eq!(
-        crate::car::breakdown::enduro_pit_relief(modeled_ai_pits(360)),
-        crate::car::breakdown::enduro_pit_relief(modeled_ai_pits(120)),
+        crate::car::breakdown::enduro_pit_relief(dur(360).paradas_modeladas_da_ia()),
+        crate::car::breakdown::enduro_pit_relief(dur(120).paradas_modeladas_da_ia()),
         "12 paradas aliviam o mesmo que 4 — o teto de alívio foi calibrado para 60-80 min"
     );
 }
@@ -1760,7 +1862,6 @@ fn sobrecusto_de_enduro_nas_duracoes_reais_do_calendario() {
 /// invariante — e é aqui que isso aparece, em vez de reabrir o desgaste sem fim no Endurance.
 #[test]
 fn o_teto_do_sobrecusto_sai_da_peca_mais_fragil() {
-    use crate::car::breakdown::enduro_economy_wear_mult;
     use crate::car::wear::wear_per_race;
 
     let pior = PartType::ALL
@@ -1772,7 +1873,7 @@ fn o_teto_do_sobrecusto_sai_da_peca_mais_fragil() {
         "a peça mais frágil mudou de durabilidade: {pior}"
     );
     // O multiplicador MÁXIMO possível (prova infinita, zero paradas) × a peça mais frágil.
-    let mult_maximo = enduro_economy_wear_mult(u16::MAX, 0);
+    let mult_maximo = dur(u16::MAX).mult_de_desgaste_na_economia(0);
     assert!(
         mult_maximo * pior <= 1.0,
         "o teto deixa a peça mais frágil gastar {:.2} vidas numa prova",

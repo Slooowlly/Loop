@@ -8,6 +8,7 @@ export const initialState = {
   isCalendarAdvancing: false,
   isAdvancingWeek: false,
   isEnteringPreseason: false,
+  isFinalizingPreseason: false,
   isRespondingProposal: false,
   isResolvingPoach: false,
   isConvocating: false,
@@ -15,6 +16,14 @@ export const initialState = {
   lastSaved: null,
   error: null,
   careerId: null,
+  // Geração do save aberto. Sobe a cada `loadCareer` e a cada `clearCareer`, e serve de
+  // TOKEN DE ABORTO: toda operação assíncrona longa (animação do calendário, prefetch da
+  // etapa, interesses do jogador) guarda a geração em que nasceu e confere antes de
+  // escrever. Se subiu, o jogador já está em outra carreira e a escrita é descartada.
+  //
+  // O contador existe porque `careerId` sozinho não basta: os IDs (R###, P###) se repetem
+  // entre saves e recarregar a MESMA carreira também precisa invalidar o que está em voo.
+  careerGeneration: 0,
   difficulty: null,
   // Idioma escolhido no menu (Settings). Decide se os FALLBACKS determinísticos
   // (PT) aparecem, ou se, em outro idioma, mostramos "erro na geração de texto"

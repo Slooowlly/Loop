@@ -201,14 +201,14 @@ impl RaceMonitor {
 
         if ev.reached_checkered {
             attempt.status = StatusTentativa::Finished;
-            attempt.reason = Some("Cruzou a bandeira quadriculada".to_string());
+            attempt.reason = Some(rust_i18n::t!("race_monitor.outcome.finished").to_string());
             // Carro completou ⇒ dano não foi terminal: rebaixa as batidas.
             for crash in attempt.crashes.iter_mut() {
                 crash.severity = crash.severity.rebaixada();
             }
         } else if !ev.raced {
             attempt.status = StatusTentativa::NotStarted;
-            attempt.reason = Some("Não chegou a largar".to_string());
+            attempt.reason = Some(rust_i18n::t!("race_monitor.outcome.not_started").to_string());
         } else {
             attempt.status = StatusTentativa::Dnf;
             attempt.reason = Some(build_dnf_reason(attempt, &ev, ended_by));

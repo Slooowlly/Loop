@@ -228,7 +228,9 @@ impl ObservadorBandeira {
             let Some(chave) = LIBERACAO[i] else { continue };
             // Precisa estar apagada há [`LIBERA_S`] — ver a constante para a tensão entre
             // dizer cedo e não dizer por um pisca.
-            let Some(desde) = e.apagada_desde_s else { continue };
+            let Some(desde) = e.apagada_desde_s else {
+                continue;
+            };
             if e.acesa_desde_s.is_some() || a.tempo_s - desde < LIBERA_S {
                 continue;
             }
@@ -243,7 +245,9 @@ impl ObservadorBandeira {
             if e.avisado {
                 continue;
             }
-            let Some(desde) = e.acesa_desde_s else { continue };
+            let Some(desde) = e.acesa_desde_s else {
+                continue;
+            };
             if a.tempo_s - desde < CONFIRMA_S {
                 continue;
             }
@@ -423,7 +427,12 @@ mod tests {
         let mut c = Cena::nova();
         c.bandeiras = 0x4000 | REPARO;
         c.rodar(2.0);
-        assert_eq!(c.chaves.first(), Some(&CHAVE_REPARO), "chaves: {:?}", c.chaves);
+        assert_eq!(
+            c.chaves.first(),
+            Some(&CHAVE_REPARO),
+            "chaves: {:?}",
+            c.chaves
+        );
         // E a amarela sai em seguida: as duas são verdade, e a ordem é que importa.
         assert_eq!(c.conta(CHAVE_AMARELA), 1);
     }
@@ -469,7 +478,12 @@ mod tests {
         c.bandeiras = 0x4000;
         c.rodar(10.0);
         assert_eq!(c.conta(CHAVE_AMARELA), 1, "amarela repetiu: {:?}", c.chaves);
-        assert_eq!(c.conta(CHAVE_VERDE), 0, "verde saiu num pisca: {:?}", c.chaves);
+        assert_eq!(
+            c.conta(CHAVE_VERDE),
+            0,
+            "verde saiu num pisca: {:?}",
+            c.chaves
+        );
     }
 
     #[test]
@@ -550,12 +564,19 @@ mod tests {
         c.confirma = false;
         c.bandeiras = 0x4000;
         c.rodar(2.0);
-        assert!(c.conta(CHAVE_AMARELA) > 1, "sem confirmação deveria insistir");
+        assert!(
+            c.conta(CHAVE_AMARELA) > 1,
+            "sem confirmação deveria insistir"
+        );
         c.confirma = true;
         c.rodar(0.1);
         let depois = c.conta(CHAVE_AMARELA);
         c.rodar(2.0);
-        assert_eq!(c.conta(CHAVE_AMARELA), depois, "confirmou e continuou falando");
+        assert_eq!(
+            c.conta(CHAVE_AMARELA),
+            depois,
+            "confirmou e continuou falando"
+        );
     }
 
     #[test]

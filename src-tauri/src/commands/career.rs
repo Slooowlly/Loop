@@ -3,7 +3,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use chrono::Local;
+// Semente fixa: só o dry-run do leilão de depuração usa RNG determinístico aqui — os
+// irmãos de produção pegam `rand::thread_rng()` no ponto de uso. Sai do release junto
+// com o módulo `debug`.
+#[cfg(debug_assertions)]
 use rand::rngs::StdRng;
+#[cfg(debug_assertions)]
 use rand::SeedableRng;
 use rusqlite::{OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
@@ -17,8 +22,7 @@ use crate::commands::career_types::{
     ContractWarningInfo, CreateCareerResult, DriverCareerRankEntry, DriverDetail, DriverSummary,
     NextRaceBriefingSummary, OpenSeat, PrimaryRivalSummary, RaceReading, RaceReadingCar,
     RaceReadingSafetyCar, RaceSummary, SaveInfo, SeasonMarketBoard, SeasonSummary,
-    TeamCarPartLevel, TeamCarParts, TeamStanding, TeamSummary, TrackHistorySummary,
-    VerifyDatabaseResponse, WeekendReading,
+    TeamCarPartLevel, TeamCarParts, TeamStanding, TeamSummary, TrackHistorySummary, WeekendReading,
 };
 use crate::commands::race_history::{
     build_driver_histories, empty_previous_champions, ConstructorChampion, DriverRaceHistory,
@@ -50,6 +54,10 @@ use crate::finance::salary::{calculate_offer_salary_from_money, calculate_salary
 use crate::generators::ids::{next_id, IdType};
 use crate::generators::nationality::{format_nationality, get_nationality};
 use crate::generators::world::{align_world_career_start_years, generate_world};
+use crate::licensing::{
+    driver_has_required_license_for_division, ensure_driver_can_join_division,
+    grant_driver_license_for_division_if_needed,
+};
 use crate::market::pipeline::fill_all_remaining_vacancies;
 use crate::market::preseason::{
     advance_week, delete_preseason_plan, load_preseason_plan, save_preseason_plan, PendingAction,
@@ -58,10 +66,6 @@ use crate::market::preseason::{
 use crate::market::proposals::{MarketProposal, ProposalStatus};
 use crate::models::driver::Driver;
 use crate::models::enums::{ContractStatus, DriverStatus, SeasonPhase, TeamRole};
-use crate::models::license::{
-    driver_has_required_license_for_division, ensure_driver_can_join_division,
-    grant_driver_license_for_division_if_needed,
-};
 use crate::models::season::Season;
 use crate::models::team::{Team, TeamHierarchyClimate};
 use crate::news::{NewsImportance, NewsItem, NewsType};
@@ -72,6 +76,12 @@ pub use crate::commands::career_types::CreateCareerInput;
 mod briefing;
 #[path = "career/champion.rs"]
 mod champion;
+// As ferramentas de depuração escrevem SQL cru no save (posição forçada no campeonato,
+// fama carimbada, contrato rescindido). Fora do build de depuração elas não existem:
+// o módulo inteiro sai do binário, e com ele os comandos que o `invoke_handler`
+// exporta. Ver o portão em `commands/career_commands.rs` e o guard estrutural
+// `scripts/tests/comandos-de-debug-fora-do-release.test.mjs`.
+#[cfg(debug_assertions)]
 #[path = "career/debug.rs"]
 mod debug;
 // `pub(crate)` para os irmãos alcançarem `errors::*` pelo `use super::*;`.
@@ -98,6 +108,7 @@ pub(crate) use briefing::{
     build_next_race_briefing_summary, build_primary_rival_summary, empty_next_race_briefing_summary,
 };
 pub(crate) use champion::get_season_champion_payload_in_base_dir;
+#[cfg(debug_assertions)]
 pub(crate) use debug::{
     debug_force_player_poach_offer_in_base_dir, debug_poaching_auctions_in_base_dir,
     debug_prepare_market_scenario_in_base_dir, debug_skip_to_season_finale_in_base_dir,
@@ -105,6 +116,7 @@ pub(crate) use debug::{
 };
 pub(crate) use interests::{get_player_interests_in_base_dir, select_player_interests};
 pub use interests::{PlayerInterests, RivalInterest};
+pub(super) use lifecycle::open_career_resources_read_only;
 pub(crate) use lifecycle::{career_number_from_id, count_rows, open_career_resources};
 pub(crate) use lifecycle::{
     create_career_in_base_dir, delete_career_in_base_dir, list_saves_in_base_dir,
@@ -112,19 +124,21 @@ pub(crate) use lifecycle::{
 };
 #[cfg(test)]
 pub(crate) use lifecycle::{
-    needs_regular_contract_repair, next_career_id, validate_create_career_input,
+    needs_regular_contract_repair, next_career_id, next_race_interest_context,
+    validate_create_career_input,
 };
-pub(super) use lifecycle::open_career_resources_read_only;
-#[allow(unused_imports)]
-pub(crate) use lifecycle::{test_create_driver, test_list_drivers, verify_database};
 #[cfg(test)]
 pub(crate) use market_window::is_team_role_vacant;
 pub(crate) use market_window::{
     advance_market_week_in_base_dir, finalize_preseason_in_base_dir,
     get_player_poach_offer_in_base_dir, get_player_proposals_in_base_dir,
     get_preseason_free_agents_in_base_dir, get_preseason_state_in_base_dir,
-    resolve_player_poach_offer_in_base_dir, respond_to_proposal_in_base_dir, PoachDebugReport,
+    resolve_player_poach_offer_in_base_dir, respond_to_proposal_in_base_dir,
 };
+// Só o comando de depuração devolve este relatório — fora do build de depuração ele
+// não tem leitor nenhum.
+#[cfg(debug_assertions)]
+pub(crate) use market_window::PoachDebugReport;
 pub use market_window::{PlayerProposalView, ProposalResponse};
 #[cfg(test)]
 pub(crate) use queries::consecutive_team_seasons_up_to;
@@ -135,8 +149,7 @@ pub(crate) use queries::{
 pub(crate) use queries::{
     calculate_consecutive_team_tenure, count_calendar_entries,
     get_calendar_for_category_in_base_dir, get_displaced_driver_context_in_base_dir,
-    get_driver_detail_in_base_dir,
-    get_driver_dossier_ranks_in_base_dir,
+    get_driver_detail_in_base_dir, get_driver_dossier_ranks_in_base_dir,
     get_drivers_by_category_in_base_dir, get_news_in_base_dir, get_player_dossier_in_base_dir,
     get_previous_champions_in_base_dir, get_race_reading_in_base_dir,
     get_race_results_by_category_in_base_dir, toggle_driver_favorite_in_base_dir,

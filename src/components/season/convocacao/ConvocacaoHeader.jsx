@@ -46,8 +46,8 @@ export default function ConvocacaoHeader({
                     onClick={() => onSelectCategory(category.id)}
                     className={`transition-glass cursor-pointer rounded-full border px-2.5 py-1 text-body-sm font-semibold ${
                       active
-                        ? "border-white/30 bg-white/14 text-[color:var(--accent-primary)]"
-                        : "border-transparent bg-white/3 text-[color:var(--text-secondary)] hover:bg-white/8 hover:text-[color:var(--text-primary)]"
+                        ? "border-white/30 bg-white/[0.14] text-[color:var(--accent-primary)]"
+                        : "border-transparent bg-white/[0.03] text-[color:var(--text-secondary)] hover:bg-white/[0.08] hover:text-[color:var(--text-primary)]"
                     }`}
                   >
                     <span

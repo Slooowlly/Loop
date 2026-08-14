@@ -25,6 +25,11 @@ use super::tipos::{IncidentSeverity, IncidentType, PendingDamage, SegmentInciden
 /// coisas, lendo o desgaste real. Onde ele roda, esta aqui sai de cena: manter as duas dobraria
 /// a taxa de abandono mecânico e deixaria carro de peça nova fundindo motor sem o aviso
 /// pré-corrida que o design promete.
+///
+/// `vehicle_class` é a classe da CORRIDA e vale como fallback. Quando o piloto traz a própria
+/// (`SimDriver::vehicle_class`, vinda da equipe), é ela que decide — é o que faz o grid
+/// multiclasse do Endurance resolver carro por carro em vez de escolher uma classe para todo
+/// mundo.
 #[allow(clippy::too_many_arguments)]
 pub fn process_segment_incidents_cfg(
     drivers: &[SimDriver],
@@ -55,6 +60,8 @@ pub fn process_segment_incidents_cfg(
         let Some(driver) = drivers.iter().find(|d| d.id == state.driver_id) else {
             continue;
         };
+        // A classe do carro DESTE piloto; sem ela, a da corrida.
+        let classe = driver.vehicle_class.unwrap_or(vehicle_class);
 
         // Pane do catálogo: só quando o Sistema de Quebra NÃO está no comando desta corrida.
         //
@@ -71,15 +78,18 @@ pub fn process_segment_incidents_cfg(
         .filter(|_| catalog_mechanical)
         {
             let generic_desc = if is_dnf {
-                format!("{} abandona com problema mecanico", driver.nome)
+                rust_i18n::t!("race.incident.mechanical_dnf", name = driver.nome.as_str())
+                    .to_string()
             } else {
-                format!(
-                    "{} perde {} posicoes por problema mecanico",
-                    driver.nome, pos_lost
+                rust_i18n::t!(
+                    "race.incident.mechanical_positions",
+                    name = driver.nome.as_str(),
+                    count = pos_lost
                 )
+                .to_string()
             };
             let (catalog_id, desc) = match catalog.select_and_render(
-                vehicle_class,
+                classe,
                 is_endurance,
                 IncidentSource::Mechanical,
                 TriggerType::Spontaneous,
@@ -127,7 +137,7 @@ pub fn process_segment_incidents_cfg(
                     if rng.gen::<f64>() < stall_chance {
                         let stall_id = catalog
                             .select_and_render(
-                                vehicle_class,
+                                classe,
                                 is_endurance,
                                 IncidentSource::Operational,
                                 TriggerType::PostSpinStall,
@@ -148,15 +158,21 @@ pub fn process_segment_incidents_cfg(
                 (Some(sid), stall_text)
             } else {
                 let generic_desc = if final_is_dnf {
-                    format!("{} abandona apos erro de pilotagem", driver.nome)
-                } else {
-                    format!(
-                        "{} comete erro e perde {} posicoes",
-                        driver.nome, final_pos_lost
+                    rust_i18n::t!(
+                        "race.incident.driver_error_dnf",
+                        name = driver.nome.as_str()
                     )
+                    .to_string()
+                } else {
+                    rust_i18n::t!(
+                        "race.incident.driver_error_positions",
+                        name = driver.nome.as_str(),
+                        count = final_pos_lost
+                    )
+                    .to_string()
                 };
                 match catalog.select_and_render(
-                    vehicle_class,
+                    classe,
                     is_endurance,
                     IncidentSource::DriverError,
                     TriggerType::Spontaneous,
@@ -207,9 +223,15 @@ pub fn process_segment_incidents_cfg(
             // Resolução 4: colisões diretas não consultam o catálogo — texto genérico preservado.
             // O catálogo PostCollision é usado apenas para dano latente (Fase 2).
             let trig_desc = if trig_dnf {
-                format!("{} abandona apos colisao", driver.nome)
+                rust_i18n::t!("race.incident.collision_dnf", name = driver.nome.as_str())
+                    .to_string()
             } else {
-                format!("{} perde {} posicoes em colisao", driver.nome, trig_lost)
+                rust_i18n::t!(
+                    "race.incident.collision_positions",
+                    name = driver.nome.as_str(),
+                    count = trig_lost
+                )
+                .to_string()
             };
             incidents.push(make_incident(
                 driver.id.clone(),
@@ -233,7 +255,7 @@ pub fn process_segment_incidents_cfg(
                     severity,
                     seg,
                     catalog,
-                    vehicle_class,
+                    classe,
                     is_endurance,
                     driver.car_reliability,
                     &mut new_pending_damage,
@@ -243,18 +265,24 @@ pub fn process_segment_incidents_cfg(
 
             if let Some(ref neighbor_id) = neighbor_id {
                 let neighbor = drivers.iter().find(|d| d.id == *neighbor_id);
-                let neighbor_name = neighbor.map(|d| d.nome.as_str()).unwrap_or("Piloto");
+                let anonimo = rust_i18n::t!("race.incident.unknown_driver").to_string();
+                let neighbor_name = neighbor.map(|d| d.nome.as_str()).unwrap_or(&anonimo);
                 let (nb_dnf, nb_lost) = resolve_collision_consequence(rng);
                 let nb_desc = if nb_dnf {
-                    format!(
-                        "{} abandona apos colisao com {}",
-                        neighbor_name, driver.nome
+                    rust_i18n::t!(
+                        "race.incident.collision_dnf_with",
+                        name = neighbor_name,
+                        other = driver.nome.as_str()
                     )
+                    .to_string()
                 } else {
-                    format!(
-                        "{} perde {} posicoes em colisao com {}",
-                        neighbor_name, nb_lost, driver.nome
+                    rust_i18n::t!(
+                        "race.incident.collision_positions_with",
+                        name = neighbor_name,
+                        count = nb_lost,
+                        other = driver.nome.as_str()
                     )
+                    .to_string()
                 };
                 incidents.push(make_incident(
                     neighbor_id.clone(),
@@ -279,7 +307,7 @@ pub fn process_segment_incidents_cfg(
                             severity,
                             seg,
                             catalog,
-                            vehicle_class,
+                            nb_driver.vehicle_class.unwrap_or(vehicle_class),
                             is_endurance,
                             nb_driver.car_reliability,
                             &mut new_pending_damage,

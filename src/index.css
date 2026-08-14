@@ -13,6 +13,10 @@
      para ~7:1 e continua lendo como apagado ao lado do secundário. */
   --text-muted: #96a5b3;
   --accent-primary: #58a6ff;
+  /* Espelha `accent.secondary` do tailwind.config.js. A var era lida em
+     OfferCardRich sem nunca ter sido declarada, e `var(--accent-secondary)` sem
+     fallback resolve para nada: o texto herdava a cor do pai. */
+  --accent-secondary: #f2c46d;
   --accent-hover: #79b8ff;
   --status-green: #3fb950;
   --status-red: #f85149;

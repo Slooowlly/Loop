@@ -134,7 +134,12 @@ mod tests {
     fn candidato_a_rookie_precisa_de_vaga_de_estreia() {
         // Fora da categoria de estreia ninguém é candidato a rookie, nem quem nunca correu.
         assert!(!is_rookie_market_candidate("gt3", "gt3", 0, 0));
-        assert!(!is_rookie_market_candidate("mazda_amador", "mazda_rookie", 0, 0));
+        assert!(!is_rookie_market_candidate(
+            "mazda_amador",
+            "mazda_rookie",
+            0,
+            0
+        ));
     }
 
     #[test]
@@ -147,12 +152,32 @@ mod tests {
     #[test]
     fn quem_ja_correu_so_fica_no_proprio_rookie_e_por_pouco_tempo() {
         // Mesma categoria e até 2 temporadas: o rookie que repete o ano.
-        assert!(is_rookie_market_candidate("mazda_rookie", "mazda_rookie", 20, 1));
-        assert!(is_rookie_market_candidate("mazda_rookie", "mazda_rookie", 40, 2));
+        assert!(is_rookie_market_candidate(
+            "mazda_rookie",
+            "mazda_rookie",
+            20,
+            1
+        ));
+        assert!(is_rookie_market_candidate(
+            "mazda_rookie",
+            "mazda_rookie",
+            40,
+            2
+        ));
         // Passou de 2 temporadas: não volta a ocupar assento de estreia.
-        assert!(!is_rookie_market_candidate("mazda_rookie", "mazda_rookie", 60, 3));
+        assert!(!is_rookie_market_candidate(
+            "mazda_rookie",
+            "mazda_rookie",
+            60,
+            3
+        ));
         // Veio de outra categoria com carreira andada: o assento de estreia não é dele.
-        assert!(!is_rookie_market_candidate("mazda_rookie", "toyota_rookie", 20, 1));
+        assert!(!is_rookie_market_candidate(
+            "mazda_rookie",
+            "toyota_rookie",
+            20,
+            1
+        ));
     }
 
     #[test]

@@ -347,6 +347,50 @@ export function buracoInterno(x, taxa) {
   return maior >= minimoJanelas ? (maior * jan) / taxa : 0;
 }
 
+// ─────────────────────────── PEÇA UTILIZÁVEL ───────────────────────────
+// Mora aqui pelo mesmo motivo que `aparar`: tem mais de um cliente — os dois geradores de
+// pacote, `engenheiro-pack.mjs` e `spotter-pack.mjs` — e os dois pisos abaixo custaram
+// medição no acervo inteiro. Duas cópias divergindo deixaria um dos pacotes aceitando o que
+// o outro rejeita.
+
+/// Abaixo deste pico a peça é MUDA na prática, e o pacote a estava empacotando calada.
+///
+/// Descoberto gerando `"e,"`: o modelo devolveu 0,20 s com pico 0,008 — 1% do nível das
+/// outras — de forma reprodutível, enquanto a MESMA frase saiu em 0,38 s com pico 0,939 numa
+/// audição minutos antes. Texto de uma letra é o caso em que a Chirp 3 às vezes não gera nada,
+/// e ela não erra: devolve 200 OK com silêncio.
+///
+/// O acervo inteiro tem pico mediano 0,966, então 0,2 é um piso com margem enorme. O que ele
+/// pega não é "peça baixa", é "peça que não existe".
+export const PICO_MINIMO = 0.2;
+
+/// Abaixo desta duração a peça foi CORTADA, não gerada.
+///
+/// O pico sozinho não pega: a segunda tentativa do `"e,"` voltou com pico 0,92 e 0,08 s — alta
+/// e vazia, um pedaço de vogal. Medida a duração dos 3.226 arquivos do acervo, a peça legítima
+/// mais curta é `nm_hu` com 0,320 s, e a mediana é 1,57 s. Um piso de 0,2 s tem margem para os
+/// dois lados: nada real chega perto dele por baixo, e a tomada picada não chega perto por cima.
+export const DURACAO_MINIMA_S = 0.2;
+
+/**
+ * A peça existe como áudio, ou o modelo devolveu silêncio com status 200?
+ *
+ * Devolve sempre os números medidos, para o chamador poder mostrá-los no resumo mesmo quando
+ * a peça passa.
+ */
+export function avaliarPeca(amostras, taxa) {
+  const duracao = amostras.length / taxa;
+  const p = pico(amostras);
+  const alta = p >= PICO_MINIMO;
+  const longa = duracao >= DURACAO_MINIMA_S;
+  return {
+    pico: p,
+    duracao,
+    utilizavel: alta && longa,
+    motivo: alta && longa ? null : `pico ${p.toFixed(3)}, ${duracao.toFixed(2)}s`,
+  };
+}
+
 /** Lê um WAV, aplica a cadeia e grava o irmão com sufixo. Devolve o caminho gravado. */
 export function processarArquivo(entrada, sufixo = "-radio") {
   const { amostras, taxa } = lerWav(entrada);

@@ -277,4 +277,14 @@ mod tests {
             .expect_err("missing season");
         assert!(err.to_string().contains("season not found"));
     }
+
+    /// Toda coluna da projeção de temporada existe na tabela real.
+    #[test]
+    fn a_projecao_de_temporada_existe_no_schema_real() {
+        crate::db::queries::tests_projecoes::a_projecao_existe_no_schema_real(
+            "seasons",
+            "COLUNAS_SEASON",
+            COLUNAS_SEASON,
+        );
+    }
 }

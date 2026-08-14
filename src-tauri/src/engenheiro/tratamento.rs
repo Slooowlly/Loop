@@ -152,12 +152,7 @@ pub fn pode_gravar(corridas: u32, vitorias: u32) -> bool {
 pub fn texto_da_peca(nome_completo: &str) -> Option<String> {
     let mut chars = primeiro_nome(nome_completo).chars();
     let primeira = chars.next()?;
-    Some(
-        primeira
-            .to_uppercase()
-            .chain(chars)
-            .collect::<String>(),
-    )
+    Some(primeira.to_uppercase().chain(chars).collect::<String>())
 }
 
 /// As redações de "novato", na ordem do rodízio.

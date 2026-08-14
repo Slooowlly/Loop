@@ -51,6 +51,13 @@ risco é reavaliado.
 
 ### 3.1 A janela de perigo
 
+> **Superado pelo redesign de 22/07/2026 §4.3.** O código em
+> `src-tauri/src/car/breakdown.rs` roda hoje com `RISK_OPEN = 0.90` e
+> `HARD_WALL = 1.20`, em **dois regimes**: em serviço `[0.90, 1.00)` com risco baixo
+> e linear, sobreuso `[1.00, 1.20)` com risco quadrático. Os números desta seção e
+> da §3.2 são o estado de 18/07/2026. A fonte de verdade são as constantes do
+> módulo.
+
 - **Abre a 95%** de desgaste. Abaixo disso a peça é **confiável** (risco = 0). Sem
   falhas "freak" com peça sadia — foi decisão explícita do design.
 - **Parede a 105%.** Ao atingir/passar 105% a peça **acabou** (falha forçada,
@@ -68,7 +75,10 @@ se wear >= 1.05:           falha FORÇADA nesta volta   # a parede
 ```
 
 - `fragilidade(peça) = clamp(3 / durability, 0.5, 1.0)` — peça de vida curta falha
-  mais (motor/câmbio/asas/freios/suspensão = 1.0; eletrônica = 0.5).
+  mais. Pelas durabilidades de hoje: motor, câmbio, freios, suspensão e asa
+  **dianteira** (3) = 1.0; asa **traseira** e laterais (4) = 0.75; chassi, assoalho e
+  arrefecimento (5) = 0.6; eletrônica (6) = 0.5. As duas asas deixaram de ser iguais
+  no redesign de 22/07/2026 §4.7: a dianteira ficou em 3, a traseira em 4.
 - `GLOBAL` = botão único de calibração da taxa do grid (análogo ao
   `IRACER_SALARY_SHARE`).
 
@@ -274,10 +284,11 @@ Valores que bateram os alvos no MC (Rota B). Todos calibráveis.
 | Parâmetro | Valor | Papel |
 |---|---|---|
 | `REF_RACE_LAPS` | 18 | ancora desgaste/volta à cadência da economia |
-| `RISK_OPEN` | 0.95 | abre a janela de perigo |
-| `HARD_WALL` | 1.05 | parede (falha forçada) |
-| `HAZARD_OPEN` | 0.05 | risco/volta em 95% |
-| `HAZARD_WALL` | 0.28 | risco/volta perto de 105% (intenso → sorte manda) |
+| `RISK_OPEN` | 0.95 (hoje **0.90**) | abre a janela de perigo |
+| `HARD_WALL` | 1.05 (hoje **1.20**) | parede (falha forçada) |
+| `HAZARD_OPEN` | 0.05 (hoje `HAZARD_SERVICE_LO` **0.006**) | risco/volta na abertura da janela |
+| `HAZARD_WALL` | 0.28 (hoje **0.45**) | risco/volta junto à parede |
+| — | hoje `HAZARD_SERVICE_HI` **0.030** | risco/volta no fim da vida nominal (100%) |
 | `WEAR_NOISE` | ±0.30 | ruído de sorte no desgaste/volta |
 | `GLOBAL` | 1.0 | botão único da taxa do grid |
 | Fragilidade | `clamp(3/durability, 0.5, 1.0)` | peça de vida curta falha mais |

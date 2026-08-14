@@ -227,3 +227,116 @@ fn test_run_pos_especial_does_not_touch_production_endurance_legacy_marks_or_lin
         "contratos Especial legados de Production/Endurance nao devem acionar cleanup legado"
     );
 }
+
+// --------------------------------------------------------------------------
+// Temporadas de dois dígitos: `contracts.temporada_inicio` é coluna TEXT. A
+// igualdade contra parâmetro inteiro só acerta enquanto os dois lados
+// escreverem o número igual, e é por isso que a consulta de campeões usa
+// `CAST(... AS INTEGER)`.
+// --------------------------------------------------------------------------
+
+fn conn_com_schema_para_campeoes() -> Connection {
+    let conn = Connection::open_in_memory().expect("in-memory db");
+    crate::db::migrations::run_all(&conn).expect("schema");
+    conn
+}
+
+/// Piloto com pontuação, e o contrato Especial ativo dele gravado com a
+/// temporada **como texto cru**, para o teste escrever `'09'` e `'026'`.
+fn campeao_stub(
+    conn: &Connection,
+    piloto_id: &str,
+    nome: &str,
+    pontos: f64,
+    inicio_texto: &str,
+    classe: &str,
+) {
+    conn.execute(
+        "INSERT INTO drivers (id, nome, idade, nacionalidade, temp_pontos)
+         VALUES (?1, ?2, 28, 'BR', ?3)",
+        rusqlite::params![piloto_id, nome, pontos],
+    )
+    .expect("insert piloto");
+    // A chave estrangeira de `contracts` vale nesta conexão: a equipe precisa existir.
+    conn.execute(
+        "INSERT OR IGNORE INTO teams (id, nome, categoria)
+         VALUES ('T001', 'Equipe', 'production_challenger')",
+        [],
+    )
+    .expect("insert equipe");
+    conn.execute(
+        "INSERT INTO contracts (
+            id, piloto_id, piloto_nome, equipe_id, equipe_nome, categoria, classe,
+            tipo, status, papel, salario, salario_anual, duracao_anos,
+            temporada_inicio, temporada_fim, created_at
+        ) VALUES (
+            ?1, ?2, ?3, 'T001', 'Equipe', 'production_challenger', ?4,
+            'Especial', 'Ativo', 'Numero1', 0.0, 0.0, 1,
+            ?5, ?5, '2026-01-01T00:00:00Z'
+        )",
+        rusqlite::params![
+            format!("CE_{piloto_id}"),
+            piloto_id,
+            nome,
+            classe,
+            inicio_texto
+        ],
+    )
+    .expect("insert contrato especial");
+}
+
+fn campeao_da_classe(
+    campeoes: &[(String, String, Option<String>, Option<String>)],
+    classe: &str,
+) -> Option<String> {
+    campeoes
+        .iter()
+        .find(|(_, class_name, _, _)| class_name == classe)
+        .and_then(|(_, _, nome, _)| nome.clone())
+}
+
+/// Temporada 9 gravada como `'09'` continua sendo a temporada 9. Em comparação
+/// de texto o campeão sumia e a classe voltava vazia.
+#[test]
+fn campeoes_especiais_encontram_a_temporada_9_gravada_com_zero_a_esquerda() {
+    let conn = conn_com_schema_para_campeoes();
+    campeao_stub(&conn, "P09", "Piloto Nove", 120.0, "09", "mazda");
+    campeao_stub(&conn, "P26", "Piloto Vinte e Seis", 300.0, "26", "toyota");
+
+    let campeoes = query_campeoes_especiais(&conn, 9).expect("campeões da temporada 9");
+
+    assert_eq!(
+        campeao_da_classe(&campeoes, "mazda").as_deref(),
+        Some("Piloto Nove"),
+        "'09' é a temporada 9",
+    );
+    assert_eq!(
+        campeao_da_classe(&campeoes, "toyota"),
+        None,
+        "a temporada 26 não entra na apuração da 9",
+    );
+}
+
+/// E o inverso: `'026'` é a temporada 26, e pedi-la não pode trazer a 9, que é a
+/// maior das quatro em ordem lexicográfica.
+#[test]
+fn campeoes_especiais_encontram_a_temporada_26_e_nao_arrastam_a_9() {
+    let conn = conn_com_schema_para_campeoes();
+    campeao_stub(&conn, "P09", "Piloto Nove", 400.0, "9", "mazda");
+    campeao_stub(&conn, "P10", "Piloto Dez", 200.0, "10", "toyota");
+    campeao_stub(&conn, "P12", "Piloto Doze", 250.0, "12", "mazda");
+    campeao_stub(&conn, "P26", "Piloto Vinte e Seis", 100.0, "026", "toyota");
+
+    let campeoes = query_campeoes_especiais(&conn, 26).expect("campeões da temporada 26");
+
+    assert_eq!(
+        campeao_da_classe(&campeoes, "toyota").as_deref(),
+        Some("Piloto Vinte e Seis"),
+        "'026' é a temporada 26",
+    );
+    assert_eq!(
+        campeao_da_classe(&campeoes, "mazda"),
+        None,
+        "nenhum contrato mazda é da temporada 26",
+    );
+}

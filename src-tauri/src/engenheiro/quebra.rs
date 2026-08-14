@@ -468,9 +468,14 @@ pub fn montar_duplo(a: &Contexto, b: &Contexto) -> Option<Fala> {
     // cruzamento: duas quebras na mesma volta viram uma fala só, então a contagem pulava de
     // 3 para 5 e a fala nunca saía naquela corrida. Aqui a dupla também é candidata — basta
     // que UM dos dois abandonos seja o que cruzou.
-    let cruzou = [a, b]
-        .into_iter()
-        .find_map(|c| coda(Vinculo::Nenhum, &c.severidade, c.variante, c.abandonos_ate_aqui));
+    let cruzou = [a, b].into_iter().find_map(|c| {
+        coda(
+            Vinculo::Nenhum,
+            &c.severidade,
+            c.variante,
+            c.abandonos_ate_aqui,
+        )
+    });
     if let Some((k, t)) = cruzou {
         pecas.push(k.to_string());
         texto.push(' ');
@@ -538,8 +543,8 @@ pub fn montar(c: &Contexto) -> Fala {
     let sobrenome = nomes::sobrenome_de(&c.nome_completo);
     // O sobrenome só existe em áudio se ele saiu de um pool. O nome do JOGADOR não sai, e
     // piloto de save antigo pode não sair — daí o `Option`.
-    let por_nome = nomes::chave_sobrenome(sobrenome)
-        .map(|chave| Sujeito::Nome(chave, sobrenome.to_string()));
+    let por_nome =
+        nomes::chave_sobrenome(sobrenome).map(|chave| Sujeito::Nome(chave, sobrenome.to_string()));
     let por_equipe = match (
         c.equipe.as_deref().and_then(nomes::chave_equipe),
         c.equipe.as_deref().and_then(nomes::equipe_falada),
@@ -576,7 +581,11 @@ pub fn montar(c: &Contexto) -> Fala {
     };
     // Peça ou severidade fora do conhecido usa a redação genérica — e tem que usar a CHAVE
     // genérica junto, senão o áudio pedido não existe.
-    let peca_chave = if PECAS.contains(&c.peca.as_str()) { c.peca.as_str() } else { "outra" };
+    let peca_chave = if PECAS.contains(&c.peca.as_str()) {
+        c.peca.as_str()
+    } else {
+        "outra"
+    };
     let sev_chave = match c.severidade.as_str() {
         "dnf" => "dnf",
         "heavy" => "heavy",
@@ -689,7 +698,10 @@ pub fn familia_quebra() -> Vec<(String, String)> {
             }
         }
         for i in 0..3 {
-            v.push((chave_trecho("dnf", peca, i), format!("{}.", dnf_trecho(peca, i))));
+            v.push((
+                chave_trecho("dnf", peca, i),
+                format!("{}.", dnf_trecho(peca, i)),
+            ));
         }
     }
 
@@ -697,7 +709,10 @@ pub fn familia_quebra() -> Vec<(String, String)> {
     // de fim de frase, e colar isso num verbo produz duas orações em vez de uma. A vírgula
     // pede continuação — o mesmo truque que salvou "Volta em," na POC.
     for s in nomes::sobrenomes() {
-        v.push((format!("{}{}", nomes::PREFIXO_SOBRENOME, nomes::slug(s)), format!("{s},")));
+        v.push((
+            format!("{}{}", nomes::PREFIXO_SOBRENOME, nomes::slug(s)),
+            format!("{s},"),
+        ));
     }
     for (_, falado) in nomes::EQUIPES_FALADAS {
         v.push((

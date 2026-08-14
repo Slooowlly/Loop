@@ -569,6 +569,93 @@ describe("o freio do rádio", () => {
   });
 });
 
+describe("apertar por cima de uma fala termina em estado coerente", () => {
+  // O apertar tem dois portões que saem cedo: o rádio de castigo e o microfone sem faixa.
+  // Os dois já desfizeram a fala anterior antes de sair — `geracao += 1` órfã quem estava no
+  // ar, `voz.cancelar()` cala o áudio —, então ninguém mais volta para devolver o estado: o
+  // `ir(OCIOSO)` do fluxo que estava tocando é guardado por `geracao === minhaVez`.
+  //
+  // Sem uma saída explícita, o estado ficava preso em FALANDO pelo resto da sessão: o
+  // indicador aceso, e o `soltar()` — que só age vindo de OUVINDO — recusando cada toque
+  // seguinte. O botão emudecia de vez, e nada em lugar nenhum dizia por quê.
+
+  /** Uma voz cuja fala NUNCA termina. É assim que se observa o estado FALANDO parado. */
+  function vozPresa() {
+    return {
+      tocadas: [],
+      cancelar: vi.fn(),
+      pausasDoRadio,
+      falarPecas: vi.fn(async function (p) {
+        this.tocadas.push(p);
+        await new Promise(() => {});
+      }),
+      falarRemoto: vi.fn(async () => true),
+    };
+  }
+
+  /**
+   * Leva o orquestrador até FALANDO e o deixa lá.
+   *
+   * O `soltar()` fica pendurado de propósito e NÃO é devolvido: a fala não termina nunca
+   * neste dublê, e devolvê-lo faria o próprio teste esperar por ele para sempre.
+   */
+  async function ateFalando(o) {
+    await o.apertar();
+    void o.soltar();
+    // Cada perna do encanamento é um `await` de promessa já resolvida; drenar a fila de
+    // microtarefas basta para chegar à fala, e não há relógio nenhum no caminho.
+    for (let i = 0; i < 20; i += 1) await Promise.resolve();
+  }
+
+  const INVOKE = {
+    ptt_transcrever: "em que posição eu estou",
+    engenheiro_responder: GRAVADA,
+  };
+
+  it("de castigo, sai de FALANDO para OCIOSO em vez de travar", async () => {
+    let bloqueio = 0;
+    const freio = {
+      bloqueado: () => bloqueio > 0,
+      restanteMs: () => bloqueio,
+      naJanela: () => 0,
+      zerar() {},
+      registrar: () => "ok",
+    };
+    const voz = vozPresa();
+    const o = criarOrquestrador({
+      microfone: microfoneFalso(),
+      voz,
+      invoke: invokeFalso(INVOKE),
+      freio,
+    });
+
+    await ateFalando(o);
+    expect(o.estado()).toBe(FALANDO);
+
+    bloqueio = 60000; // o rádio entra de castigo com a resposta ainda no ar
+    await o.apertar();
+
+    expect(o.estado()).toBe(OCIOSO);
+    expect(voz.cancelar).toHaveBeenCalled();
+  });
+
+  it("sem microfone armado, sai de FALANDO para OCIOSO em vez de travar", async () => {
+    const microfone = microfoneFalso();
+    const voz = vozPresa();
+    const o = criarOrquestrador({ microfone, voz, invoke: invokeFalso(INVOKE) });
+
+    await ateFalando(o);
+    expect(o.estado()).toBe(FALANDO);
+
+    // A faixa morreu no meio da resposta — o rig desligou, o dispositivo sumiu.
+    microfone.armado = false;
+    await o.apertar();
+
+    expect(o.estado()).toBe(OCIOSO);
+    expect(microfone.comecar).toHaveBeenCalledTimes(1); // o segundo toque não gravou nada
+  });
+});
+
 describe("base64De", () => {
   it("converte sem estourar a pilha em áudio de tamanho real", () => {
     // `String.fromCharCode(...bytes)` de uma vez morre por volta de 100 mil argumentos, e

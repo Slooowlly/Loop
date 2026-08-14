@@ -77,6 +77,11 @@ pub(super) fn execute_poach(
         driver_queries::get_driver(conn, &incumbent_contract.piloto_id).ok()
     {
         incumbent.categoria_atual = None;
+        // Perdeu a vaga AQUI, e no sentido mais literal que o jogo tem: o assento dele
+        // foi dado a outro piloto no meio do contrato. O efeito vai no mesmo write.
+        if !incumbent.is_jogador {
+            crate::evolution::motivation::adjust_lost_seat_motivation(&mut incumbent);
+        }
         driver_queries::update_driver(conn, &incumbent)
             .map_err(|e| format!("Falha ao liberar dispensado no poaching: {e}"))?;
     }

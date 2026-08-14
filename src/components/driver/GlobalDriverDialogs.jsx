@@ -40,7 +40,7 @@ export function TitleBreakdownDialog({ row, onClose }) {
           </button>
         </div>
 
-        <div className="mt-5 divide-y divide-white/8">
+        <div className="mt-5 divide-y divide-white/[0.08]">
           {categories.length > 0 ? (
             categories.map((entry) => (
               <div key={`${entry.categoria}-${entry.classe ?? "geral"}`} className="flex items-center justify-between py-3">
@@ -97,7 +97,7 @@ export function ChampionshipChampionsDialog({ group, onClose }) {
         </div>
 
         <div className="mt-5 max-h-[58vh] overflow-y-auto pr-2">
-          <div className="divide-y divide-white/8">
+          <div className="divide-y divide-white/[0.08]">
           {group.champions.map((champion) => (
             <div key={champion.id} className="flex items-start justify-between gap-4 py-3">
               <div className="min-w-0">
@@ -134,7 +134,7 @@ function ChampionTitleYears({ champion }) {
             // O índice entra na chave porque dois títulos no mesmo ano produzem
             // dois blocos de rótulo idêntico.
             <Tooltip key={`${bloco.key}-${index}`} texto={equipe.equipe ?? undefined}>
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-white/8 bg-black/20 px-2 py-1">
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] bg-black/20 px-2 py-1">
                 <span className="font-mono text-xs text-text-muted">{bloco.label}</span>
                 {equipe.equipe ? (
                   <TeamLogoMark teamName={equipe.equipe} color={equipe.equipe_cor} size="xs" />

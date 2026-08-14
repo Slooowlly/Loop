@@ -28,7 +28,9 @@ const CARREIRA = "save-1";
 const PADRAO = {
   careerId: CARREIRA,
   player: { nome: "Ana Prado" },
-  playerTeam: { categoria: "mx5" },
+  // Id de categoria do catálogo, que é o que o backend espera receber. Aqui havia "mx5",
+  // uma chave de CARRO — resquício da época em que o frontend adivinhava o carro.
+  playerTeam: { categoria: "mazda_amador" },
 };
 
 /// Os nomes dos comandos disparados, na ordem.
@@ -76,20 +78,46 @@ describe("useIracingExport", () => {
       );
     });
 
-    it("manda a categoria, o carro e o nome do roster que o backend espera", async () => {
+    it("manda a categoria e o nome do roster, e NENHUMA chave de carro", async () => {
       const { result } = montar();
       await exportar(result);
       const args = invoke.mock.calls.find(([n]) => n === "iracing_generate_roster")[1];
       // Os campos cruzam a ponte POR NOME: um renomeado aqui vira `undefined` do lado do Rust
       // sem erro nenhum, e a etapa sai com o grid errado.
+      //
+      // A ausência de `carKey` é o contrato desta mudança, e por isso o `toEqual` (exato) em
+      // vez de `objectContaining`: quem decide o carro é o Rust, pela identidade da
+      // categoria. Uma `carKey` de volta aqui reabriria o caminho do MX-5 por omissão.
       expect(args).toEqual({
         careerId: CARREIRA,
-        categoria: "mx5",
+        categoria: "mazda_amador",
         rosterName: "Carreira Ana Prado",
-        carKey: "mx5",
       });
       const season = invoke.mock.calls.find(([n]) => n === "iracing_generate_season")[1];
       expect(season).toEqual(args);
+    });
+
+    it("a pintura recebe a categoria, não uma chave de carro", async () => {
+      // A pintura tinha uma CÓPIA da regra de substring do lado do Rust. Mandando a
+      // categoria, ela passa a usar a mesma tabela do roster e da temporada.
+      const { result } = montar();
+      await exportar(result);
+      const args = invoke.mock.calls.find(([n]) => n === "iracing_auto_paint_player")[1];
+      expect(args).toEqual({ careerId: CARREIRA, categoria: "mazda_amador" });
+    });
+
+    it("a recusa do backend aparece na tela e não marca como exportado", async () => {
+      // Categoria que o export não sabe fazer (GT3, Endurance, ...) volta como erro com o
+      // motivo. Antes ela seguia calada e a etapa saía num MX-5.
+      const RECUSA = "Esta categoria ainda não tem carro definido para o iRacing.";
+      invoke.mockImplementation((nome) =>
+        nome === "iracing_generate_roster" ? Promise.reject(RECUSA) : Promise.resolve(null),
+      );
+      const { result, setError } = montar({ playerTeam: { categoria: "gt3" } });
+      await exportar(result);
+      expect(setError).toHaveBeenCalledWith(RECUSA);
+      expect(result.current.exported).toBe(false);
+      expect(comandos()).not.toContain("iracing_generate_season");
     });
 
     it("instala a macro e o modo janela na mesma ida", async () => {
@@ -112,6 +140,62 @@ describe("useIracingExport", () => {
       await exportar(result);
       expect(result.current.exported).toBe(true);
       expect(setError).not.toHaveBeenCalledWith(expect.stringContaining("iRacing"));
+    });
+
+    it("diz na tela QUAIS ajustes ficaram de fora quando os dois falham", async () => {
+      // A outra metade do caso acima, e o achado V6.2 da vistoria de 11/08/2026: seguir
+      // exportando estava certo, engolir CALADO não. Os dois são pré-requisitos de features
+      // que o jogador só usa depois — a bandeira amarela automática e o overlay —, então uma
+      // falha muda vira "não funciona" semanas depois, sem nada para conferir.
+      //
+      // O aviso vai na linha discreta, e não em toast nem em `setError`: a exportação DEU
+      // CERTO, e o que precisa da atenção agora é o convite de entrar no simulador.
+      invoke.mockImplementation((nome) =>
+        nome === "iracing_install_yellow_macro" || nome === "iracing_modo_janela_aplicar"
+          ? Promise.reject(new Error("simulador aberto"))
+          : Promise.resolve(null),
+      );
+      const { result } = montar();
+      await exportar(result);
+      expect(result.current.exportNotice).toContain("Macro de bandeira amarela");
+      expect(result.current.exportNotice).toContain("Modo janela do simulador");
+    });
+
+    it("nomeia só o ajuste que falhou de verdade", async () => {
+      // Listar os dois quando só um falhou mandaria o jogador caçar um problema que não
+      // existe — e é o tipo de aviso que ensina a ignorar o aviso.
+      invoke.mockImplementation((nome) =>
+        nome === "iracing_modo_janela_aplicar"
+          ? Promise.reject(new Error("simulador aberto"))
+          : Promise.resolve(null),
+      );
+      const { result } = montar();
+      await exportar(result);
+      expect(result.current.exportNotice).toContain("Modo janela do simulador");
+      expect(result.current.exportNotice).not.toContain("Macro de bandeira amarela");
+    });
+
+    it("cala quando os dois ajustes entram", async () => {
+      const { result } = montar();
+      await exportar(result);
+      expect(result.current.exportNotice).toBe("");
+    });
+
+    it("deixa rastro no log de diagnóstico para cada ajuste que falhou", async () => {
+      // O aviso na tela some no próximo simular. O log é o que sobra para quando o relato
+      // chegar dias depois, e é o canal que o jogador já sabe anexar.
+      invoke.mockImplementation((nome) =>
+        nome === "iracing_install_yellow_macro" || nome === "iracing_modo_janela_aplicar"
+          ? Promise.reject(new Error("simulador aberto"))
+          : Promise.resolve(null),
+      );
+      const { result } = montar();
+      await exportar(result);
+      const rotulos = invoke.mock.calls
+        .filter(([nome]) => nome === "diagnostico_registrar")
+        .map(([, args]) => args.rotulo);
+      expect(rotulos).toContain("iracing_install_yellow_macro");
+      expect(rotulos).toContain("iracing_modo_janela_aplicar");
     });
 
     it("não exporta sem carreira ou sem categoria", async () => {

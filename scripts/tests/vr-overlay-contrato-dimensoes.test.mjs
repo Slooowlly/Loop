@@ -32,6 +32,7 @@ const towerJs = ler("src/overlay/towerCanvas.js");
 const radioJs = ler("src/overlay/radioCanvas.js");
 const vrRs = ler("src-tauri/src/commands/vr_overlay.rs");
 const sharedH = ler("vr-overlay/src/shared_frame.h");
+const layerCpp = ler("vr-overlay/src/overlay_layer.cpp");
 const posicaoJs = ler("src/overlay/overlayPose.js");
 const radioJsx = ler("src/overlay/EngineerRadio.jsx");
 const conf = JSON.parse(ler("src-tauri/tauri.conf.json"));
@@ -104,11 +105,49 @@ test("os dois painéis usam mapeamentos de nome diferente, e o nome bate com o d
   );
 });
 
-test("a pose de fábrica do painel de posicionamento espelha o default do Rust", () => {
-  // O botão "restaurar" do OverlayPositionPanel devolve a pose `factory` do JS, e o Rust aplica
-  // `def_*` quando não há pose persistida. Divergir faz o restaurar mandar o jogador para um
-  // lugar que nunca foi o padrão dele — e as duas poses foram calibradas na mão, dentro do
-  // headset, um valor de cada vez.
+/// O `defaultCfg` de um `static Panel g_*` da layer C++, na ordem do struct OverlayConfig:
+/// lockMode, posX, posY, posZ, yawDeg, pitchDeg, scale, visible.
+function defaultCfgCpp(variavel) {
+  const bloco = new RegExp(`static Panel ${variavel} = \\{([\\s\\S]*?)\\n\\};`).exec(layerCpp);
+  assert.ok(bloco, `static Panel ${variavel} sumiu de vr-overlay/src/overlay_layer.cpp`);
+  const cfg = /\{([^}]*)\}/.exec(bloco[1]);
+  assert.ok(cfg, `${variavel} não declara o defaultCfg entre chaves`);
+  const campos = cfg[1]
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  assert.equal(campos.length, 8, `o defaultCfg de ${variavel} deveria ter 8 campos: {${cfg[1]}}`);
+
+  const travas = { IRACER_LOCK_HEAD: 0, IRACER_LOCK_WORLD: 1 };
+  assert.ok(campos[0] in travas, `trava desconhecida em ${variavel}: ${campos[0]}`);
+  const num = (i) => {
+    const m = /^(-?[\d.]+)f?$/.exec(campos[i]);
+    assert.ok(m, `o campo ${i} de ${variavel} não é um float literal: ${campos[i]}`);
+    return Number(m[1]);
+  };
+  return {
+    lockMode: travas[campos[0]],
+    x: num(1),
+    y: num(2),
+    z: num(3),
+    yaw: num(4),
+    pitch: num(5),
+    scale: num(6),
+    visible: campos[7],
+  };
+}
+
+test("a pose de fábrica é a mesma nos TRÊS lados: JS, Rust e layer C++", () => {
+  // O botão "restaurar" do OverlayPositionPanel devolve a pose `factory` do JS, o Rust aplica
+  // `def_*` quando não há pose persistida, e a layer usa o `defaultCfg` do painel enquanto o
+  // app ainda não escreveu nada na memória compartilhada. Divergir faz o restaurar mandar o
+  // jogador para um lugar que nunca foi o padrão dele — e, no caso da layer, faz o painel
+  // NASCER num lugar e pular para outro no instante em que o app conecta. As poses foram
+  // calibradas na mão, dentro do headset, um valor de cada vez.
+  //
+  // O terceiro lado entrou em 11/08/2026: o default do rádio no C++ ainda era o head-locked
+  // original (y 0.08, z -1.0, pitch 0, escala 1.0) enquanto Rust e JS já estavam no
+  // cockpit-lock recalibrado, e o guard só olhava para esses dois.
   const factoryJs = (painel) => {
     const m = new RegExp(`^  ${painel}: \\{[\\s\\S]*?factory: \\{([^}]*)\\}`, "m").exec(posicaoJs);
     assert.ok(m, `não achei a pose de fábrica de ${painel} em src/overlay/overlayPose.js`);
@@ -116,23 +155,29 @@ test("a pose de fábrica do painel de posicionamento espelha o default do Rust",
       [...m[1].matchAll(/(\w+):\s*(-?[\d.]+)/g)].map(([, k, v]) => [k, Number(v)]),
     );
   };
-  for (const [painelJs, painelRs] of [["tower", "TOWER"], ["radio", "ENGINEER"]]) {
+  const campos = [
+    ["lockMode", "def_lock"],
+    ["x", "def_x"],
+    ["y", "def_y"],
+    ["z", "def_z"],
+    ["yaw", "def_yaw"],
+    ["pitch", "def_pitch"],
+    ["scale", "def_scale"],
+  ];
+  for (const [painelJs, painelRs, varCpp] of [
+    ["tower", "TOWER", "g_tower"],
+    ["radio", "ENGINEER", "g_engineer"],
+  ]) {
     const f = factoryJs(painelJs);
-    for (const [campoJs, campoRs] of [
-      ["lockMode", "def_lock"],
-      ["x", "def_x"],
-      ["y", "def_y"],
-      ["z", "def_z"],
-      ["yaw", "def_yaw"],
-      ["pitch", "def_pitch"],
-      ["scale", "def_scale"],
-    ]) {
-      assert.equal(
-        f[campoJs],
-        campoDoPainel(painelRs, campoRs),
-        `${painelJs}.${campoJs} divergiu de ${painelRs}.${campoRs}`,
-      );
+    const c = defaultCfgCpp(varCpp);
+    for (const [campoJs, campoRs] of campos) {
+      const rs = campoDoPainel(painelRs, campoRs);
+      assert.equal(f[campoJs], rs, `${painelJs}.${campoJs} divergiu de ${painelRs}.${campoRs}`);
+      assert.equal(c[campoJs], rs, `${varCpp}.${campoJs} divergiu de ${painelRs}.${campoRs}`);
     }
+    // O Rust não tem `def_visible` (escreve 1 direto) e o JS traz `visible: true`; a layer
+    // precisa nascer visível também, senão o painel some até alguém abrir o posicionamento.
+    assert.equal(c.visible, "true", `${varCpp} deveria nascer visível`);
   }
 });
 

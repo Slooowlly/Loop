@@ -247,8 +247,7 @@ pub fn aplicar() -> Result<ModoJanelaStatus, String> {
         if !bak.exists() {
             fs::write(&bak, &conteudo).map_err(|e| format!("Falha ao criar o backup: {e}"))?;
         }
-        fs::write(ini, novo)
-            .map_err(|e| format!("Falha ao escrever {}: {e}", ini.display()))?;
+        fs::write(ini, novo).map_err(|e| format!("Falha ao escrever {}: {e}", ini.display()))?;
         ajustados += 1;
     }
 
@@ -351,9 +350,15 @@ fullScreen=1                                    \t; nao e a nossa secao\n";
     #[test]
     fn ajuste_poe_os_tres_valores() {
         let novo = conteudo_ajustado(DISPLAY_REAL).expect("tem fullScreen");
-        assert_eq!(ler_chave(&novo, SECAO, CHAVE_TELA_CHEIA).as_deref(), Some("0"));
+        assert_eq!(
+            ler_chave(&novo, SECAO, CHAVE_TELA_CHEIA).as_deref(),
+            Some("0")
+        );
         assert_eq!(ler_chave(&novo, SECAO, CHAVE_BORDA).as_deref(), Some("0"));
-        assert_eq!(ler_chave(&novo, SECAO, CHAVE_MAXIMIZADA).as_deref(), Some("1"));
+        assert_eq!(
+            ler_chave(&novo, SECAO, CHAVE_MAXIMIZADA).as_deref(),
+            Some("1")
+        );
         assert_eq!(conteudo_em_janela(&novo), Some(true));
     }
 
@@ -405,7 +410,10 @@ fullScreen=1                                    \t; nao e a nossa secao\n";
     fn melhor_esforco_nas_chaves_opcionais() {
         let antigo = "[Display]\nfullScreen=1\nborder=1\n";
         let novo = conteudo_ajustado(antigo).expect("tem fullScreen");
-        assert_eq!(ler_chave(&novo, SECAO, CHAVE_TELA_CHEIA).as_deref(), Some("0"));
+        assert_eq!(
+            ler_chave(&novo, SECAO, CHAVE_TELA_CHEIA).as_deref(),
+            Some("0")
+        );
         assert_eq!(ler_chave(&novo, SECAO, CHAVE_BORDA).as_deref(), Some("0"));
         assert_eq!(conteudo_em_janela(&novo), Some(true));
     }
@@ -447,7 +455,10 @@ fullScreen=1                                    \t; nao e a nossa secao\n";
 
         assert!(restaurar_arquivo(&ini).unwrap());
         assert_eq!(fs::read_to_string(&ini).unwrap(), DISPLAY_REAL);
-        assert!(!caminho_backup(&ini).exists(), "o backup precisa sair junto");
+        assert!(
+            !caminho_backup(&ini).exists(),
+            "o backup precisa sair junto"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -2,8 +2,13 @@ use std::fs;
 
 use super::*;
 use crate::commands::career::{create_career_in_base_dir, CreateCareerInput};
+// A cronologia econômica FIXA, que só existe sob `cfg(test)`. A produção passou a semear a
+// posição do ciclo pelo save (`global_economic_health_do_save`); as fixtures daqui continuam
+// na régua antiga de propósito, para que os números que elas assevaram não dependam do id do
+// diretório temporário em que o teste caiu.
 use crate::db::queries::calendar::get_next_race;
 use crate::db::queries::news as news_queries;
+use crate::finance::economy::global_economic_health_for_season;
 use crate::models::team::placeholder_team_from_db;
 use crate::simulation::race::{ClassificationStatus, RaceDriverResult};
 
@@ -330,6 +335,7 @@ fn sample_driver_result(pilot_id: &str, team_id: &str, finish_position: i32) -> 
         },
         is_dnf: false,
         dnf_reason: None,
+        dnf_reason_key: None,
         dnf_segment: None,
         incidents_count: 0,
         incidents: Vec::new(),
@@ -663,6 +669,20 @@ fn corrida_simulada_grava_a_peca_que_quebrou_e_o_tempo_perdido() {
             .expect("piloto no resultado");
         assert!(entry.is_dnf, "quebra fatal não tirou o carro da corrida");
         assert_eq!(entry.dnf_reason.as_deref(), Some(row.label.as_str()));
+        // ...e a CHAVE junto (v68). É ela que permite reler o motivo em outro idioma; a frase
+        // sozinha congela o abandono no locale da corrida para sempre. As duas metades saem do
+        // MESMO evento, então a chave do resultado tem de bater com a da linha persistida.
+        assert_eq!(
+            entry.dnf_reason_key,
+            row.problem_key(),
+            "abandono por quebra sem a chave que recompõe a frase (piloto {})",
+            row.driver_id
+        );
+        assert!(
+            entry.dnf_reason_key.is_some(),
+            "peça conhecida tem de produzir chave: {}",
+            row.part
+        );
     }
 }
 
@@ -1139,10 +1159,16 @@ fn test_simulate_race_weekend_applies_crisis_finance_event() {
     let mut team = team_queries::get_team_by_id(&db.conn, &contract.equipe_id)
         .expect("team before")
         .expect("existing team before");
-    team.cash_balance = -100_000.0;
-    team.debt_balance = 850_000.0;
+    // O gatilho do socorro é relativo desde B50: caixa abaixo de −2 meses de operação da
+    // divisão E dívida abaixo do teto de 4 meses. Os antigos −100 mil / 850 mil eram absolutos
+    // e, na escala da rookie (~17,5 mil/mês), 850 mil são 48 meses de dívida — bem acima do
+    // teto, e por isso a equipe deixaria de ser socorrida.
+    let mensal = crate::finance::state::custo_operacional_mensal(&team.categoria, None);
+    team.cash_balance = -5.0 * mensal;
+    team.debt_balance = 0.0;
     team.financial_state = "collapse".to_string();
     team_queries::update_team(&db.conn, &team).expect("update crisis team");
+    let caixa_antes = team.cash_balance;
     let next_race = get_next_race(&db.conn, &season.id, "mazda_rookie")
         .expect("next race")
         .expect("pending race");
@@ -1155,8 +1181,18 @@ fn test_simulate_race_weekend_applies_crisis_finance_event() {
         .expect("team after")
         .expect("existing team after");
 
-    assert!(team_after.cash_balance > -100_000.0);
-    assert!(team_after.debt_balance > 850_000.0);
+    assert!(
+        team_after.cash_balance > caixa_antes,
+        "o socorro tem que injetar caixa: {} contra {caixa_antes}",
+        team_after.cash_balance
+    );
+    assert!(
+        team_after.debt_balance > 0.0,
+        "o socorro tem que criar dívida"
+    );
+    // E tem que ficar REGISTRADO: sem isso o limite por temporada não existe.
+    assert_eq!(team_after.socorros_na_temporada, 1);
+    assert_eq!(team_after.socorros_temporada_ref, season.numero);
 
     let _ = fs::remove_dir_all(base_dir);
 }
@@ -1950,6 +1986,64 @@ fn test_simulate_special_block_rejects_player_inside_special_grid() {
     let _ = fs::remove_dir_all(base_dir);
 }
 
+/// **A fatura e o caixa leem a MESMA identidade de save.**
+///
+/// O ciclo macroeconômico deixou de ser fixo: a temporada em que caem a recessão e o boom é
+/// semeada pelo `career_id`. Só que as duas pontas descobrem quem é o save por caminhos
+/// diferentes — `simulate_race_weekend_in_base_dir` recebe o id como parâmetro e o usa na
+/// fatura do pós-corrida, enquanto `persist_race_result_tx`, que é quem de fato debita o
+/// caixa, deduz o id do caminho do banco. Se as duas divergirem, o jogador vê um modificador
+/// econômico na fatura e outro sai da conta — e o erro é silencioso, porque nenhum dos dois
+/// lados falha sozinho.
+///
+/// Este teste prende a dedução ao layout real de um save criado pelo produto.
+#[test]
+fn identidade_do_save_e_a_mesma_na_fatura_e_na_persistencia() {
+    let base_dir = unique_test_dir("economia_por_save");
+    fs::create_dir_all(&base_dir).expect("base dir");
+    create_career_in_base_dir(
+        &base_dir,
+        CreateCareerInput {
+            player_name: "Joao Silva".to_string(),
+            player_nationality: "br".to_string(),
+            player_age: Some(20),
+            category: "mazda_rookie".to_string(),
+            team_index: 0,
+            difficulty: "medio".to_string(),
+        },
+    )
+    .expect("career");
+
+    // O id que o comando de simulação recebe do front — e passa para a fatura.
+    let career_id = "career_001";
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join(career_id).join("career.db");
+    let db = Database::open_existing(&db_path).expect("db");
+
+    assert_eq!(
+        career_id_from_db(&db),
+        career_id,
+        "a persistência deduziu outro save a partir de {}",
+        db_path.display()
+    );
+
+    // E, com a mesma identidade, as duas pontas concordam em toda temporada de uma carreira
+    // inteira. Sem isto o teste acima seria só sobre strings.
+    for temporada in 1..=25 {
+        assert_eq!(
+            crate::finance::economy::global_economic_health_do_save(
+                &career_id_from_db(&db),
+                temporada
+            ),
+            crate::finance::economy::global_economic_health_do_save(career_id, temporada),
+            "temporada {temporada}"
+        );
+    }
+
+    drop(db);
+    let _ = fs::remove_dir_all(base_dir);
+}
+
 fn unique_test_dir(label: &str) -> std::path::PathBuf {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -2167,6 +2261,129 @@ fn fatura_da_rodada_cobra_a_casa_e_poupa_a_convidada_no_bloco_especial() {
         "mazda_rookie",
         "production_challenger"
     ));
+}
+
+// ───────── v68: a tela salva da corrida reabre o motivo de quebra no idioma de agora ─────────
+
+/// A tela da corrida é um retrato JSON congelado no fim do fim de semana, e é o que a Home
+/// reabre no duplo clique do R{n}. Antes da v68 esse retrato carregava só a prosa, então
+/// reabrir uma corrida depois de trocar o idioma mostrava o painel de quebra em inglês e o
+/// motivo do abandono, na mesma tela, em português.
+///
+/// `#[serial]` porque troca o locale, que é global do processo.
+#[test]
+#[serial_test::serial]
+fn tela_salva_reabre_o_motivo_de_quebra_no_locale_atual() {
+    let anterior = rust_i18n::locale().to_string();
+
+    // Retrato gravado em pt-BR: o jogador viu "câmbio quebrou" naquele dia.
+    let mut retrato = serde_json::json!({
+        "race_result": {
+            "race_results": [
+                {
+                    "pilot_id": "P001",
+                    "is_dnf": true,
+                    "dnf_reason": "câmbio quebrou",
+                    "dnf_reason_key": "car_breakdown.problem.gearbox_0_dnf"
+                },
+                {
+                    "pilot_id": "P002",
+                    "is_dnf": true,
+                    "dnf_reason": "rodou sozinho na saída da última curva"
+                },
+                { "pilot_id": "P003", "is_dnf": false, "dnf_reason": null }
+            ]
+        }
+    });
+
+    rust_i18n::set_locale("en-US");
+    super::reescrever_motivos_de_quebra_no_locale(&mut retrato);
+    rust_i18n::set_locale(&anterior);
+
+    let pilotos = retrato["race_result"]["race_results"].as_array().unwrap();
+    // A quebra vem no idioma de agora.
+    assert_eq!(pilotos[0]["dnf_reason"], "gearbox broke");
+    // O abandono que NÃO é quebra não tem chave e sai como está — prosa histórica não se traduz.
+    assert_eq!(
+        pilotos[1]["dnf_reason"],
+        "rodou sozinho na saída da última curva"
+    );
+    // Quem não abandonou continua sem motivo.
+    assert!(pilotos[2]["dnf_reason"].is_null());
+}
+
+/// Retrato de save ANTIGO: nenhum piloto tem `dnf_reason_key`. A reescrita é um no-op e a tela
+/// abre com o texto de então, sem falhar.
+#[test]
+#[serial_test::serial]
+fn tela_salva_antiga_sem_chave_abre_intacta() {
+    let anterior = rust_i18n::locale().to_string();
+    let mut retrato = serde_json::json!({
+        "race_result": {
+            "race_results": [
+                { "pilot_id": "P001", "is_dnf": true, "dnf_reason": "motor fundiu por superaquecimento" }
+            ]
+        }
+    });
+
+    rust_i18n::set_locale("en-US");
+    super::reescrever_motivos_de_quebra_no_locale(&mut retrato);
+    rust_i18n::set_locale(&anterior);
+
+    assert_eq!(
+        retrato["race_result"]["race_results"][0]["dnf_reason"],
+        "motor fundiu por superaquecimento"
+    );
+}
+
+/// Retrato sem a forma esperada (payload de outra versão, arquivo truncado) não pode derrubar a
+/// reabertura da tela — a função sai calada e o front recebe o que havia.
+#[test]
+fn tela_salva_com_forma_inesperada_nao_quebra() {
+    let mut sem_resultado = serde_json::json!({ "evaluation": {} });
+    super::reescrever_motivos_de_quebra_no_locale(&mut sem_resultado);
+    assert_eq!(sem_resultado, serde_json::json!({ "evaluation": {} }));
+
+    let mut lista_errada = serde_json::json!({ "race_result": { "race_results": 7 } });
+    super::reescrever_motivos_de_quebra_no_locale(&mut lista_errada);
+    assert_eq!(
+        lista_errada,
+        serde_json::json!({ "race_result": { "race_results": 7 } })
+    );
+}
+
+/// **A leitura do DTO decide entre chave e prosa, e essa decisão tem três casos.**
+///
+/// É o mesmo contrato do `RaceBreakdownRow::label_no_locale`: chave que resolve manda; chave que
+/// o locale não conhece (peça que saiu do jogo, save de versão futura) cai na prosa gravada; sem
+/// chave, a prosa é tudo o que existe.
+#[test]
+#[serial_test::serial]
+fn dnf_reason_no_locale_escolhe_entre_a_chave_e_a_prosa() {
+    let anterior = rust_i18n::locale().to_string();
+    rust_i18n::set_locale("en-US");
+
+    let mut r = sample_driver_result("P001", "T001", 1);
+    r.is_dnf = true;
+
+    // 1. Chave válida: manda ela.
+    r.dnf_reason = Some("câmbio quebrou".to_string());
+    r.dnf_reason_key = Some("car_breakdown.problem.gearbox_0_dnf".to_string());
+    assert_eq!(r.dnf_reason_no_locale().as_deref(), Some("gearbox broke"));
+
+    // 2. Chave que não existe no locale: a prosa gravada é melhor que mostrar a chave crua.
+    r.dnf_reason_key = Some("car_breakdown.problem.peca_que_nao_existe_0_dnf".to_string());
+    assert_eq!(r.dnf_reason_no_locale().as_deref(), Some("câmbio quebrou"));
+
+    // 3. Sem chave (save legado, ou abandono que não é quebra): a prosa é tudo o que há.
+    r.dnf_reason_key = None;
+    assert_eq!(r.dnf_reason_no_locale().as_deref(), Some("câmbio quebrou"));
+
+    // 4. Sem abandono: nada.
+    r.dnf_reason = None;
+    assert_eq!(r.dnf_reason_no_locale(), None);
+
+    rust_i18n::set_locale(&anterior);
 }
 
 /// O modelo de despesa ANTIGO, congelado. Não é produção — é a régua contra a qual a troca

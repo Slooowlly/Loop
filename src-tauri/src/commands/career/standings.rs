@@ -273,8 +273,9 @@ pub(crate) fn get_teams_standings_in_base_dir(
     .map_err(|e| format!("Falha ao buscar equipes da categoria: {e}"))?;
 
     // Recordes DA CATEGORIA, em duas consultas agregadas (não uma por equipe).
-    let category_titles = team_queries::get_category_constructor_titles_by_team(&db.conn, &category)
-        .unwrap_or_default();
+    let category_titles =
+        team_queries::get_category_constructor_titles_by_team(&db.conn, &category)
+            .unwrap_or_default();
     let category_wins =
         team_queries::get_category_wins_by_team(&db.conn, &category).unwrap_or_default();
 

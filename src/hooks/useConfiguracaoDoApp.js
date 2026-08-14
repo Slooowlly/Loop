@@ -14,13 +14,20 @@ export function useConfiguracaoDoApp() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  // A carga do config falhou e a tela não tem o que desenhar. Estado próprio, e não o
+  // `errorMessage` da gravação: ali o erro é um aviso ao lado da lista de opções, aqui não
+  // existe lista nenhuma — a tela inteira vira o aviso, com o botão de tentar de novo.
+  const [falhaAoCarregar, setFalhaAoCarregar] = useState(false);
 
   const loadConfig = useCallback(async () => {
+    setLoading(true);
+    setFalhaAoCarregar(false);
     try {
       const cfg = await invoke("get_config");
       setConfig(cfg);
     } catch (err) {
       console.error("Falha ao carregar config:", err);
+      setFalhaAoCarregar(true);
     } finally {
       setLoading(false);
     }
@@ -85,6 +92,7 @@ export function useConfiguracaoDoApp() {
     saving,
     errorMessage,
     setErrorMessage,
+    falhaAoCarregar,
     loadConfig,
     saveConfig,
     handleToggle,

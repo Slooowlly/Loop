@@ -33,6 +33,10 @@ pub static EMERGENCY_PROMO_PATHS: std::sync::Mutex<BTreeMap<(u8, u8), u64>> =
     std::sync::Mutex::new(BTreeMap::new());
 
 use crate::generators::ids::{next_id, IdType};
+use crate::licensing::{
+    ensure_driver_can_join_division, grant_driver_license_for_division_if_needed,
+    repair_missing_licenses_for_current_categories,
+};
 use crate::market::driver_ai::evaluate_proposal;
 use crate::market::evaluation::{estimate_expected_position, evaluate_driver_performance};
 use crate::market::proposals::{
@@ -47,10 +51,7 @@ use crate::market::visibility::calculate_visibility;
 use crate::models::contract::Contract;
 use crate::models::driver::Driver;
 use crate::models::enums::{ContractStatus, DriverStatus, PrimaryPersonality, TeamRole};
-use crate::models::license::{
-    ensure_driver_can_join_division, grant_driver_license_for_division_if_needed,
-    repair_missing_licenses_for_current_categories, required_license_for_division,
-};
+use crate::models::license::required_license_for_division;
 use crate::models::team::TeamHierarchyClimate;
 
 // Etapas da entressafra. Este arquivo guarda só a orquestração de alto nível
@@ -314,6 +315,23 @@ fn run_market_inner(
             new_contract.classe = team.classe.clone();
             contract_queries::insert_contract(conn, &new_contract)
                 .map_err(|e| format!("Falha ao inserir renovacao: {e}"))?;
+
+            // A RENOVAÇÃO É UM FATO AQUI, e é o único lugar do jogo em que ela é. O piloto
+            // tinha contrato VENCENDO (só `expiring_contracts` chega nesta laça), a equipe
+            // é a mesma (`team` vem do contrato antigo) e o contrato novo acabou de ser
+            // gravado. O bônus de motivação mora aqui por isso — no segundo passe da
+            // virada ele era derivado do antes/depois dos assentos, e no modo jogável a
+            // virada termina antes desta pré-passe rodar, então nunca acontecia.
+            let mut renovado = driver.clone();
+            crate::evolution::motivation::adjust_contract_renewal_motivation(&mut renovado);
+            driver_queries::update_driver_motivation(conn, &renovado.id, renovado.motivacao)
+                .map_err(|e| {
+                    format!(
+                        "Falha ao gravar motivacao da renovacao de '{}': {e}",
+                        renovado.nome
+                    )
+                })?;
+
             report.contracts_renewed += 1;
             report.new_signings.push(SigningInfo {
                 driver_id: driver.id.clone(),
@@ -324,6 +342,52 @@ fn run_market_inner(
                 papel: new_contract.papel.as_str().to_string(),
                 tipo: "renovacao".to_string(),
             });
+        }
+
+        // A PERDA DA VAGA É UM FATO AQUI, pelo mesmo motivo da renovação e no mesmo
+        // instante: a laça acima acabou de decidir quem a equipe segurou, e quem tinha
+        // contrato vencendo e não aparece mais com assento ficou sem lugar AGORA. Não é
+        // "não está mais na equipe" nem "o contrato expirou" — é a lista fechada dos
+        // contratos que venceram nesta janela, cruzada com quem saiu dela empregado.
+        //
+        // Roda antes do bloco de movimentos de propósito: rebaixamento por mérito e
+        // assédio rescindem e assinam no mesmo passo, então nunca deixam ninguém sem
+        // assento. Quem for recontratado depois (pela escada, semanas à frente) assina
+        // um contrato NOVO — isso é o mercado dando a volta, não a perda desacontecendo.
+        //
+        // A cobrança de "uma vez só" não é uma flag: `expiring_contracts` só tem
+        // contrato ATIVO com `temporada_fim` vencido, e o `expire_ending_contracts`
+        // logo acima os desativou. Numa segunda passada a lista sai vazia.
+        if stage.faz_contratos() {
+            let com_assento: HashSet<String> =
+                contract_queries::get_all_active_regular_contracts(conn)
+                    .map_err(|e| format!("Falha ao recarregar contratos apos renovacao: {e}"))?
+                    .into_iter()
+                    .map(|contract| contract.piloto_id)
+                    .collect();
+            for contract in &expiring_contracts {
+                let Some(driver) = drivers_by_id.get(&contract.piloto_id) else {
+                    continue;
+                };
+                // O jogador decide o próprio futuro na janela, e nunca passou por este
+                // efeito. Quem se aposentou saiu por outra porta — o contrato dele é
+                // rescindido acima, e a saída não é uma vaga perdida.
+                if driver.is_jogador || driver.status == DriverStatus::Aposentado {
+                    continue;
+                }
+                if com_assento.contains(&driver.id) {
+                    continue;
+                }
+                let mut sem_vaga = driver.clone();
+                crate::evolution::motivation::adjust_lost_seat_motivation(&mut sem_vaga);
+                driver_queries::update_driver_motivation(conn, &sem_vaga.id, sem_vaga.motivacao)
+                    .map_err(|e| {
+                        format!(
+                            "Falha ao gravar motivacao de quem perdeu a vaga ('{}'): {e}",
+                            sem_vaga.nome
+                        )
+                    })?;
+            }
         }
 
         // ── Daqui pra baixo, tudo TIRA um piloto da equipe dele e o põe em outra. Fica

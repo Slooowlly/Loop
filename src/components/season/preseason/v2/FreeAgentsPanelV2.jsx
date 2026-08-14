@@ -21,7 +21,7 @@ export default function FreeAgentsPanelV2({
       {/* O contador é a manchete da coluna: quantos pilotos estão disponíveis para
           a categoria filtrada. Como rodapé de cabeçalho ele não competia com nada
           e passava batido — aqui ele é o número maior da coluna. */}
-      <div className="flex items-center gap-3 border-b border-white/7 px-3.5 py-3 lg:px-4">
+      <div className="flex items-center gap-3 border-b border-white/[0.07] px-3.5 py-3 lg:px-4">
         <div className="min-w-0 flex-1">
           <p className="text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--accent-primary)]">
             {t("preSeason.market.title")}

@@ -815,7 +815,12 @@ fn test_get_driver_detail_includes_active_injury_context() {
         .and_then(|health| health.lesao_ativa.as_ref())
         .expect("active injury context");
 
-    assert_eq!(active_injury.tipo, "Moderada");
+    // A CHAVE do fio, e nao a grafia do banco: o React a usa como sufixo de chave i18n
+    // e traduz na borda. Era "Moderada" aqui, que ia crua para a tela em ingles.
+    assert_eq!(
+        active_injury.tipo,
+        crate::models::enums::InjuryType::Moderada.chave()
+    );
     assert_eq!(active_injury.nome.as_deref(), Some("Dor forte nas costas"));
     assert_eq!(active_injury.corridas_total, 4);
     assert_eq!(active_injury.corridas_restantes, 3);
@@ -913,7 +918,10 @@ fn test_displaced_driver_context_counts_head_to_head_without_dnf() {
         .expect("query races")
         .collect::<Result<Vec<_>, _>>()
         .expect("race ids");
-    assert!(race_ids.len() >= 3, "esperava três corridas de mazda_rookie");
+    assert!(
+        race_ids.len() >= 3,
+        "esperava três corridas de mazda_rookie"
+    );
 
     // (corrida, piloto, posição, dnf)
     for (race_id, driver_id, finish, dnf) in [

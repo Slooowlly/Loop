@@ -19,6 +19,19 @@ export const MEDAL_COLORS = {
   dnf: "#ef4444",
 };
 
+/// Cores das colocações. Ouro reaproveita o amarelo de status que a UI já usa
+/// para vitória; prata e bronze são novos e existem só aqui — são metal, não
+/// estado, e por isso não entram na paleta semântica do app.
+///
+/// O 4º e o 5º são UMA faixa só, no mesmo cinza-azulado apagado. Separá-los em
+/// dois tons foi um erro de leitura: quem olha a coluna não precisa saber se
+/// aquele fim de semana terminou em 4º ou em 5º, precisa saber quantas vezes a
+/// equipe chegou PERTO. Dois azuis vizinhos só devolveram a dúvida de qual bloco
+/// era qual — e a resposta não mudava nada.
+///
+/// O abandono é o único VERMELHO da faixa, e é o vermelho de estado que o app já
+/// usa para erro. Ele não é uma colocação — é o oposto de uma — e por isso é a
+/// única entrada que não tem parentesco com as outras.
 export const PLACEMENT_COLORS = {
   first: MEDAL_COLORS.first,
   second: MEDAL_COLORS.second,

@@ -20,11 +20,11 @@ import { extractNationalityLabel } from "../utils/formatters";
 import {
   DIFFICULTIES,
   LOADING_MESSAGE_INTERVAL_MS,
-  LOADING_MESSAGES,
   NATIONALITIES,
   STARTING_CATEGORIES,
   WIZARD_STEPS,
 } from "../utils/constants";
+import i18n, { DEFAULT_LANGUAGE } from "../i18n";
 
 const INITIAL_FORM = {
   difficulty: "medio",
@@ -36,6 +36,15 @@ const INITIAL_FORM = {
 };
 
 const DRAFT_PROGRESS_POLL_MS = 1000;
+
+/// Quantas mensagens de carregamento existem PARA VALER, contadas na mesma fonte de onde o
+/// `t()` lê: as chaves `newCareer.loadingMessages.msg<i>` do locale-base (o `localeParity`
+/// garante que o en-US tem as mesmas). O ciclo da tela usa `msg0..msg<n-1>`, então a contagem
+/// precisa vir daqui — uma lista paralela em `constants.js` só serve para dessincronizar.
+export function totalDeMensagensDeCarregamento() {
+  const pacote = i18n.getResourceBundle(DEFAULT_LANGUAGE, "common");
+  return Object.keys(pacote?.newCareer?.loadingMessages ?? {}).length;
+}
 // Campos que moldam o mundo simulado e, por isso, invalidam um draft pronto.
 // Só a dificuldade entra aqui: ela alimenta `generate_historical_world` e define
 // os atributos dos 200+ pilotos de IA. Nome, nacionalidade e idade do jogador só
@@ -92,8 +101,9 @@ function NewCareer() {
       return undefined;
     }
 
+    const total = Math.max(1, totalDeMensagensDeCarregamento());
     const timer = window.setInterval(() => {
-      setLoadingMessageIndex((current) => (current + 1) % LOADING_MESSAGES.length);
+      setLoadingMessageIndex((current) => (current + 1) % total);
     }, LOADING_MESSAGE_INTERVAL_MS);
 
     return () => window.clearInterval(timer);

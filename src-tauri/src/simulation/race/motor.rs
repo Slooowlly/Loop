@@ -532,6 +532,7 @@ fn montar_estados(
                 current_position: result.position,
                 incidents: Vec::new(),
                 dnf_reason: None,
+                dnf_reason_key: None,
                 dnf_segment: None,
                 pending_damage: Vec::new(),
             }
@@ -628,7 +629,10 @@ fn aplicar_quebras_do_segmento(
         }
         if m.is_dnf {
             state.is_dnf = true;
+            // O par frase + CHAVE anda junto: a prosa é o que o save legado tem, a chave é o que
+            // permite reler o motivo em outro idioma depois (v68).
             state.dnf_reason = Some(m.label.clone());
+            state.dnf_reason_key = Some(m.problem_key.clone()).filter(|k| !k.is_empty());
             state.dnf_segment = Some(segment);
         } else {
             state.tempo_acumulado_ms += segundos_de_reparo_em_ms(m.penalty_secs);
@@ -949,7 +953,15 @@ fn executar_paradas_planejadas(states: &mut [RaceState], segment: RaceSegment, t
 ///
 /// O gatilho já existia e não fazia nada: `derive_caution_segments` derivava a amarela dos
 /// incidentes e só registrava. Agora ela tem consequência, e é a maior de todas.
-fn aplicar_safety_car(
+///
+/// **A compressão lê a ordem de AGORA, medida aqui dentro.** `current_position` só é reescrita
+/// em `fechar_o_trecho`, no fim do trecho, então dentro do trecho ela é a foto do fim do
+/// trecho ANTERIOR — e no primeiro trecho é o grid. Comprimir por ela devolvia o pelotão à
+/// ordem velha: quem tinha acabado de passar alguém recebia o degrau de fila do carro que
+/// passou e voltava para trás dele. A garantia de que a compressão preserva a ordem
+/// ([`atraso_sob_safety_car`]) vale só enquanto a posição cresce junto com o gap, e quem
+/// cresce junto com o gap é a posição corrente.
+pub(super) fn aplicar_safety_car(
     states: &mut [RaceState],
     segment: RaceSegment,
     ctx: &SimulationContext,
@@ -966,40 +978,60 @@ fn aplicar_safety_car(
     // A volta de entrada: o meio do trecho em que o incidente aconteceu.
     let volta_do_sc =
         (((segment.ordinal() as f64 + 0.5) * ctx.total_laps as f64 / 5.0).round() as u32).max(1);
-    let ordem: Vec<String> = states
+
+    // A ORDEM CORRENTE, por tempo, sem depender de o chamador ter ordenado o slice. A
+    // ordenação é ESTÁVEL: empate de tempo mantém a ordem recebida, e é assim que dois carros
+    // no mesmo tempo não trocam de lugar por causa da neutralização.
+    let mut ordem_corrente: Vec<usize> = (0..states.len()).filter(|i| !states[*i].is_dnf).collect();
+    ordem_corrente.sort_by(|a, b| {
+        states[*a]
+            .tempo_acumulado_ms
+            .partial_cmp(&states[*b].tempo_acumulado_ms)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let ordem: Vec<String> = ordem_corrente
         .iter()
-        .filter(|s| !s.is_dnf)
-        .map(|s| s.driver_id.clone())
+        .map(|i| states[*i].driver_id.clone())
         .collect();
+
+    // A posição corrente passa a valer para todo mundo que ainda está na pista: a parada sob
+    // safety car logo abaixo carimba `posicao_antes` a partir dela, e carimbar a posição do
+    // trecho anterior era mentir no par (antes, depois) que o harness usa para medir undercut.
+    for (indice, i) in ordem_corrente.iter().enumerate() {
+        states[*i].current_position = indice as i32 + 1;
+    }
 
     // ZERA OS GAPS. É o que transforma uma liderança confortável em briga — e o que faz do
     // safety car o maior embaralhador do esporte.
-    let tempo_do_lider = states
-        .iter()
-        .find(|s| !s.is_dnf)
-        .map(|s| s.tempo_acumulado_ms)
+    let tempo_do_lider = ordem_corrente
+        .first()
+        .map(|i| states[*i].tempo_acumulado_ms)
         .unwrap_or(0.0);
-    for state in states.iter_mut() {
-        if state.is_dnf {
-            continue;
-        }
+    for (indice, i) in ordem_corrente.iter().enumerate() {
+        let state = &mut states[*i];
         let gap = state.tempo_acumulado_ms - tempo_do_lider;
-        state.tempo_acumulado_ms =
-            tempo_do_lider + atraso_sob_safety_car(gap, state.current_position);
+        state.tempo_acumulado_ms = tempo_do_lider + atraso_sob_safety_car(gap, indice as i32 + 1);
     }
 
     // REGALA QUEM IA PARAR MESMO: com o pelotão lento, a parada custa uma fração. Quem ainda
     // tinha parada no plano aproveita; quem parou no trecho anterior pagou cheio e perdeu a
     // margem na compressão — é a crucificação, e é ela que dá a frase "ele foi crucificado
     // pelo safety car" em vez de "o dado deu ruim".
+    // A parada é carimbada na VOLTA DO SAFETY CAR, e a volta que estava no plano é só
+    // descartada da fila de pendentes. Antes isto estava escrito como
+    // `volta_do_sc.max(volta.min(volta_do_sc))`, que é `volta_do_sc` para todo `volta`:
+    // `min` nunca sobe acima de `volta_do_sc` e o `max` seguinte devolve `volta_do_sc`. O
+    // plano nunca teve efeito nenhum — e não deve ter mesmo, porque quem parou aqui parou
+    // quando o safety car saiu, não quando o plano mandava.
     for state in states.iter_mut() {
         if state.is_dnf || state.paradas.pendentes.is_empty() {
             continue;
         }
-        let volta = state.paradas.pendentes.remove(0);
+        state.paradas.pendentes.remove(0);
         executar_parada(
             state,
-            volta_do_sc.max(volta.min(volta_do_sc)),
+            volta_do_sc,
             CUSTO_DE_PARADA_MS * FRACAO_DO_CUSTO_SOB_SAFETY_CAR,
         );
     }

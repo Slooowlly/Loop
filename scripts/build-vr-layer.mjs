@@ -34,7 +34,12 @@ const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC_DIR = path.join(RAIZ, "vr-overlay", "src");
 const FONTES = ["overlay_layer.cpp", "shared_frame.h"].map((f) => path.join(SRC_DIR, f));
 const OPENXR_DIR = path.join(SRC_DIR, "OpenXR-SDK");
-const OPENXR_TAG = "release-1.1.43"; // mesmo pin do CMakeLists.txt
+const OPENXR_URL = "https://github.com/KhronosGroup/OpenXR-SDK.git";
+// Pin pelo SHA DO COMMIT, não pela tag: tag é ponteiro móvel e quem publica pode reapontar
+// `release-1.1.43` para outro commit sem que nada aqui mude. O SHA é o conteúdo. Mesmo pin
+// do CMakeLists.txt — o guard scripts/tests/vr-overlay-build-pin.test.mjs cobra a igualdade.
+const OPENXR_SHA = "781f2eab3698d653c804ecbd11e0aed47eaad1c6";
+const OPENXR_REF = "release-1.1.43"; // só documental: qual release é esse SHA
 const OUT_DIR = path.join(RAIZ, "src-tauri", "resources");
 const OUT_DLL = path.join(OUT_DIR, "iracer_overlay_layer.dll");
 const OBJ_DIR = path.join(RAIZ, "vr-overlay", "build", "cl");
@@ -68,17 +73,61 @@ function estaFresca() {
 }
 
 // ── Headers do OpenXR (só headers; uma API layer não linka o loader) ──
-function garanteHeaders() {
-  if (existsSync(path.join(OPENXR_DIR, "include", "openxr", "openxr.h"))) return;
-  log(`clonando headers do OpenXR (${OPENXR_TAG})…`);
+
+/// O commit em que o clone está, ou "" se o diretório não é um repositório utilizável.
+function headDoClone() {
   try {
-    execFileSync(
-      "git",
-      ["clone", "--depth", "1", "--branch", OPENXR_TAG, "https://github.com/KhronosGroup/OpenXR-SDK.git", OPENXR_DIR],
-      { stdio: "inherit" },
-    );
+    return execFileSync("git", ["-C", OPENXR_DIR, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
   } catch {
-    faltaAmbiente(`falha ao clonar os headers do OpenXR em ${OPENXR_DIR}. Precisa de git e rede na primeira vez.`);
+    return "";
+  }
+}
+
+/// Traz o SHA pinado para o clone (novo ou existente) e o deixa em HEAD.
+///
+/// É init + fetch + checkout em vez de `clone --branch`: o git não clona por SHA, só por
+/// ref. O GitHub aceita `fetch <sha>` de qualquer commit alcançável, então esta é a forma
+/// de buscar exatamente o commit pinado sem depender de a tag continuar apontando pra ele.
+function buscaSha() {
+  if (!existsSync(path.join(OPENXR_DIR, ".git"))) {
+    mkdirSync(OPENXR_DIR, { recursive: true });
+    execFileSync("git", ["-C", OPENXR_DIR, "init", "-q"], { stdio: "inherit" });
+    execFileSync("git", ["-C", OPENXR_DIR, "remote", "add", "origin", OPENXR_URL], { stdio: "inherit" });
+  }
+  execFileSync("git", ["-C", OPENXR_DIR, "fetch", "--depth", "1", "origin", OPENXR_SHA], { stdio: "inherit" });
+  execFileSync("git", ["-C", OPENXR_DIR, "checkout", "-q", "--force", OPENXR_SHA], { stdio: "inherit" });
+}
+
+function garanteHeaders() {
+  const temHeaders = existsSync(path.join(OPENXR_DIR, "include", "openxr", "openxr.h"));
+  const head = temHeaders ? headDoClone() : "";
+  if (temHeaders && head === OPENXR_SHA) return;
+
+  // Clone existente em outro commit: a máquina de quem clonou antes do pin (ou com a tag
+  // ainda móvel) compilaria contra headers diferentes dos do CI e ninguém veria. Reconcilia.
+  if (temHeaders) {
+    log(`clone do OpenXR está em ${head || "commit desconhecido"} — reconciliando com o pin ${OPENXR_SHA}…`);
+  } else {
+    log(`buscando headers do OpenXR (${OPENXR_REF} = ${OPENXR_SHA})…`);
+  }
+
+  try {
+    buscaSha();
+  } catch {
+    faltaAmbiente(
+      `falha ao buscar o commit ${OPENXR_SHA} do OpenXR em ${OPENXR_DIR}. Precisa de git e rede na primeira vez.`,
+    );
+  }
+
+  const agora = headDoClone();
+  if (agora !== OPENXR_SHA) {
+    morre(`o clone do OpenXR ficou em ${agora || "commit desconhecido"}, esperado ${OPENXR_SHA}.`);
+  }
+  if (!existsSync(path.join(OPENXR_DIR, "include", "openxr", "openxr.h"))) {
+    morre(`o commit ${OPENXR_SHA} foi buscado mas ${OPENXR_DIR}/include/openxr/openxr.h não existe.`);
   }
 }
 
@@ -133,7 +182,11 @@ mkdirSync(OBJ_DIR, { recursive: true });
 const compilar = [
   `call "${vcvars}"`,
   [
-    "cl /nologo /std:c++17 /LD /EHsc /W4",
+    // /utf-8 = fonte E execução em UTF-8. Sem ele o cl lê o .cpp na codepage do sistema e
+    // todo acento das mensagens vira mojibake no %TEMP%\iracer_overlay_layer.log — justo o
+    // arquivo que a gente lê pra descobrir por que o overlay não apareceu. Mesmo flag do
+    // CMakeLists.txt, que é o outro caminho de build da layer.
+    "cl /nologo /std:c++17 /utf-8 /LD /EHsc /W4",
     `/I"${path.join(OPENXR_DIR, "include")}"`,
     // Barra DUPLA antes da aspa: um `\"` seria lido pelo cl como aspa escapada e ele
     // engoliria o resto da linha ("missing source filename").

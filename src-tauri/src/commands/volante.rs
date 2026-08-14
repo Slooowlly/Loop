@@ -27,12 +27,15 @@ fn ligacoes() -> &'static Mutex<[Option<BotaoVolante>; 2]> {
 /// devagar o bastante pra não pesar: cada volta é uma consulta por dispositivo ligado.
 const VIGIA_MS: u64 = 30;
 
+/// O vigia já foi ligado neste processo? Fica no escopo do módulo (e não dentro de
+/// `garantir_vigia`) pra que o teste possa afirmar que a suíte NÃO subiu a thread.
+static VIGIA_LIGADO: AtomicBool = AtomicBool::new(false);
+
 /// Liga o vigia na primeira vez que alguém associa um botão. Fica vivo até o app
 /// fechar — parar e recriar a thread a cada troca de ligação renderia mais estado
 /// pra sincronizar do que o laço custa parado (com tudo `None` ele só dorme).
 fn garantir_vigia() {
-    static LIGADO: AtomicBool = AtomicBool::new(false);
-    if LIGADO.swap(true, Ordering::SeqCst) {
+    if VIGIA_LIGADO.swap(true, Ordering::SeqCst) {
         return;
     }
     std::thread::spawn(|| {
@@ -80,14 +83,23 @@ pub fn volante_dispositivos() -> Vec<u32> {
     volante::dispositivos_conectados()
 }
 
+/// Resolve o alvo e guarda a ligação. É a parte SEM efeito de mundo da associação:
+/// não sobe o vigia, não fala com DirectInput. Separada do comando justamente pra que
+/// o teste exercite a regra (alvo válido, alvo certo, desassociar) sem acordar a thread
+/// eterna de polling — que, uma vez ligada, viveria pelo resto do processo de teste.
+fn definir_ligacao(alvo: &str, botao: Option<BotaoVolante>) -> Result<(), String> {
+    let i = indice(alvo)?;
+    ligacoes().lock().unwrap()[i] = botao;
+    Ok(())
+}
+
 /// Associa (ou desassocia, com `botao: None`) um botão ao recentro do alvo.
 #[tauri::command]
 pub fn volante_set_recenter_button(
     alvo: String,
     botao: Option<BotaoVolante>,
 ) -> Result<(), String> {
-    let i = indice(&alvo)?;
-    ligacoes().lock().unwrap()[i] = botao;
+    definir_ligacao(&alvo, botao)?;
     garantir_vigia();
     Ok(())
 }
@@ -95,24 +107,51 @@ pub fn volante_set_recenter_button(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
-    #[test]
-    fn alvo_desconhecido_e_erro_e_nao_mexe_em_nada() {
-        assert!(volante_set_recenter_button("cozinha".into(), None).is_err());
+    /// As ligações são estado GLOBAL do processo. Cada caso zera o array antes de
+    /// medir e `#[serial]` impede que dois casos disputem o mesmo `Mutex` — sem isso
+    /// a asserção "o outro alvo continua vazio" quebraria por contaminação, não por bug.
+    fn zerar_ligacoes() {
+        *ligacoes().lock().unwrap() = [None, None];
     }
 
     #[test]
+    #[serial]
+    fn alvo_desconhecido_e_erro_e_nao_mexe_em_nada() {
+        zerar_ligacoes();
+        assert!(definir_ligacao("cozinha", None).is_err());
+        assert_eq!(*ligacoes().lock().unwrap(), [None, None]);
+    }
+
+    #[test]
+    #[serial]
     fn associar_e_desassociar_guarda_o_botao_do_alvo_certo() {
+        zerar_ligacoes();
         let b = BotaoVolante {
             dispositivo: 1,
             botao: 7,
         };
-        volante_set_recenter_button("engineer".into(), Some(b)).unwrap();
+        definir_ligacao("engineer", Some(b)).unwrap();
         assert_eq!(ligacoes().lock().unwrap()[1], Some(b));
         // O outro alvo não pode ter sido tocado.
         assert_eq!(ligacoes().lock().unwrap()[0], None);
 
-        volante_set_recenter_button("engineer".into(), None).unwrap();
+        definir_ligacao("engineer", None).unwrap();
         assert_eq!(ligacoes().lock().unwrap()[1], None);
+    }
+
+    /// O vigia é o único ponto que conversa com DirectInput. Nenhum caso desta suíte
+    /// pode chamá-lo — o guard existe pra que religar `volante_set_recenter_button`
+    /// aqui dentro apareça como falha, e não como uma thread silenciosa vazando.
+    #[test]
+    #[serial]
+    fn a_suite_nao_liga_o_vigia() {
+        zerar_ligacoes();
+        definir_ligacao("overlay", None).unwrap();
+        assert!(
+            !VIGIA_LIGADO.load(Ordering::SeqCst),
+            "algum caso chamou garantir_vigia e deixou a thread de polling viva"
+        );
     }
 }

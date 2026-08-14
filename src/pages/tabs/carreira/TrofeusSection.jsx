@@ -130,7 +130,7 @@ function TrofeusSection({ detail }) {
         </div>
 
         {Number.isFinite(confiabilidade.taxa_abandono) ? (
-          <p className="mt-3.5 border-t border-white/8 pt-3 text-sm text-text-secondary">
+          <p className="mt-3.5 border-t border-white/[0.08] pt-3 text-sm text-text-secondary">
             {t("carreiraTab.trofeus.reliability", {
               dnfs: confiabilidade.abandonos ?? 0,
               rate: confiabilidade.taxa_abandono.toFixed(1),
@@ -230,7 +230,7 @@ function TrofeusSection({ detail }) {
             {eventos.map((marco, indice) => (
               <li
                 key={`${marco.tipo}-${indice}`}
-                className="rounded-lg border border-white/6 bg-black/10 px-3.5 py-2.5"
+                className="rounded-lg border border-white/[0.06] bg-black/10 px-3.5 py-2.5"
               >
                 <strong className="block text-sm font-semibold text-text-primary">
                   {marco.titulo}
@@ -249,7 +249,7 @@ function TrofeusSection({ detail }) {
 
 function Linha({ icone: Icone, rotulo, valor }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-white/6 py-2 last:border-b-0">
+    <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] py-2 last:border-b-0">
       <dt className="flex min-w-0 items-center gap-2.5 text-xs text-text-secondary">
         <Icone size={14} strokeWidth={1.8} aria-hidden="true" className="shrink-0 text-text-muted" />
         <span className="truncate">{rotulo}</span>

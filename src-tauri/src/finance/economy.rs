@@ -80,17 +80,19 @@ pub fn global_economic_health_do_save(career_id: &str, season_number: i32) -> Gl
     }
 }
 
-/// A saúde macroeconômica sem a identidade do save — **o ciclo fixo, legado**.
+/// O ciclo fixo, sem a identidade do save — **só para teste**.
 ///
-/// Recessão em toda temporada múltipla de 6, boom sempre na 3: a sequência que todo jogador
-/// vive igual e decora. Continua exatamente assim de propósito, porque trocá-la aqui mudaria
-/// a economia de todo save sem entregar o que o item pede — a variedade só aparece quando
-/// quem chama souber dizer QUAL save é.
+/// Recessão em toda temporada múltipla de 6, boom sempre na 3. Era isto que a produção
+/// rodava, e é exatamente o que o item A7.10 tirou dela: todo jogador vivia a mesma
+/// sequência e sabia de antemão o ano em que a receita cai. Os três call sites vivos
+/// (`commands::race::persistencia`, `commands::race::importacao` e a fatura em
+/// `commands::race`) passaram a chamar [`global_economic_health_do_save`].
 ///
-/// **Dependência de integração:** os call sites vivos são `commands::race::persistencia`,
-/// `commands::race::importacao` e `commands::race` (a fatura do pós-corrida). Todos têm o
-/// `career_id` à mão; trocar a chamada por [`global_economic_health_do_save`] fecha o item e
-/// aposenta esta função.
+/// Sobrevive `#[cfg(test)]` porque os harness de medição financeira querem uma cronologia
+/// econômica FIXA entre execuções e entre saves — é o que mantém os números deles
+/// comparáveis. A anotação é a trava: nenhum caminho de produção volta a compilar contra
+/// ela sem passar por aqui.
+#[cfg(test)]
 pub fn global_economic_health_for_season(season_number: i32) -> GlobalEconomicHealth {
     match season_number.rem_euclid(TEMPORADAS_POR_CICLO) {
         0 => GlobalEconomicHealth::Recession,
@@ -167,6 +169,38 @@ mod tests {
                         .count(),
                     1,
                     "save {save:?} ciclo {ciclo}: {saudes:?}"
+                );
+            }
+        }
+    }
+
+    /// **Só a posição mudou; a frequência, não.** Num horizonte alinhado ao ciclo, o sorteio
+    /// por save entrega exatamente o mesmo número de recessões e de booms que a cronologia
+    /// fixa antiga. É a trava contra o risco real de trocar a função nos call sites de
+    /// produção: mexer sem querer em quanto o mundo passa em recessão seria rebalancear a
+    /// economia inteira por acidente.
+    #[test]
+    fn a_cadencia_e_a_mesma_da_cronologia_fixa() {
+        const HORIZONTE: i32 = 5 * TEMPORADAS_POR_CICLO;
+        let conta = |saudes: &[GlobalEconomicHealth], alvo: GlobalEconomicHealth| {
+            saudes.iter().filter(|s| **s == alvo).count()
+        };
+        let legado: Vec<_> = (0..HORIZONTE)
+            .map(global_economic_health_for_season)
+            .collect();
+        for save in ["carreira-a", "carreira-b", "", "9f0c7b1e-uuid-de-save"] {
+            let por_save: Vec<_> = (0..HORIZONTE)
+                .map(|t| global_economic_health_do_save(save, t))
+                .collect();
+            for alvo in [
+                GlobalEconomicHealth::Recession,
+                GlobalEconomicHealth::Boom,
+                GlobalEconomicHealth::Neutral,
+            ] {
+                assert_eq!(
+                    conta(&por_save, alvo),
+                    conta(&legado, alvo),
+                    "save {save:?} mudou a frequência de {alvo:?}: {por_save:?}"
                 );
             }
         }

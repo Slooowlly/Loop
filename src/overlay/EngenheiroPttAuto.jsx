@@ -5,6 +5,7 @@ import { estaNoTauri } from "../lib/tauri";
 import * as microfone from "../lib/microfone";
 import * as voz from "../lib/engenheiroVoz";
 import { criarOrquestrador } from "../lib/pttEngenheiro";
+import { CANAL_OCASIAO, ouvirCutucao } from "../lib/cutucaoDoRadio";
 import { estaEmTeste, GATILHO_STORE, lerGatilhoSalvo, lerMicSalvo } from "../lib/pttConfig";
 import useCareerStore from "../stores/useCareerStore";
 
@@ -112,9 +113,16 @@ export default function EngenheiroPttAuto() {
       }
     };
     const id = setInterval(tick, POLL_SESSAO_MS);
+    // O CUTUCÃO da ocasião. Este canal é o que mais sofre com o timer estrangulado, e por uma
+    // razão que os outros não têm: a ocasião é uma JANELA de tempo, não uma fila. A volta de
+    // formação e a bandeirada duram o que duram, e um poll de 2 s que virou 20 s atravessa a
+    // janela inteira sem vê-la — a fala não atrasa, ela simplesmente não acontece. O Rust avisa
+    // na borda de abertura; o trinco de uma vez por corrida continua sendo dele.
+    const pararCutucao = ouvirCutucao(CANAL_OCASIAO, tick);
     return () => {
       parado = true;
       clearInterval(id);
+      pararCutucao();
     };
   }, []);
 

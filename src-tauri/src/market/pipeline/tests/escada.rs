@@ -415,6 +415,73 @@ fn affordability_makes_broke_seat_descend_to_cheaper_candidate() {
 }
 
 #[test]
+fn deep_recruitment_le_a_forca_do_carro_na_escala_da_vaga() {
+    // O caminho REAL do recrutamento profundo: a vaga carrega `car_strength` em 0–100 e
+    // entrega esse número ao `evaluate_proposal`. Duas grades idênticas, só o carro muda
+    // (20 e 100): o craque aceita mais o assento do carro bom. Enquanto o piloto
+    // renormalizava a força como escala legada, qualquer carro acima de 16 saturava em
+    // 100 — as duas grades davam o MESMO score e as contagens empatavam.
+    let conn = Connection::open_in_memory().expect("in-memory db");
+    migrations::run_all(&conn).expect("schema");
+
+    let mut team_rng = StdRng::seed_from_u64(910);
+    let gt3 = sample_team("gt3", "TDEEP", &mut team_rng);
+    let base_vaga = fallback_vacancy_from_team(&gt3);
+    assert_eq!(
+        base_vaga.category_tier, 4,
+        "o gate do fundo exige tier >= 4"
+    );
+    assert!(
+        matches!(base_vaga.papel_necessario, TeamRole::Numero1),
+        "vaga de titular: isola o efeito do carro da resistência a ser N2"
+    );
+
+    // O craque preso na várzea: skill acima da média do topo (tier 4), sentado num tier
+    // inferior, sem personalidade que enviese a decisão.
+    let mut craque = sample_driver("PDEEP", "Craque", Some("bmw_m2"), 84.0, DriverStatus::Ativo);
+    craque.personalidade_primaria = None;
+    craque.atributos.midia = 0.0;
+    let drivers_by_id: HashMap<String, Driver> =
+        HashMap::from([(craque.id.clone(), craque.clone())]);
+    let contexts: HashMap<String, DriverMarketContext> = HashMap::new();
+    let license_levels: HashMap<String, u8> = HashMap::new();
+
+    let aceites = |car_strength: f64| {
+        let mut vaga = base_vaga.clone();
+        vaga.car_strength = car_strength;
+        // Prestígio fora da conta: só o carro varia entre as duas grades.
+        vaga.reputacao = 0.0;
+        (1..=40)
+            .filter(|seed| {
+                let mut rng = StdRng::seed_from_u64(*seed);
+                deep_recruitment_candidate(
+                    &conn,
+                    &vaga,
+                    &drivers_by_id,
+                    &contexts,
+                    &license_levels,
+                    None,
+                    None,
+                    &mut rng,
+                )
+                .expect("recrutamento profundo")
+                .is_some()
+            })
+            .count()
+    };
+
+    let (carro_fraco, carro_bom) = (aceites(20.0), aceites(100.0));
+    assert!(
+        carro_bom > carro_fraco,
+        "o carro da vaga tem que pesar na decisão do craque: 20→{carro_fraco}, 100→{carro_bom}"
+    );
+    assert!(
+        carro_fraco < 40,
+        "com carro 20 o craque não pode aceitar sempre — foi {carro_fraco}/40"
+    );
+}
+
+#[test]
 fn test_pool_fallback_for_non_rookie_vacancy_uses_experienced_lower_license_before_debutant() {
     let conn = Connection::open_in_memory().expect("in-memory db");
     migrations::run_all(&conn).expect("schema");
@@ -800,4 +867,3 @@ fn test_final_vacancy_fill_leaves_non_debut_vacancy_open_when_no_candidate() {
         "o grid deve terminar completo (sem vaga regular aberta)"
     );
 }
-

@@ -12,6 +12,10 @@
 //   • Cadeia de rádio BAKED IN. Estas falas nunca são coladas umas nas outras — cada
 //     uma sai sozinha —, então não há a razão que obrigava a filtrar depois de
 //     juntar, e filtrar na geração deixa o app com um `<audio>` e nada mais.
+//   • Peça MEDIDA antes de virar arquivo. A Chirp 3 devolve 200 OK com silêncio dentro,
+//     e o piso de pico/duração que separa fala de silêncio é o mesmo do pacote do
+//     engenheiro, importado de `tts-poc/filtro-radio.mjs`. Tomada que não passa é
+//     refeita; se nenhuma passar, nada é gravado.
 //
 // O nome do arquivo é a CHAVE do evento (`iracing_sdk::spotter`). Sem carimbo de
 // tempo: o app importa por nome, e um pacote que muda de nome a cada geração não
@@ -30,7 +34,16 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-import { aparar, aplicarRadio, buracoInterno, escreverWav, lerWav, pico } from "./tts-poc/filtro-radio.mjs";
+import {
+  aparar,
+  aplicarRadio,
+  avaliarPeca,
+  buracoInterno,
+  escreverWav,
+  lerWav,
+  DURACAO_MINIMA_S,
+  PICO_MINIMO,
+} from "./tts-poc/filtro-radio.mjs";
 import { FALAS } from "./spotter-falas.mjs";
 
 const ENDPOINT = "https://texttospeech.googleapis.com/v1/text:synthesize";
@@ -140,6 +153,70 @@ async function sintetizar(texto) {
   throw new Error(`${TENTATIVAS} tentativas recusadas. Última: ${ultima}`);
 }
 
+/// Uma tomada: sintetiza, apara e aplica o rádio. NÃO grava nada.
+///
+/// Separar o processamento da gravação é o ponto todo. Antes, `escreverWav` acontecia antes da
+/// medição, então a peça muda virava arquivo no disco e a execução seguinte a pulava pelo "já
+/// existe" — o defeito ficava permanente e invisível, e o sintoma na pista era silêncio, que é
+/// indistinguível de "não havia o que falar".
+async function gerarUmaTomada(chave, texto) {
+  const t0 = performance.now();
+  const bruto = await sintetizar(texto);
+  const ms = Math.round(performance.now() - t0);
+
+  // O leitor de WAV da POC trabalha em cima de arquivo, então o bruto passa por um temporário
+  // com nome iniciado por ponto — o `import.meta.glob` do Vite ignora, e uma rodada
+  // interrompida no meio não deixa lixo que o app tente carregar.
+  const temporario = path.join(DESTINO, `.${chave}.cru.wav`);
+  fs.writeFileSync(temporario, bruto);
+  const { amostras, taxa } = lerWav(temporario);
+  fs.unlinkSync(temporario);
+
+  const cortado = aparar(amostras, taxa);
+  const final = opcoes.radio ? aplicarRadio(cortado, taxa) : cortado;
+  const peca = avaliarPeca(final, taxa);
+  return {
+    ms,
+    taxa,
+    final,
+    antes: amostras.length / taxa,
+    depois: peca.duracao,
+    pico: peca.pico,
+    utilizavel: peca.utilizavel,
+    motivo: peca.motivo,
+    buraco: buracoInterno(cortado, taxa),
+  };
+}
+
+/// Insiste enquanto a tomada voltar inutilizável. É o MESMO recurso do retry de HTTP e pelo
+/// mesmo motivo: o defeito é não determinístico — a Chirp 3 devolve 200 OK com silêncio dentro,
+/// e a MESMA frase sai boa na tentativa seguinte. Vence a última tomada; se nenhuma prestar, o
+/// chamador não grava.
+async function gerarUma(chave, texto) {
+  for (let tentativa = 1; ; tentativa += 1) {
+    const r = await gerarUmaTomada(chave, texto);
+    if (r.utilizavel || tentativa >= TENTATIVAS) return { ...r, tentativas: tentativa };
+    process.stdout.write(
+      `   ↻  ${chave.padEnd(14)} tomada ${tentativa} inutilizável (${r.motivo}), refazendo\n`,
+    );
+    await dormir(ESPERA_BASE_MS * tentativa);
+  }
+}
+
+/// A peça que já está no disco ainda é uma peça?
+///
+/// O "já existe" pula pelo NOME, e um `.wav` mudo gravado por uma rodada antiga tem nome tão
+/// bom quanto o de uma fala boa. Sem esta releitura, o único jeito de sair do buraco seria
+/// alguém desconfiar e apagar o arquivo à mão.
+function jaEstaBoa(destino) {
+  try {
+    const { amostras, taxa } = lerWav(destino);
+    return avaliarPeca(amostras, taxa);
+  } catch {
+    return { utilizavel: false, motivo: "não abre como WAV" };
+  }
+}
+
 const avisos = [];
 const falhas = [];
 let gerados = 0;
@@ -147,49 +224,53 @@ let gerados = 0;
 for (const [chave, texto] of Object.entries(FALAS)) {
   const destino = path.join(DESTINO, `${chave}.wav`);
   if (!opcoes.refazer && fs.existsSync(destino)) {
-    console.log(`   ·  ${chave.padEnd(14)} já existe`);
-    continue;
+    const disco = jaEstaBoa(destino);
+    if (disco.utilizavel) {
+      console.log(`   ·  ${chave.padEnd(14)} já existe`);
+      continue;
+    }
+    console.log(`   ↻  ${chave.padEnd(14)} o arquivo no disco é inutilizável (${disco.motivo}), refazendo`);
   }
 
-  const t0 = performance.now();
   // Uma fala que não sai não pode derrubar as outras. Antes, a exceção subia e a rodada
   // morria no meio — com o agravante de que as JÁ GERADAS ficavam no disco, então a
   // execução seguinte as pulava pelo `já existe` e o buraco virava invisível. O resumo do
   // fim é que fecha a conta.
-  let bruto;
+  let r;
   try {
-    bruto = await sintetizar(texto);
+    r = await gerarUma(chave, texto);
   } catch (e) {
     falhas.push({ chave, texto, motivo: String(e.message || e).split("\n")[0] });
     console.log(`   ✘  ${chave.padEnd(14)} NÃO SAIU — ${String(e.message || e).slice(0, 120)}`);
     continue;
   }
-  const ms = Math.round(performance.now() - t0);
 
-  // Grava, lê de volta pelo mesmo leitor que o resto da POC usa e processa.
-  const temporario = path.join(DESTINO, `.${chave}.cru.wav`);
-  fs.writeFileSync(temporario, bruto);
-  const { amostras, taxa } = lerWav(temporario);
-  fs.unlinkSync(temporario);
-
-  const antes = amostras.length / taxa;
-  const cortado = aparar(amostras, taxa);
-  const final = opcoes.radio ? aplicarRadio(cortado, taxa) : cortado;
-  escreverWav(destino, final, taxa);
-
-  const depois = final.length / taxa;
-  const buraco = buracoInterno(cortado, taxa);
-  if (buraco > 0) {
-    avisos.push(`${chave}: ${buraco.toFixed(2)}s de silêncio DENTRO da fala — o modelo partiu em dois fôlegos`);
+  if (!r.utilizavel) {
+    // Nada é gravado. Um arquivo mudo é PIOR que arquivo nenhum: com ele, a próxima execução
+    // pula a chave e o pacote fica com um buraco que ninguém vê; sem ele, o gerador tenta de
+    // novo até alguém resolver, e o resumo do fim aponta a chave pelo nome.
+    falhas.push({
+      chave,
+      texto,
+      motivo: `inutilizável em ${r.tentativas} tomada(s) (${r.motivo}) — piso ${PICO_MINIMO} de pico, ${DURACAO_MINIMA_S}s de duração`,
+    });
+    console.log(`   ✘  ${chave.padEnd(14)} INUTILIZÁVEL — ${r.motivo}, nada gravado`);
+    continue;
   }
-  if (depois > DURACAO_SUSPEITA_S) {
-    avisos.push(`${chave}: ${depois.toFixed(2)}s é longo demais para um aviso de spotter`);
+
+  escreverWav(destino, r.final, r.taxa);
+
+  if (r.buraco > 0) {
+    avisos.push(`${chave}: ${r.buraco.toFixed(2)}s de silêncio DENTRO da fala — o modelo partiu em dois fôlegos`);
+  }
+  if (r.depois > DURACAO_SUSPEITA_S) {
+    avisos.push(`${chave}: ${r.depois.toFixed(2)}s é longo demais para um aviso de spotter`);
   }
 
   gerados += 1;
   console.log(
-    `  ${String(gerados).padStart(2)}  ${chave.padEnd(14)} ${String(ms).padStart(5)} ms  ` +
-      `${antes.toFixed(2)}s → ${depois.toFixed(2)}s  pico ${pico(final).toFixed(2)}  ${destino}`,
+    `  ${String(gerados).padStart(2)}  ${chave.padEnd(14)} ${String(r.ms).padStart(5)} ms  ` +
+      `${r.antes.toFixed(2)}s → ${r.depois.toFixed(2)}s  pico ${r.pico.toFixed(2)}  ${destino}`,
   );
 }
 

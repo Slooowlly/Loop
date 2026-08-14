@@ -239,11 +239,22 @@ export const createMarketSlice = (set, get) => ({
     }
   },
 
+  // Fecha a pré-temporada e devolve a carreira já na temporada nova.
+  //
+  // A trava de voo não é enfeite: `finalize_preseason` cria o calendário e promove a fase, e
+  // o botão "Iniciar temporada" chega a ela por três caminhos (o avanço de semana e os dois
+  // modais de confirmação), nenhum deles desabilitado enquanto a chamada roda. Dois cliques
+  // rápidos disparavam duas finalizações contra o mesmo save.
   finalizePreseason: async () => {
-    const { careerId } = get();
+    const { careerId, isFinalizingPreseason } = get();
+    if (isFinalizingPreseason) {
+      return null;
+    }
     if (!careerId) {
       throw new Error(i18n.t("storeErrors.careerNotLoaded"));
     }
+
+    set({ isFinalizingPreseason: true, error: null });
 
     try {
       await invoke("finalize_preseason", { careerId });
@@ -265,6 +276,7 @@ export const createMarketSlice = (set, get) => ({
         otherCategoriesResult: null,
         isAdvancing: false,
         isAdvancingWeek: false,
+        isFinalizingPreseason: false,
         isRespondingProposal: false,
         isDirty: false,
       });
@@ -272,7 +284,7 @@ export const createMarketSlice = (set, get) => ({
       return data;
     } catch (error) {
       const message = getErrorMessage(error, i18n.t("storeErrors.startNewSeason"));
-      set({ error: message });
+      set({ isFinalizingPreseason: false, error: message });
       throw error;
     }
   },

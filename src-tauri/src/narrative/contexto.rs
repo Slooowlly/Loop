@@ -78,8 +78,12 @@ pub fn build_race_context(result: &RaceResult, input: &RaceContextInput) -> Stri
     // nos fatos). O servidor usa isso para citá-lo pelo nome, nunca como protagonista.
     // O rótulo é redigido em linguagem de universo (nada de "leitor"/"jogador"): quando
     // o modelo copia o rótulo para a matéria — e às vezes copia, apesar da instrução —,
-    // o texto continua lendo como jornalismo, não como instrução interna vazada. A
-    // última linha de defesa é o filtro de meta-linguagem na resposta (client.rs).
+    // o texto continua lendo como jornalismo, e nunca como instrução interna vazada.
+    // Este rótulo é a ÚNICA defesa em tempo de execução: não existe filtro de
+    // meta-linguagem na resposta do servidor. O texto velho, gravado antes desta
+    // redação, foi limpo de uma vez pela migração v64
+    // (`db::migrations::normaliza_meta_linguagem`), que substituiu o filtro no caminho
+    // quente justamente por ser conserto de dado, e não de fluxo.
     if has_player {
         if let Some(name) = result
             .race_results

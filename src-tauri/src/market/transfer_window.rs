@@ -27,9 +27,7 @@ mod pontuacao;
 mod tipos;
 
 pub use estado::{run_window, WindowState};
-pub use tipos::{
-    Candidate, PlayerOffer, Seat, Signing, WindowConfig, SEAT_W_CAR, SEAT_W_PRESTIGE,
-};
+pub use tipos::{Candidate, PlayerOffer, Seat, Signing, WindowConfig, SEAT_W_CAR, SEAT_W_PRESTIGE};
 
 #[cfg(test)]
 mod tests;

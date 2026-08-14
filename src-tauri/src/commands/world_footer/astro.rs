@@ -3,8 +3,11 @@
 use super::*;
 
 /// Fama mínima (escala de EXIBIÇÃO da ficha) para um piloto ser "astro" digno de nota:
-/// tier Estrela+ — a régua vai Nome forte ≤70 / Estrela ≤87 / Ídolo >87. Abaixo disso
-/// não há estrela de verdade e a categoria não rende manchete de público.
+/// tier Estrela+. A régua canônica (`fame::active_interest_team_count`) corta em
+/// Nome forte ≤70 / Estrela ≤87 / Ídolo >87; aqui os cortes são o INTEIRO seguinte
+/// (71 e 88), então uma fama fracionária na fresta (70,5 ou 87,5) cai um tier abaixo
+/// do que a ficha mostra. É de propósito: a nota é conservadora, só sai com o tier
+/// cheio. Abaixo disso não há estrela de verdade e a categoria não rende manchete.
 const STAR_MIN_FAMA: f64 = 71.0;
 const IDOL_MIN_FAMA: f64 = 88.0;
 

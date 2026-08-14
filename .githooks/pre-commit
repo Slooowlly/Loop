@@ -1,7 +1,10 @@
 #!/bin/sh
 # Bloqueia o commit se houver strings de UI em português sem tradução (fora de t())
-# nos arquivos .jsx que estão no stage. Marque exceções com {/* i18n-ignore */} na linha
-# ou // i18n-ignore-file no topo do arquivo. Rodar manual: `npm run i18n:audit`.
+# nos arquivos .jsx e .js que estão no stage. Marque exceções com {/* i18n-ignore */} na
+# linha ou // i18n-ignore-file no topo do arquivo. Rodar manual: `npm run i18n:audit`.
+#
+# O passivo de .js anterior a 11/08/2026 está congelado em scripts/i18nBaseline.mjs — texto
+# novo falha, texto velho não trava o commit de quem só passou por perto.
 #
 # Ativação (feita 1x pelo `npm install` via script "prepare", ou manualmente):
 #   git config core.hooksPath .githooks

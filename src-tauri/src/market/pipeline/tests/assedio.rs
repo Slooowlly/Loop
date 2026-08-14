@@ -448,4 +448,3 @@ fn player_display_bids_dont_fake_a_fight_when_holder_stays_put() {
     let bids = build_player_display_bids(&real, "X", "Y", 200_000.0, 400_000.0, 200_000.0);
     assert_eq!(bids.len(), real.len());
 }
-

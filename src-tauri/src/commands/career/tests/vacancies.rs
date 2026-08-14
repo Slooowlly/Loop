@@ -114,5 +114,8 @@ fn season_market_board_marks_eligibility_by_tier_and_license() {
 
     assert_eq!(board.vagas_elegiveis, 1);
     // Elegível primeiro: a ordem é parte do contrato que a tela consome.
-    assert_eq!(board.vagas.first().map(|vaga| vaga.team_id.as_str()), Some(equipe_da_faixa.as_str()));
+    assert_eq!(
+        board.vagas.first().map(|vaga| vaga.team_id.as_str()),
+        Some(equipe_da_faixa.as_str())
+    );
 }

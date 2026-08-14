@@ -323,7 +323,10 @@ mod tests {
             );
             // E a fração declarada tem que ser MINORITÁRIA — falir não pode aproximar a
             // equipe do caixa de quem não faliu.
-            assert!(razao < 0.5, "{categoria}: falir entrega {razao:.2} do mediano");
+            assert!(
+                razao < 0.5,
+                "{categoria}: falir entrega {razao:.2} do mediano"
+            );
         }
     }
 

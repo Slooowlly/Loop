@@ -349,4 +349,3 @@ fn test_run_market_rolls_back_when_market_persist_fails() {
         .expect("market rows");
     assert_eq!(season_market_rows, 0);
 }
-

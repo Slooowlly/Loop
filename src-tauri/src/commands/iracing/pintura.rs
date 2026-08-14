@@ -78,6 +78,11 @@ pub struct ApplyPaintResult {
 /// do iRacing: `paint/<carro>/car_<custid>.tga`. Usa o custid já capturado.
 /// Disparo MANUAL do painel de diagnóstico, então ignora o interruptor das
 /// Configurações de propósito: quem clicou pediu a pintura agora.
+///
+/// É o ÚNICO caminho que ainda recebe `car_key`, e ele não é uma regra de categoria: o
+/// painel tem um seletor de carro e quem clica escolheu aquele carro à mão. Os caminhos
+/// automáticos (export e mercado) recebem a categoria e resolvem por
+/// [`super::exportavel`].
 #[tauri::command]
 pub fn iracing_apply_player_paint(
     app: tauri::AppHandle,
@@ -124,16 +129,15 @@ pub fn iracing_apply_player_paint(
 /// para repintar o carro automaticamente a cada troca de equipe no mercado.
 const PLAYER_CUSTID_META_KEY: &str = "player_iracing_custid";
 
-/// Mapeia a categoria da carreira no carro do iRacing (mesma regra do export).
-fn car_key_for_category(categoria: &str) -> &'static str {
-    let c = categoria.to_lowercase();
-    if c.contains("gr86") || c.contains("toyota") {
-        "gr86"
-    } else if c.contains("bmw") || c.contains("m2") {
-        "bmwm2"
-    } else {
-        "mx5" // mazda mx-5 e padrão
-    }
+/// O carro que a pintura deve escrever para uma categoria, ou `None` quando o export não
+/// sabe exportar essa categoria.
+///
+/// Aqui havia uma CÓPIA da regra por substring do frontend, com o mesmo `else → mx5`: numa
+/// carreira de GT3 o Loop pintava a pasta do MX-5 e o jogador nunca via a cor da equipe no
+/// carro que estava dirigindo. Hoje delega para a fonte única, e `None` é silêncio honesto
+/// — pintar a pasta errada é pior que não pintar.
+fn car_key_for_category(categoria: &str) -> Option<&'static str> {
+    super::exportavel::car_key_da_categoria(categoria).ok()
 }
 
 /// Sufixo do backup da pintura que já existia na pasta do iRacing. Guardado UMA
@@ -355,13 +359,17 @@ fn capture_player_custid() -> Option<i64> {
 /// [`iracing_desfazer_pinturas`], que devolve o que já foi escrito.
 ///
 /// Silencioso por contrato: devolve `None` quando a pintura está desligada nas
-/// Configurações ou quando ainda não temos o custid (o jogador nunca abriu o
-/// iRacing). Nos dois casos não há nada a mostrar, e a exportação segue.
+/// Configurações, quando ainda não temos o custid (o jogador nunca abriu o iRacing) ou
+/// quando o export não sabe qual é o carro da categoria. Nos três casos não há nada a
+/// mostrar, e a exportação segue.
+///
+/// Recebe a CATEGORIA, não a `car_key`: a tradução é uma só e mora em
+/// [`super::exportavel`], junto com a do roster e a da temporada.
 #[tauri::command]
 pub fn iracing_auto_paint_player(
     app: tauri::AppHandle,
     career_id: String,
-    car_key: String,
+    categoria: String,
 ) -> Result<Option<ApplyPaintResult>, String> {
     use crate::config::app_config::AppConfig;
     use crate::db::connection::Database;
@@ -372,6 +380,9 @@ pub fn iracing_auto_paint_player(
     if !auto_paint_enabled(&app) {
         return Ok(None);
     }
+    let Some(car_key) = car_key_for_category(&categoria) else {
+        return Ok(None); // categoria sem carro decidido → não há pasta certa para pintar
+    };
     let custid = match capture_player_custid() {
         Some(id) => id,
         None => return Ok(None), // nunca abriu o iRacing → pinta na próxima vez
@@ -396,7 +407,7 @@ pub fn iracing_auto_paint_player(
         .ok_or("Você não tem contrato/time ativo nesta carreira.")?;
 
     let (path, color) = write_player_car_tga(
-        &car_key,
+        car_key,
         &roster_gen::normalize_hex(&team.cor_primaria),
         custid,
     )?;
@@ -457,7 +468,10 @@ pub fn iracing_apply_market_paint(
         );
     }
 
-    let car_key = car_key_for_category(&category);
+    // Categoria sem carro decidido no export: nada a pintar, e o front não mostra toast.
+    let Some(car_key) = car_key_for_category(&category) else {
+        return Ok(None);
+    };
     let (path, color) = write_player_car_tga(car_key, &team_color, custid)?;
     Ok(Some(ApplyPaintResult {
         path,
@@ -525,7 +539,10 @@ mod tests {
         std::fs::write(&backup, b"a pintura que o jogador baixou").unwrap();
         paint_gen::write_solid_tga(&tga, "00FF00").unwrap();
 
-        assert_eq!(desfazer_pintura(&tga).unwrap(), EstadoDoDesfazer::Restaurada);
+        assert_eq!(
+            desfazer_pintura(&tga).unwrap(),
+            EstadoDoDesfazer::Restaurada
+        );
         assert_eq!(
             std::fs::read(&tga).unwrap(),
             b"a pintura que o jogador baixou"
@@ -554,7 +571,10 @@ mod tests {
         let dir = pasta("preserva");
         let tga = dir.join("car_1.tga");
         std::fs::write(&tga, b"pintura feita a mao").unwrap();
-        assert_eq!(desfazer_pintura(&tga).unwrap(), EstadoDoDesfazer::Preservada);
+        assert_eq!(
+            desfazer_pintura(&tga).unwrap(),
+            EstadoDoDesfazer::Preservada
+        );
         assert!(tga.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -577,11 +597,47 @@ mod tests {
         let tga = dir.join("car_1.tga");
         std::fs::write(&tga.with_extension(PAINT_BACKUP_SUFFIX), b"original").unwrap();
         paint_gen::write_solid_tga(&tga, "445566").unwrap();
-        assert_eq!(desfazer_pintura(&tga).unwrap(), EstadoDoDesfazer::Restaurada);
+        assert_eq!(
+            desfazer_pintura(&tga).unwrap(),
+            EstadoDoDesfazer::Restaurada
+        );
         // Na segunda, o que está lá é a pintura do jogador — e ela fica.
-        assert_eq!(desfazer_pintura(&tga).unwrap(), EstadoDoDesfazer::Preservada);
+        assert_eq!(
+            desfazer_pintura(&tga).unwrap(),
+            EstadoDoDesfazer::Preservada
+        );
         assert_eq!(std::fs::read(&tga).unwrap(), b"original");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A pintura automática usa a MESMA tabela do roster e da temporada. O que este caso
+    /// trava é a volta do `else → mx5` que morava aqui: numa carreira de GT3 o Loop pintava
+    /// a pasta do MX-5, e o jogador nunca via a cor da equipe no carro que dirigia.
+    #[test]
+    fn a_pintura_segue_a_mesma_tabela_do_export() {
+        for (categoria, esperado) in [
+            ("mazda_rookie", "mx5"),
+            ("toyota_rookie", "gr86"),
+            ("mazda_amador", "mx5"),
+            ("toyota_amador", "gr86"),
+            ("bmw_m2", "bmwm2"),
+        ] {
+            assert_eq!(car_key_for_category(categoria), Some(esperado));
+        }
+        for categoria in [
+            "gt4",
+            "gt3",
+            "lmp2",
+            "production_challenger",
+            "endurance",
+            "categoria_que_nao_existe",
+        ] {
+            assert_eq!(
+                car_key_for_category(categoria),
+                None,
+                "{categoria} não pode escolher pasta de pintura por omissão"
+            );
+        }
     }
 
     /// A lista que o desfazer varre precisa bater com os carros que o Loop sabe

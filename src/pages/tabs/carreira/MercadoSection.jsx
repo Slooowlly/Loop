@@ -6,6 +6,7 @@ import {
   formatContractPeriod,
   formatContractRole,
 } from "../../../components/driver/detalhes/formatadores.js";
+import { ordinal } from "../../../i18n/format.js";
 import { formatMoneyCompact, formatSalaryAnnual } from "../../../utils/formatters";
 import { getVividTeamColor } from "../../../utils/teamColors";
 import { Bloco, Numero, Vazio } from "./primitivos.jsx";
@@ -29,11 +30,11 @@ import { Bloco, Numero, Vazio } from "./primitivos.jsx";
 //   • vagas — `get_season_market_board`, o único dado novo que este item precisou.
 //
 // O que esta tela deliberadamente NÃO faz: conduzir a janela de transferências. O
-// comando `advance_transfer_window` está registrado e o backlog pedia para ligá-lo,
-// mas ele é um no-op documentado no próprio Rust — "apenas devolve o estado atual
-// das ofertas, sem avançar nada". Quem avança o mercado de verdade é
-// `advance_market_week`, que a pré-temporada já conduz. Um botão aqui seria um botão
-// que não faz nada.
+// backlog pedia para ligar o comando `advance_transfer_window` aqui, mas ele era um
+// no-op — corpo idêntico ao de `get_transfer_window_state`, com o `accepted_seat_id`
+// ignorado. Um botão aqui seria um botão que não faz nada. Quem avança o mercado de
+// verdade é `advance_market_week`, que a pré-temporada já conduz; o comando órfão foi
+// removido do backend em 11/08/2026.
 function MercadoSection({ detail, board, teamInterest }) {
   const { t } = useTranslation();
   const contrato = detail.contrato_mercado?.contrato ?? null;
@@ -78,7 +79,7 @@ function MercadoSection({ detail, board, teamInterest }) {
                 className={`mt-3.5 flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 ${
                   ultimoAno
                     ? "border-status-yellow/35 bg-status-yellow/10"
-                    : "border-white/8 bg-black/10"
+                    : "border-white/[0.08] bg-black/10"
                 }`}
                 data-testid="carreira-mercado-prazo"
               >
@@ -121,7 +122,10 @@ function MercadoSection({ detail, board, teamInterest }) {
                     // do grid. Vem do backend junto com o denominador.
                     mercado.posicao_valor && mercado.total_valor
                       ? t("carreiraTab.mercado.valueRank", {
-                          position: mercado.posicao_valor,
+                          // `ordinal()` e não um sufixo na chave: "5º" e "5th" têm
+                          // regras diferentes, e cravar "º" no pt-BR faria o en-US
+                          // herdar um ordinal português ou pedir uma segunda chave.
+                          position: ordinal(mercado.posicao_valor),
                           total: mercado.total_valor,
                         })
                       : null
@@ -168,7 +172,7 @@ function MercadoSection({ detail, board, teamInterest }) {
               {teamInterest.teams.map((equipe, indice) => (
                 <li
                   key={`${equipe.team_name}-${indice}`}
-                  className="flex items-center gap-2.5 rounded-lg border border-white/6 bg-black/10 px-3 py-2"
+                  className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-black/10 px-3 py-2"
                 >
                   <Eye
                     size={14}
@@ -219,7 +223,7 @@ function MercadoSection({ detail, board, teamInterest }) {
                   className={`flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border px-3.5 py-2.5 ${
                     elegivel
                       ? "border-accent-primary/25 bg-accent-primary/[0.07]"
-                      : "border-white/6 bg-black/10"
+                      : "border-white/[0.06] bg-black/10"
                   }`}
                 >
                   <span
@@ -274,7 +278,7 @@ function MercadoSection({ detail, board, teamInterest }) {
 
 function Linha({ rotulo, valor }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-white/6 py-2 last:border-b-0">
+    <div className="flex items-baseline justify-between gap-3 border-b border-white/[0.06] py-2 last:border-b-0">
       <dt className="text-[11px] uppercase tracking-[0.14em] text-text-muted">{rotulo}</dt>
       <dd className="text-right text-sm font-medium text-text-primary">{valor || "-"}</dd>
     </div>

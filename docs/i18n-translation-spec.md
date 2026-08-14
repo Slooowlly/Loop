@@ -55,8 +55,11 @@ config.language
 - **PT vira o locale-base.** Não jogamos o português fora; ele passa a ser `pt-BR`
   na tabela. Isso deixa a extração *segura*: durante a migração, nada muda na tela
   porque o PT continua sendo servido.
-- Ligar o seletor de `src/pages/Settings.jsx` (hoje morto — grava `config.language`
-  mas ninguém lê) passa a trocar os três de uma vez.
+- O seletor de `src/pages/Settings.jsx` troca os três de uma vez. ✅ **Ligado na Fase 0** — este
+  parágrafo dizia "hoje morto: grava `config.language` mas ninguém lê", e isso deixou de valer.
+  Hoje `useCareerStore.loadLanguage`/`setLanguage` chamam `applyLanguage`, o `main.jsx` aplica no
+  boot, o `update_config` seta o locale do `rust-i18n` no backend, e o próprio rótulo do seletor
+  vem de `t("settings.language.*")`.
 
 ### Mecanismos propostos (confirmar antes da Fase 0)
 
@@ -108,6 +111,12 @@ idioma no menu **não** retraduz o que já existe. Aceito de propósito:
     `StandingsTab.jsx:1217`
 - **Tempo relativo:** frases manuais em PT (`"Hoje"`, `"Ontem"`, `` `Há ${d} dias` ``).
   - `src/pages/MainMenu.jsx:55-60`, `src/utils/formatters.js:20-41`
+
+> ⚠️ **Os caminhos e números de linha desta seção são a varredura de 2026-06 e ficam como
+> histórico.** A Fase 5 fechou (ver abaixo) e a árvore mudou desde então: `CalendarTab` virou
+> `CalendarTabRedesign`, `MyTeamTab` virou `tabs/myteam/MyTeamTabV2`, e a árvore V1 de
+> `RaceResultView` foi removida. Ao conferir um item, procure pelo símbolo
+> (`localeCompare`, `toLocaleString`), não pela linha.
 
 ## ❌ NÃO traduzir (lista de exclusão)
 
@@ -184,10 +193,12 @@ Ordem: mapas centrais → chrome → aba por aba.
   chat, armar quebra, demo de rádio, gravador, detalhes técnicos) — fora do comercial;
   (b) Header `TRACK_COUNTRY` (nomes de país PT → **bloco de países**) e `BANNER_MONTHS_PT`/
   `formatBannerDate` (→ **Fase 5**, datas).
-- [ ] **Modais:** `DriverDetailModal(.jsx/Sections.jsx)`, `PoachAuctionModal.jsx`,
+- [ ] **Modais:** `driver/v2/DriverDetailModalV2.jsx` (⚠️ a spec dizia
+  `DriverDetailModal(.jsx/Sections.jsx)`; o v1 e o arquivo de seções foram removidos em
+  11/08/2026 — sobrou o v2 e os auxiliares de `driver/detalhes/`), `PoachAuctionModal.jsx`,
   `IracingTutorialModal.jsx` (`LeaveToMenuModal.jsx` ✅ feito na casca).
 - [~] **Abas** (menores/mais limpas primeiro):
-  - [x] `CalendarTab.jsx` ✅ — namespace `calendar` (fases, legenda, detalhes, loading,
+  - [x] `CalendarTabRedesign.jsx` ✅ (era `CalendarTab.jsx` quando esta linha foi escrita) — namespace `calendar` (fases, legenda, detalhes, loading,
     erro) + `weather.dry`. Meses/dias-da-semana agora vêm de **Intl** via novos helpers
     `monthLongLabels`/`weekdayNarrowLabels` em `i18n/format.js` (locale-genéricos, servem
     à Fase 5). Consts `MONTH_NAMES`/`WEEKDAY_LABELS` removidas. Teste existente verde (PT).
@@ -206,11 +217,17 @@ Ordem: mapas centrais → chrome → aba por aba.
   - [x] `Dashboard.jsx` ✅ — namespace `dashboard` (só o modal de conserto do carro;
     o resto é roteamento de abas). `repair_message` vem do backend → Fase 3. Suíte verde.
   - **Todas as abas "limpas" FEITAS.** Faltam só os **gigantes com prosa/IA** (deixar
-    p/ Fase 2/4, misturam texto gerado): `NextRaceTab.jsx` (207), `MyTeamTab.jsx` (152),
-    `NewsMagazineTab.jsx` (59), `PreSeasonView.jsx` (162), `RaceResultView(V2).jsx`,
+    p/ Fase 2/4, misturam texto gerado): `NextRaceTab.jsx` (207), `PreSeasonView.jsx` (162),
     `EndOfSeasonView.jsx`, `ConvocationView.jsx`. Store `useCareerStore.js` (mensagens).
-    Modais restantes: `DriverDetailModal`, `PoachAuctionModal`, `IracingTutorialModal`.
+    Modais restantes: `DriverDetailModalV2`, `PoachAuctionModal`, `IracingTutorialModal`.
     Overlay (canvas): `towerCanvas.js` etc.
+    ⚠️ **Nomes desta lista corrigidos em 11/08/2026:** `NewsMagazineTab.jsx` saiu — está feito (ver
+    o item de fechamento da Fase 2). `MyTeamTab.jsx` virou `tabs/myteam/MyTeamTabV2.jsx` (a V1 foi
+    removida; o `index.js` da pasta é o que o `Dashboard` importa com o nome antigo).
+    `RaceResultView(V2).jsx` virou só `RaceResultViewV2.jsx` — a árvore V1 inteira
+    (`RaceResultView.jsx` + `race/raceresult/`, 15 arquivos) foi removida em 11/08/2026, e ela
+    escapava do guard de i18n por ter `i18n-ignore-file`. **Ao retomar a fila, confira o nome antes
+    de abrir o arquivo:** esta seção já apontou três vezes para tela que não existe mais.
 - [ ] **Overlay** (texto desenhado em canvas — não-DOM, cuidado): `overlay/towerCanvas.js`
   (107), `towerRows.js`, `EngineerRadio.jsx`, `OverlayPositionPanel.jsx`,
   `overlayMockData.js`.
@@ -245,16 +262,32 @@ via `context`; HTML embutido no valor (opção A). **Auditar display vs. fatos-d
   (`get text(){ return i18n.t(...) }`) → não congela. Banco GERADO em ~5 linhas (ids
   seguem `bucket-profile-variant`), 266 ln de literais viraram geração. PT verbatim
   (fonte com acentos inconsistentes). Testes existentes (5) + i18n verdes. **Trio fechado.**
-- [ ] `pages/tabs/newsHelpers.js`, `NewsMagazineTab.jsx` — fecha a Fase 2.
+- [x] `NewsMagazineTab.jsx` e a revista ✅ — **fecha a Fase 2, conferido em 11/08/2026.**
+  ⚠️ `pages/tabs/newsHelpers.js` **não existe** e a spec o listava por engano — nunca existiu com
+  esse nome, e a prosa da revista mora nos componentes de `components/news/`. Todos estão sob `t()`:
+  `NewsMagazineTab.jsx`, `MagazineCover`, `MagazineCredits`, `MagazineMailbox`, `PreseasonSpread`,
+  `RaceEditionSpread` e `WorldNotes`. `StandingsList.jsx`, `bulletinText.jsx` e `useMagazineData.js`
+  não têm nada a traduzir (tabela de dados, render de texto que vem do backend, e hooks de
+  `invoke`). Prova: `npm run i18n:audit` limpo.
 
 ### Fase 3 — Texto determinístico (Rust) — *médio, risco médio*
 > **Padrão Rust CRAVADO** (via driver_tags): chave dinâmica `rust_i18n::t!(&format!("ns.{}.{}", a, b))`
 > **funciona**; campos `&'static str` de texto viram `String` (i18n é runtime); YAMLs em
 > `src-tauri/locales/{pt-BR,en-US}.yml` (chaves numéricas entre aspas). ⚠️ **Display-como-chave
 > de lógica** aparece — comparações tipo `tag_text == "Alien"` viram `tag.level == TagLevel::X`.
-> ⚠️ **Verificar = compilar** (~2min, `CARGO_TARGET_DIR` fora do OneDrive). ⚠️ **17 testes
-> pré-existentes FALHAM no HEAD** (rivalry/team, team_rivalries, migrations, calendar, weather —
-> feature de rivalidade WIP; provado por stash) — ignorar nas rodadas de Fase 3.
+> ⚠️ **Verificar = compilar** (~2min, `CARGO_TARGET_DIR` fora do OneDrive, e `npm run build` **antes**
+> — `generate_context!` embute o `dist/`).
+> ~~⚠️ **17 testes pré-existentes FALHAM no HEAD** (rivalry/team, team_rivalries, migrations,
+> calendar, weather — feature de rivalidade WIP; provado por stash) — ignorar nas rodadas de
+> Fase 3.~~ **INSTRUÇÃO REVOGADA em 11/08/2026.** Ela valia enquanto a feature de rivalidade era
+> WIP; a rivalidade está no ar há muito, e esses cinco arquivos são de código entregue. Manter a
+> ordem "ignore 17 falhas" convida a passar por cima de regressão de verdade — a falha vira ruído
+> esperado e para de ser lida. **A partir daqui, falha vermelha em `cargo test` é falha**, e a
+> baseline se estabelece rodando a suíte antes de mexer:
+>
+> ```bash
+> cargo test --manifest-path src-tauri/Cargo.toml
+> ```
 > **✅ Locale default de teste RESOLVIDO** (no race_eval): rust-i18n tem locale GLOBAL de
 > processo (não thread-local). O default do processo é `"en"` (não carregado) → cai no
 > `fallback = "pt-BR"`, então prosa = PT sem setup. O ÚNICO disruptor é o `i18n_smoke`
@@ -344,13 +377,26 @@ via `context`; HTML embutido no valor (opção A). **Auditar display vs. fatos-d
   `currentLang()`: EndOfSeasonView, PreSeasonView, NewCareer, GlobalDriversTab (×8), MyTeamTab,
   nextRaceContext, StandingsTab (localeCompare/toLocaleString/Intl). Tempo relativo (MainMenu)
   + countdown já eram i18n. 42 testes front verdes. Moeda USD NÃO mexida (fonte única).
-- [x] Cenários de quebra/DNF ✅ — RESOLVIDO POR RUNTIME (não por seed-freeze): os 54
-  cenários do `seed_incident_catalog` viram `breakdown.<id>.{dnf,warn,part}` (148 chaves ×2
-  idiomas), resolvidos no render (`simulation/catalog.rs`) por id com FALLBACK ao texto
-  semeado (rust-i18n devolve a própria chave quando ausente). **Sem mudança de migração** —
-  o seed PT vira só rede de segurança. `{driver}` continua substituído no render (não é
-  interpolação). Toggle ao vivo (não congela). Guard de 2 locales + catalog/parity verdes.
-  (YAML gerado via script pra garantir PT byte-accurate; EN traduzido à mão, 100% coberto.)
+- [x] Cenários de quebra/DNF ✅ — os 54 cenários viram `breakdown.<id>.{dnf,warn,part}`
+  (148 chaves ×2 idiomas), resolvidos no render (`simulation/catalog.rs`) no locale ativo.
+  `{driver}` continua substituído no render (não é interpolação). Toggle ao vivo (não
+  congela). Guard de 2 locales + catalog/parity verdes. (YAML gerado via script pra garantir
+  PT byte-accurate; EN traduzido à mão, 100% coberto.)
+  - Numa primeira etapa o seed PT continuou no banco como rede de segurança. A **migração
+    v65** fechou isso (achado V4.1): `incident_catalog` guarda `dnf_key`/`non_dnf_key`/
+    `description_key`, e nenhuma frase sobrou no schema. Id fora dos 54 tem a prosa
+    preservada em `incident_catalog_texto_legado` e segue exibida como estava — preservar,
+    não inventar tradução.
+  - As 99 frases do **sistema de quebra de peça** (`car/breakdown.rs::problem_text`) saíram do
+    `.rs` para `car_breakdown.problem.<peça>_<modo>_<severidade>` e passaram a resolver no
+    locale ativo. `race_breakdowns` já guardava a trinca `(part, problem, severity)` desde a
+    v52 e re-renderizava na leitura; `race_results.dnf_reason`, não, e as duas metades da mesma
+    quebra apareciam em idiomas diferentes na mesma tela depois de trocar o idioma. A
+    **migração v68** acrescentou `race_results.dnf_reason_key`, escrita pelos dois caminhos de
+    quebra (simulação offline e import do iRacing) e resolvida na leitura — resultado da etapa,
+    tela salva reaberta e export de temporada. Linha anterior à v68 fica com a chave `NULL` e
+    segue mostrando a prosa de então; abandono que não é quebra continua inteiramente pelo
+    `dnf_reason`. Guard: `scripts/tests/dnf-de-quebra-guarda-chave.test.mjs`.
 - [x] `car/parts.rs` `display_name` ✅ — 13 peças (namespace `part`; FrontWing/RearWing têm
   variante aero splitter/asa vs sem-asa parachoque por carro). Retorno `&'static str`→`String`;
   3 callers usam `.to_string()` (ok). 1 teste → `#[serial]`+pt-BR. 7 testes de parts + parity.

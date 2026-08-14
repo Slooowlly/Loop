@@ -5,15 +5,14 @@ use super::{
     build_benchmark_block, build_career_details, build_career_history_block,
     build_category_timeline, build_current_summary_block, build_driver_career_arc_block,
     build_driver_career_path_block, build_driver_championship_curve, build_driver_form_block,
-    build_driver_market_curve,
-    build_driver_rivals_block, build_driver_technical_read_block, build_driver_title_entries,
-    build_form_seasons_for_driver, build_grid_rank_block, build_qualifying_block,
-    build_teammate_block, career_debut_year_from_archive, expected_position_from_grid,
-    fallback_injury_display_name, find_championship_context, longest_finish_streak,
-    longest_podium_streak_span, longest_podiumless_streak_span, longest_winless_streak_span,
-    resolve_driver_category, season_block, transfer_forces_for_driver, worst_career_season,
-    CareerRaceHistoryRow, CareerSeasonArchiveRow, ChampionshipContext, HistoricalRaceResult,
-    PosicaoDeHoje,
+    build_driver_market_curve, build_driver_rivals_block, build_driver_technical_read_block,
+    build_driver_title_entries, build_form_seasons_for_driver, build_grid_rank_block,
+    build_qualifying_block, build_teammate_block, career_debut_year_from_archive,
+    expected_position_from_grid, fallback_injury_display_name, find_championship_context,
+    longest_finish_streak, longest_podium_streak_span, longest_podiumless_streak_span,
+    longest_winless_streak_span, resolve_driver_category, season_block, transfer_forces_for_driver,
+    worst_career_season, CareerRaceHistoryRow, CareerSeasonArchiveRow, ChampionshipContext,
+    HistoricalRaceResult, PosicaoDeHoje,
 };
 use crate::commands::career_types::{
     DriverCareerDroughtBlock, DriverCareerPeakBlock, DriverCareerReliabilityBlock,
@@ -1278,17 +1277,16 @@ fn career_path_without_archive_uses_current_season_for_debutants() {
     rookie.stats_carreira.corridas = 0;
     rookie.stats_carreira.temporadas = 0;
 
-    let path =
-        build_driver_career_path_block(
-            &conn,
-            &rookie,
-            None,
-            None,
-            Some("mazda_rookie"),
-            &temporada_em(2024),
-            None,
-        )
-            .expect("career path");
+    let path = build_driver_career_path_block(
+        &conn,
+        &rookie,
+        None,
+        None,
+        Some("mazda_rookie"),
+        &temporada_em(2024),
+        None,
+    )
+    .expect("career path");
 
     // Ele já largou 5 vezes na temporada em curso (ainda não arquivada):
     // está no primeiro ano de carreira.
@@ -1298,17 +1296,16 @@ fn career_path_without_archive_uses_current_season_for_debutants() {
     // Antes da primeira largada não há carreira nenhuma: ele ainda é um novato.
     let mut sem_largada = rookie.clone();
     sem_largada.stats_temporada.corridas = 0;
-    let path =
-        build_driver_career_path_block(
-            &conn,
-            &sem_largada,
-            None,
-            None,
-            Some("mazda_rookie"),
-            &temporada_em(2024),
-            None,
-        )
-            .expect("career path");
+    let path = build_driver_career_path_block(
+        &conn,
+        &sem_largada,
+        None,
+        None,
+        Some("mazda_rookie"),
+        &temporada_em(2024),
+        None,
+    )
+    .expect("career path");
 
     assert_eq!(path.ano_estreia, 2024);
     assert_eq!(path.historico.presenca.tempo_carreira, 0);
@@ -1372,7 +1369,7 @@ fn career_path_without_archive_uses_seeded_seasons_for_veterans() {
         &temporada_em(2024),
         None,
     )
-        .expect("career path");
+    .expect("career path");
 
     assert_eq!(path.ano_estreia, 2022);
     assert_eq!(path.historico.presenca.tempo_carreira, 3);
@@ -1499,14 +1496,17 @@ fn career_history_block_derives_special_event_summary() {
                 posicao_largada INTEGER NOT NULL DEFAULT 0,
                 fastest_lap INTEGER NOT NULL DEFAULT 0
             );
+            -- `temporada_inicio` e `temporada_fim` sao TEXT aqui porque sao TEXT na tabela
+            -- real (db::migrations::baseline). Como INTEGER, o fixture escondia a comparacao
+            -- lexicografica: as temporadas 9, 10, 12 e 26 ordenavam certo por acidente do tipo.
             CREATE TABLE contracts (
                 id TEXT PRIMARY KEY,
                 piloto_id TEXT NOT NULL,
                 piloto_nome TEXT NOT NULL,
                 equipe_id TEXT NOT NULL,
                 equipe_nome TEXT NOT NULL,
-                temporada_inicio INTEGER NOT NULL,
-                temporada_fim INTEGER NOT NULL,
+                temporada_inicio TEXT NOT NULL,
+                temporada_fim TEXT NOT NULL,
                 duracao_anos INTEGER NOT NULL,
                 salario_anual REAL NOT NULL DEFAULT 0.0,
                 papel TEXT NOT NULL DEFAULT 'Numero1',
@@ -2281,11 +2281,20 @@ fn the_career_time_detail_opens_with_the_debut_and_the_last_race() {
     assert_eq!(pontas[1].equipe.as_deref(), Some("Vector Racing"));
 }
 
+/// O recorte por equipe e divisao, e o separador decimal dos dois resumos.
+///
+/// A media de grid e a taxa de abandono saem com uma casa decimal, e a casa decimal tem
+/// separador diferente em cada idioma. Elas eram montadas com `format!("{:.1}")` cru, que
+/// e ponto em toda parte — inclusive na tela em portugues, onde "P2.0" nao e como se
+/// escreve. `#[serial]`: o locale e estado global do processo.
 #[test]
+#[serial_test::serial]
 fn the_saturday_and_reliability_details_break_down_by_team_and_division() {
+    let anterior = rust_i18n::locale().to_string();
     let conn = conn_com_detalhe();
     let corridas = super::load_career_race_history_rows(&conn, "P1").expect("corridas");
 
+    rust_i18n::set_locale("pt-BR");
     let detalhes = detalhes_de(&conn, &[], &corridas, &[]);
 
     // Duas corridas de GT4 pela Aures (grids 3 e 1) e uma de GT3 pela Vector
@@ -2295,18 +2304,28 @@ fn the_saturday_and_reliability_details_break_down_by_team_and_division() {
     assert_eq!(grid.len(), 2);
     assert_eq!(grid[0].categoria.as_deref(), Some("gt4"));
     assert_eq!(grid[0].equipe.as_deref(), Some("Aures Racing"));
-    assert_eq!(grid[0].resumo.as_deref(), Some("P2.0"));
+    assert_eq!(grid[0].resumo.as_deref(), Some("P2,0"));
     assert_eq!(grid[1].categoria.as_deref(), Some("gt3"));
     assert_eq!(grid[1].equipe.as_deref(), Some("Vector Racing"));
-    assert_eq!(grid[1].resumo.as_deref(), Some("P2.0"));
+    assert_eq!(grid[1].resumo.as_deref(), Some("P2,0"));
 
     // O unico abandono foi na GT3: numerador e denominador a vista, senao "100%"
     // esconde que e uma corrida so.
     let taxa = detalhes.get("taxa_abandono").expect("taxa de abandono");
     assert_eq!(taxa[0].equipe.as_deref(), Some("Aures Racing"));
-    assert_eq!(taxa[0].resumo.as_deref(), Some("0/2 · 0.0%"));
+    assert_eq!(taxa[0].resumo.as_deref(), Some("0/2 · 0,0%"));
     assert_eq!(taxa[1].equipe.as_deref(), Some("Vector Racing"));
-    assert_eq!(taxa[1].resumo.as_deref(), Some("1/1 · 100.0%"));
+    assert_eq!(taxa[1].resumo.as_deref(), Some("1/1 · 100,0%"));
+
+    // O MESMO numero, no outro idioma: o ponto volta, e nada disso foi persistido.
+    rust_i18n::set_locale("en-US");
+    let em_ingles = detalhes_de(&conn, &[], &corridas, &[]);
+    let grid_en = em_ingles.get("grid_medio").expect("grid medio");
+    assert_eq!(grid_en[0].resumo.as_deref(), Some("P2.0"));
+    let taxa_en = em_ingles.get("taxa_abandono").expect("taxa de abandono");
+    assert_eq!(taxa_en[1].resumo.as_deref(), Some("1/1 · 100.0%"));
+
+    rust_i18n::set_locale(&anterior);
 }
 
 #[test]
@@ -2554,8 +2573,7 @@ fn a_season_without_starts_has_no_championship_position() {
     arquiva_campeonato(&conn, 2, 2025, 2, Some(20), 0);
     let arquivo = super::load_career_season_archive_rows(&conn, "P001").expect("arquivo");
 
-    let curva =
-        build_driver_championship_curve(&conn, "P001", &arquivo, 2, 2025, None, None, None);
+    let curva = build_driver_championship_curve(&conn, "P001", &arquivo, 2, 2025, None, None, None);
 
     assert_eq!(curva.len(), 2);
     assert_eq!(curva[0].posicao, Some(3));
@@ -2593,8 +2611,7 @@ fn the_championship_curve_flags_the_one_make_seasons() {
     }
     let arquivo = super::load_career_season_archive_rows(&conn, "P001").expect("arquivo");
 
-    let curva =
-        build_driver_championship_curve(&conn, "P001", &arquivo, 2, 2025, None, None, None);
+    let curva = build_driver_championship_curve(&conn, "P001", &arquivo, 2, 2025, None, None, None);
 
     assert!(curva[0].monomarca, "toyota_rookie poe todos no mesmo carro");
     assert!(!curva[1].monomarca, "gt3 e carro de verdade");
@@ -2627,8 +2644,7 @@ fn the_championship_curve_derives_the_expected_finish_from_the_constructors_tabl
     arquiva_campeonato(&conn, 1, 2024, 5, Some(10), 12);
     let arquivo = super::load_career_season_archive_rows(&conn, "P001").expect("arquivo");
 
-    let curva =
-        build_driver_championship_curve(&conn, "P001", &arquivo, 1, 2024, None, None, None);
+    let curva = build_driver_championship_curve(&conn, "P001", &arquivo, 1, 2024, None, None, None);
 
     // A equipe dele (T1) foi a 3a de cinco, com duas equipes de dois assentos na
     // frente: quatro assentos melhores, e o meio do proprio bloco cai no 5o.
@@ -2646,8 +2662,7 @@ fn without_a_constructors_archive_there_is_no_expected_finish() {
     arquiva_campeonato(&conn, 1, 2024, 5, Some(10), 12);
     let arquivo = super::load_career_season_archive_rows(&conn, "P001").expect("arquivo");
 
-    let curva =
-        build_driver_championship_curve(&conn, "P001", &arquivo, 1, 2024, None, None, None);
+    let curva = build_driver_championship_curve(&conn, "P001", &arquivo, 1, 2024, None, None, None);
 
     assert_eq!(curva[0].esperado, None);
     assert_eq!(curva[0].posicao, Some(5), "o resultado nao depende dela");
@@ -2670,10 +2685,13 @@ fn an_old_archive_recovers_the_grid_size_by_counting_the_season() {
     .expect("resto do grid");
     let arquivo = super::load_career_season_archive_rows(&conn, "P001").expect("arquivo");
 
-    let curva =
-        build_driver_championship_curve(&conn, "P001", &arquivo, 1, 2024, None, None, None);
+    let curva = build_driver_championship_curve(&conn, "P001", &arquivo, 1, 2024, None, None, None);
 
-    assert_eq!(curva[0].grid, Some(3), "tres pilotos arquivados na gt3 de 2024");
+    assert_eq!(
+        curva[0].grid,
+        Some(3),
+        "tres pilotos arquivados na gt3 de 2024"
+    );
 }
 
 fn conn_com_curva_de_mercado() -> rusqlite::Connection {
@@ -2683,11 +2701,13 @@ fn conn_com_curva_de_mercado() -> rusqlite::Connection {
             piloto_id TEXT, season_number INTEGER, ano INTEGER, nome TEXT,
             categoria TEXT, posicao_campeonato INTEGER, pontos REAL, snapshot_json TEXT
          );
+         -- Temporadas em TEXT, como na tabela real (db::migrations::baseline). Em INTEGER o
+         -- fixture escondia a comparacao lexicografica das temporadas de dois digitos.
          CREATE TABLE contracts (
             id TEXT PRIMARY KEY, piloto_id TEXT, piloto_nome TEXT, equipe_id TEXT,
             equipe_nome TEXT, categoria TEXT, classe TEXT, tipo TEXT, status TEXT,
             papel TEXT, salario REAL, salario_anual REAL, duracao_anos INTEGER,
-            temporada_inicio INTEGER, temporada_fim INTEGER, created_at TEXT
+            temporada_inicio TEXT, temporada_fim TEXT, created_at TEXT
          );",
     )
     .expect("schema da curva");
@@ -3280,8 +3300,7 @@ fn the_market_block_ranks_the_driver_against_his_own_grid() {
     crate::db::queries::teams::insert_team(&conn, &equipe_a).expect("team");
     crate::db::queries::teams::insert_team(&conn, &equipe_b).expect("team");
 
-    let bloco =
-        super::build_driver_market_block(&conn, &pilotos["P001"], None, Some(&equipe_a), 1);
+    let bloco = super::build_driver_market_block(&conn, &pilotos["P001"], None, Some(&equipe_a), 1);
     assert_eq!(bloco.posicao_valor, Some(1));
     assert_eq!(bloco.total_valor, Some(4));
     assert_eq!(bloco.categoria_valor.as_deref(), Some("gt3"));
@@ -3367,5 +3386,51 @@ fn the_market_curve_carries_the_value_next_to_the_salary() {
     }
     let primeiro = curva[0].valor_mercado.expect("valor de 2024");
     let segundo = curva[1].valor_mercado.expect("valor de 2025");
-    assert!(segundo > primeiro, "o piloto dobrou de skill entre os dois anos");
+    assert!(
+        segundo > primeiro,
+        "o piloto dobrou de skill entre os dois anos"
+    );
+}
+
+/// A nacionalidade da ficha e um rotulo de DISPLAY, resolvido no locale ATIVO.
+///
+/// O save guarda a forma que estava em vigor quando o piloto nasceu — e saves antigos
+/// gravaram sem acento —, entao a ficha lia "Britanico" e mandava isso para a tela, em
+/// portugues, mesmo com o jogo em ingles. Nada disso volta para o banco: `driver` sai
+/// deste teste com o valor gravado intacto.
+///
+/// `#[serial]`: o locale e estado global do processo.
+#[test]
+#[serial_test::serial]
+fn a_nacionalidade_da_ficha_segue_o_locale_e_nao_o_valor_gravado() {
+    let anterior = rust_i18n::locale().to_string();
+
+    // A forma legada, sem bandeira e sem acento, que e o pior caso do dado real.
+    let mut driver = sample_driver();
+    driver.nacionalidade = "Britanico".to_string();
+    driver.genero = "M".to_string();
+
+    rust_i18n::set_locale("pt-BR");
+    let ficha = super::build_driver_profile_block(&driver, "ativo", None, None, None, Vec::new());
+    assert_eq!(ficha.bandeira, "\u{1F1EC}\u{1F1E7}");
+    assert_eq!(ficha.nacionalidade, "Britânico");
+
+    rust_i18n::set_locale("en-US");
+    let ficha_en =
+        super::build_driver_profile_block(&driver, "ativo", None, None, None, Vec::new());
+    assert_eq!(ficha_en.bandeira, "\u{1F1EC}\u{1F1E7}");
+    assert_eq!(ficha_en.nacionalidade, "British");
+
+    // O gentilico flexiona em PT, e o genero vem do piloto — o rotulo gravado nao e
+    // fonte confiavel dele, porque em ingles as duas formas sao a mesma palavra.
+    driver.genero = "F".to_string();
+    rust_i18n::set_locale("pt-BR");
+    let ficha_fem =
+        super::build_driver_profile_block(&driver, "ativo", None, None, None, Vec::new());
+    assert_eq!(ficha_fem.nacionalidade, "Britânica");
+
+    // E o valor PERSISTIDO nao foi tocado por nada disso.
+    assert_eq!(driver.nacionalidade, "Britanico");
+
+    rust_i18n::set_locale(&anterior);
 }

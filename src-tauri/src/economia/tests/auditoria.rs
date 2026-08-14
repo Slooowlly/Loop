@@ -325,7 +325,7 @@ fn relatorio_distribuicao_do_budget_index() {
             format!("{categoria}-{n}")
         };
         let equipes =
-            crate::models::team::generate_teams_for_category(categoria, 2026, &mut gerador);
+            crate::generators::teams::generate_teams_for_category(categoria, 2026, &mut gerador);
         let velhos: Vec<f64> = equipes.iter().map(budget_index_legado).collect();
         let novos: Vec<f64> = equipes.iter().map(derive_budget_index_from_money).collect();
         let (vmin, _, _, _, vmax) = quartis(velhos.clone());

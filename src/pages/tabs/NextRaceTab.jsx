@@ -15,6 +15,7 @@ import { useBriefingData } from "../../components/race/nextrace/useBriefingData"
 import { useIracingExport } from "../../components/race/nextrace/useIracingExport";
 import { usePreRaceAi } from "../../components/race/nextrace/usePreRaceAi";
 import useTempoDeTela from "../../hooks/useTempoDeTela";
+import { cacheEhDaEtapaAtual } from "../../stores/career/helpers";
 import useCareerStore from "../../stores/useCareerStore";
 import { useAttentionStore } from "../../stores/useAttentionStore";
 import { renderTextWithDriverMentions } from "../../utils/driverMentions";
@@ -200,9 +201,10 @@ function NextRaceTab() {
   }
 
   // Prévia da IA a exibir: o reroll/fetch local (`aiBriefing`) tem prioridade; senão,
-  // a versão pré-buscada na animação de avanço (`preRaceAi`), se for desta etapa.
+  // a versão pré-buscada na animação de avanço (`preRaceAi`), se for desta etapa DESTA
+  // carreira (as etapas se chamam R001, R002... em todo save).
   const prefetchedAi =
-    preRaceAi?.raceId && preRaceAi.raceId === nextRace?.id
+    cacheEhDaEtapaAtual(preRaceAi, { careerId, raceId: nextRace?.id })
       ? {
           headline: preRaceAi.headline ?? null,
           narrative: preRaceAi.narrative,

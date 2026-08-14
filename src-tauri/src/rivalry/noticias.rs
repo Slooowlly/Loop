@@ -4,7 +4,6 @@
 use rusqlite::Connection;
 
 use crate::db::connection::DbError;
-use crate::db::queries::drivers::get_driver;
 use crate::db::queries::news::insert_news;
 use crate::generators::ids::{next_id, IdType};
 use crate::models::rivalry::RivalryType;
@@ -27,7 +26,6 @@ pub(crate) fn build_rivalry_news_item(
     piloto_a_id: &str,
     piloto_b_id: &str,
     team_id: Option<&str>,
-    _driver_midia: &std::collections::HashMap<String, f64>,
 ) -> Option<NewsItem> {
     let crossed = crossed_threshold(applied.old_perceived, applied.new_perceived)?;
     let importance = match crossed {
@@ -92,22 +90,6 @@ pub(crate) fn build_rivalry_news_item(
     })
 }
 
-pub(crate) fn load_rivalry_driver_midia(
-    conn: &Connection,
-    piloto_a_id: &str,
-    piloto_b_id: &str,
-) -> std::collections::HashMap<String, f64> {
-    let mut driver_midia = std::collections::HashMap::new();
-
-    for driver_id in [piloto_a_id, piloto_b_id] {
-        if let Ok(driver) = get_driver(conn, driver_id) {
-            driver_midia.insert(driver_id.to_string(), driver.atributos.midia);
-        }
-    }
-
-    driver_midia
-}
-
 pub(crate) fn persist_rivalry_news(
     conn: &Connection,
     applied: &RivalryApplied,
@@ -120,7 +102,6 @@ pub(crate) fn persist_rivalry_news(
     piloto_a_id: &str,
     piloto_b_id: &str,
     team_id: Option<&str>,
-    driver_midia: &std::collections::HashMap<String, f64>,
 ) -> Result<(), DbError> {
     let Some(item) = build_rivalry_news_item(
         next_id(conn, IdType::News)?,
@@ -134,7 +115,6 @@ pub(crate) fn persist_rivalry_news(
         piloto_a_id,
         piloto_b_id,
         team_id,
-        driver_midia,
     ) else {
         return Ok(());
     };

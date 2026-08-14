@@ -60,6 +60,8 @@ describe("prefetchPreRaceBriefing", () => {
 
     const cache = estado().preRaceStandings;
     expect(cache.raceId).toBe("R9");
+    // A carreira faz parte da chave: R001, R002... existem em todo save.
+    expect(cache.careerId).toBe("C1");
     expect(cache.driverStandings).toEqual(RETRATO.get_drivers_by_category);
     expect(cache.teamStandings).toEqual(RETRATO.get_teams_standings);
     expect(cache.phraseHistory).toEqual(RETRATO.get_briefing_phrase_history);
@@ -81,6 +83,7 @@ describe("prefetchPreRaceBriefing", () => {
     // `team_voice` (snake) → `teamVoice` (camel). Renomear um dos dois é o erro que a
     // Sala mostra como texto de template no lugar da prévia.
     expect(estado().preRaceAi).toEqual({
+      careerId: "C1",
       raceId: "R9",
       headline: "Manchete",
       narrative: "Narrativa",
@@ -113,8 +116,8 @@ describe("prefetchPreRaceBriefing", () => {
   it("com IA e standings já em cache desta etapa, não repete a busca", async () => {
     carreiraNaEtapa("R9");
     useCareerStore.setState({
-      preRaceAi: { raceId: "R9", narrative: "n", teamVoice: "v" },
-      preRaceStandings: { raceId: "R9", driverStandings: [] },
+      preRaceAi: { careerId: "C1", raceId: "R9", narrative: "n", teamVoice: "v" },
+      preRaceStandings: { careerId: "C1", raceId: "R9", driverStandings: [] },
     });
     comBackend();
 
@@ -124,7 +127,9 @@ describe("prefetchPreRaceBriefing", () => {
 
   it("com só os standings em cache, rebusca mas NÃO regenera a IA", async () => {
     carreiraNaEtapa("R9");
-    useCareerStore.setState({ preRaceAi: { raceId: "R9", narrative: "n", teamVoice: "v" } });
+    useCareerStore.setState({
+      preRaceAi: { careerId: "C1", raceId: "R9", narrative: "n", teamVoice: "v" },
+    });
     comBackend();
 
     await estado().prefetchPreRaceBriefing();

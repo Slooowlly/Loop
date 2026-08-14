@@ -561,3 +561,142 @@ fn escopos_diferentes_nao_compartilham_chave() {
         em_voo::chave_pre_corrida("career_2", "race_9")
     );
 }
+
+// ── Rastro das falhas de geração ────────────────────────────────────────────────
+
+/// Cada classe de falha chega ao `loop.log` com o que a distingue das outras.
+///
+/// É o teste que dá sentido a este canal: uma linha que só diz "a matéria falhou" não
+/// vale a escrita em disco. Quem lê o log de um jogador precisa separar, sem perguntar
+/// nada a ele, "os dois provedores caíram" (5xx) de "a máquina está sem rede" de
+/// "o servidor demorou mais que o timeout" de "o formato da resposta mudou".
+#[test]
+fn resumo_da_falha_preserva_o_contexto_de_cada_classe() {
+    use super::client::StoryError;
+
+    let casos = [
+        (StoryError::RateLimited, "429"),
+        (StoryError::Unauthorized, "401"),
+        (StoryError::Server("HTTP 503".into()), "HTTP 503"),
+        (
+            StoryError::Network("timeout de 45s: operation timed out".into()),
+            "timeout",
+        ),
+        (
+            StoryError::Parse("expected value at line 1 column 1".into()),
+            "line 1",
+        ),
+    ];
+    for (err, agulha) in casos {
+        let resumo = err.resumo();
+        assert!(
+            resumo.contains(agulha),
+            "o resumo de {err:?} perdeu o contexto; esperava conter {agulha:?}, veio {resumo:?}"
+        );
+    }
+
+    // E as classes não podem colapsar num texto só: 5xx, rede e parse têm de sair
+    // distinguíveis mesmo quando o detalhe interno é o mesmo.
+    let iguais = [
+        StoryError::Server("x".into()).resumo(),
+        StoryError::Network("x".into()).resumo(),
+        StoryError::Parse("x".into()).resumo(),
+    ];
+    for (i, a) in iguais.iter().enumerate() {
+        for b in &iguais[i + 1..] {
+            assert_ne!(a, b, "duas classes de falha viraram a mesma linha de log");
+        }
+    }
+}
+
+/// Nenhuma falha de narrativa pode voltar a ser escrita no console.
+///
+/// O app é uma GUI sem console na máquina do jogador: `eprintln!` ali não tem para onde
+/// ir, e a matéria que caiu no template não deixa rastro nenhum para o suporte. O guard
+/// lê os arquivos como texto porque o modo de falha é de ESCRITA — um callsite novo
+/// nasce copiado de um vizinho, e sem isto o `eprintln!` volta em silêncio.
+///
+/// `diagnostico.rs` tem um `eprintln!` legítimo (o fallback de antes do `init`, que é o
+/// caso do `npm run tauri dev`, onde existe terminal) e por isso fica fora da lista.
+#[test]
+fn nenhuma_falha_de_narrativa_morre_no_console() {
+    let arquivos = [
+        ("narrative/client.rs", include_str!("../client.rs")),
+        (
+            "commands/ai_news/comandos.rs",
+            include_str!("../../commands/ai_news/comandos.rs"),
+        ),
+        (
+            "commands/world_footer/comandos.rs",
+            include_str!("../../commands/world_footer/comandos.rs"),
+        ),
+        (
+            "commands/season_preview/comando.rs",
+            include_str!("../../commands/season_preview/comando.rs"),
+        ),
+        (
+            "commands/race/noticias/persistencia.rs",
+            include_str!("../../commands/race/noticias/persistencia.rs"),
+        ),
+        (
+            "commands/race/importacao.rs",
+            include_str!("../../commands/race/importacao.rs"),
+        ),
+    ];
+    // A agulha é montada em pedaços para o próprio guard não ser o que ele proíbe.
+    let agulha = concat!("eprint", "ln!");
+    for (nome, fonte) in arquivos {
+        let producao = fonte.split("#[cfg(test)]").next().unwrap_or(fonte);
+        assert!(
+            !producao.contains(agulha),
+            "{nome} escreve falha no console; use `crate::diagnostico::linha` ou \
+             `narrative::client::registrar_falha` — o app do jogador não tem console"
+        );
+    }
+}
+
+/// A linha de log sai da MESMA função em todos os callsites.
+///
+/// Sem isto cada comando volta a escrever o seu próprio texto, e o mesmo timeout aparece
+/// no arquivo com quatro redações diferentes — que foi o estado anterior, com `[narrative]`
+/// e `[season-preview]` dizendo a mesma coisa de jeitos distintos. Uma categoria só
+/// também é o que torna o log grepável por quem recebe o anexo.
+#[test]
+fn a_falha_de_geracao_tem_um_formato_so() {
+    let alvos = [
+        (
+            "commands/ai_news/comandos.rs",
+            include_str!("../../commands/ai_news/comandos.rs"),
+            3,
+        ),
+        (
+            "commands/world_footer/comandos.rs",
+            include_str!("../../commands/world_footer/comandos.rs"),
+            1,
+        ),
+        (
+            "commands/season_preview/comando.rs",
+            include_str!("../../commands/season_preview/comando.rs"),
+            1,
+        ),
+    ];
+    for (nome, fonte, esperado) in alvos {
+        let chamadas = fonte.matches("registrar_falha(").count();
+        assert_eq!(
+            chamadas, esperado,
+            "{nome} tem {chamadas} chamadas a `registrar_falha`, esperava {esperado}: \
+             toda geração que cai no template registra a sua falha, e registra uma vez só"
+        );
+    }
+
+    // E o registro é ÚNICO: se o `client` também logasse por dentro, a mesma falha
+    // apareceria duas vezes no arquivo e o teto de 512 KiB chegaria na metade do tempo.
+    let cliente = include_str!("../client.rs");
+    let producao = cliente.split("#[cfg(test)]").next().unwrap_or(cliente);
+    assert_eq!(
+        producao.matches("diagnostico::linha").count(),
+        1,
+        "o cliente só pode tocar o log dentro de `registrar_falha`; logar também no \
+         caminho da requisição duplicaria cada falha"
+    );
+}

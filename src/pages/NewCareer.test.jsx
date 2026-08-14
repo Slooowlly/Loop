@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
-import NewCareer from "./NewCareer";
+import NewCareer, { totalDeMensagensDeCarregamento } from "./NewCareer";
+import ptBR from "../i18n/locales/pt-BR/common.json";
 
 const mockInvoke = vi.fn();
 const mockLoadCareer = vi.fn();
@@ -297,5 +298,15 @@ describe("NewCareer", () => {
       });
     });
     expect(mockInvoke).not.toHaveBeenCalledWith("discard_career_draft");
+  });
+
+  // O ciclo de mensagens do overlay é `(i + 1) % total`. Se o `total` vier de qualquer lista
+  // que não seja o próprio locale, o índice passa do fim das chaves e a tela mostra
+  // `newCareer.loadingMessages.msg75` cru para o jogador.
+  it("conta as mensagens de carregamento na mesma fonte que a tela renderiza", () => {
+    const doLocale = Object.keys(ptBR.newCareer.loadingMessages).length;
+
+    expect(doLocale).toBeGreaterThan(0);
+    expect(totalDeMensagensDeCarregamento()).toBe(doLocale);
   });
 });

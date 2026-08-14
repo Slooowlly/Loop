@@ -85,6 +85,11 @@ struct StoredRoundResult {
     positions_gained: i32,
     #[serde(default)]
     pub dnf_reason: Option<String>,
+    /// A chave de i18n do motivo, quando o abandono foi por QUEBRA (v68). Anda junto da prosa
+    /// pelo mesmo motivo de `race_results`: sem ela o histórico congela no idioma da corrida.
+    /// Ausente em todo arquivo gravado antes de 12/08/2026, e o `default` cobre isso.
+    #[serde(default)]
+    pub dnf_reason_key: Option<String>,
     #[serde(default)]
     pub dnf_segment: Option<String>,
     #[serde(default)]
@@ -116,6 +121,7 @@ pub fn append_race_result(
                 grid_position: entry.grid_position,
                 positions_gained: entry.positions_gained,
                 dnf_reason: entry.dnf_reason.clone(),
+                dnf_reason_key: entry.dnf_reason_key.clone(),
                 dnf_segment: entry.dnf_segment.clone(),
                 incidents_count: entry.incidents_count,
                 incidents: entry
@@ -202,13 +208,10 @@ fn write_race_history(career_dir: &Path, store: &RaceHistoryStore) -> Result<(),
     std::fs::write(&temp_path, json)
         .map_err(|e| format!("Falha ao gravar race_results.json: {e}"))?;
 
-    if path.exists() {
-        std::fs::remove_file(&path)
-            .map_err(|e| format!("Falha ao substituir race_results.json: {e}"))?;
-    }
-
-    std::fs::rename(&temp_path, &path)
-        .map_err(|e| format!("Falha ao finalizar race_results.json: {e}"))
+    // O historico anterior sai por rename para um `.old` e so e descartado depois do
+    // novo estar no lugar. Antes o arquivo bom era removido antes do rename, entao uma
+    // falha na troca levava junto o historico inteiro da carreira.
+    crate::commands::save::substituir_preservando_anterior(&temp_path, &path, "race_results.json")
 }
 
 fn race_history_path(career_dir: &Path) -> PathBuf {
@@ -254,6 +257,53 @@ mod tests {
 
         let preserved = std::fs::read_to_string(&history_path).unwrap();
         assert_eq!(preserved, original);
+
+        std::fs::remove_dir_all(&career_dir).unwrap();
+    }
+
+    /// O caso perigoso: o staged foi gravado e a troca falha. Antes o `race_results.json`
+    /// bom ja tinha sido removido a essa altura e o historico da carreira sumia. Aqui a
+    /// falha e injetada na mesma chamada que o `write_race_history` faz no final.
+    #[test]
+    fn write_race_history_preserves_existing_file_when_swap_fails() {
+        let career_dir = temp_career_dir("preserve_swap");
+        let history_path = race_history_path(&career_dir);
+        let original =
+            r#"{"categories":{"gt4":{"rounds":{"1":[{"driver_id":"P001","position":1}]}}}}"#;
+        std::fs::write(&history_path, original).unwrap();
+
+        let staged = race_history_temp_path(&career_dir);
+        let err = crate::commands::save::substituir_preservando_anterior(
+            &staged,
+            &history_path,
+            "race_results.json",
+        )
+        .expect_err("rename sem origem deve falhar");
+        assert!(err.contains("race_results.json"), "erro inesperado: {err}");
+
+        let preserved = std::fs::read_to_string(&history_path).unwrap();
+        assert_eq!(preserved, original);
+        assert!(!career_dir.join("race_results.json.old").exists());
+
+        std::fs::remove_dir_all(&career_dir).unwrap();
+    }
+
+    #[test]
+    fn write_race_history_replaces_previous_file_without_leaving_old() {
+        let career_dir = temp_career_dir("swap_ok");
+        let history_path = race_history_path(&career_dir);
+        std::fs::write(&history_path, r#"{"categories":{}}"#).unwrap();
+
+        let mut store = RaceHistoryStore::default();
+        store
+            .categories
+            .insert("gt4".to_string(), CategoryRaceHistory::default());
+        write_race_history(&career_dir, &store).expect("troca deve concluir");
+
+        let gravado = read_race_history(&career_dir).expect("historico legivel");
+        assert!(gravado.categories.contains_key("gt4"));
+        assert!(!career_dir.join("race_results.json.old").exists());
+        assert!(!race_history_temp_path(&career_dir).exists());
 
         std::fs::remove_dir_all(&career_dir).unwrap();
     }

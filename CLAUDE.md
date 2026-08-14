@@ -26,9 +26,9 @@ npm run build              # vite build -> dist/
 
 ```bash
 npm run test:ui            # vitest (src/**/*.test.{js,jsx}) — jsdom
-npm run test:structure     # node --test scripts/tests/*.test.mjs — guards estruturais/visuais
+npm run test:structure     # guards estruturais/visuais (scripts/rodar-guards.mjs)
 npm run test:all           # as duas de JS
-cargo test --manifest-path src-tauri/Cargo.toml
+cd src-tauri && cargo test         # PowerShell: cd src-tauri; cargo test
 ```
 
 Um teste só:
@@ -37,10 +37,12 @@ Um teste só:
 npx vitest run src/pages/tabs/MyTeamTab.test.jsx
 npx vitest run -t "nome do caso"
 node --test scripts/tests/window-controls-sizing.test.mjs
-cargo test --manifest-path src-tauri/Cargo.toml nome_do_teste
+cd src-tauri && cargo test nome_do_teste
 ```
 
 **⚠️ `cargo build`/`cargo test` exigem `npm run build` antes.** `tauri::generate_context!` embute os assets de `dist/` em tempo de compilação — sem o build do frontend o crate Rust não compila.
+
+**⚠️ Sempre de dentro de `src-tauri/`, nunca `cargo test --manifest-path src-tauri/Cargo.toml` da raiz.** O cargo procura o `.cargo/config.toml` a partir do diretório atual: da raiz ele não enxerga o do crate, ignora o `target-dir` configurado e abre um `src-tauri/target` novo, recompilando tudo. Ver a política de target-dir abaixo.
 
 ### Outros
 
@@ -57,10 +59,10 @@ Não há ESLint/Prettier configurados. O Rust segue `cargo fmt`/clippy com `too_
 
 Toda a simulação vive em Rust; o React só desenha e dispara `invoke`. O padrão de camadas no backend é consistente e deve ser seguido:
 
-- **`commands/career/`** — a lógica de verdade, exposta como funções `*_in_base_dir(base_dir, ...)` que recebem o diretório de save explicitamente. São puras em relação ao Tauri, o que as torna testáveis sem `AppHandle`. O `career.rs` é só o índice; a lógica mora nos irmãos por área (`standings`, `queries`, `season_flow`, `market_window`, `lifecycle`, `interests`, `briefing`, `save_state`, `vacancies`, `debug`), com os testes em `career/tests/`.
+- **`commands/career/`** — a lógica de verdade, exposta como funções `*_in_base_dir(base_dir, ...)` que recebem o diretório de save explicitamente. São puras em relação ao Tauri, o que as torna testáveis sem `AppHandle`. O `career.rs` é só o índice; a lógica mora nos irmãos por área (`standings`, `queries`, `season_flow`, `market_window`, `lifecycle`, `interests`, `briefing`, `champion`, `save_state`, `vacancies`, `errors`, `debug`), com os testes em `career/tests/`.
 - **`commands/career_commands.rs`** — casca fina `#[tauri::command]` que resolve o `base_dir` a partir do `AppHandle` e delega para as funções acima.
 - **`commands/career_types.rs`** — os DTOs serde que cruzam a ponte.
-- **`lib.rs`** — `invoke_handler(tauri::generate_handler![...])`. **Um comando novo só existe depois de ser registrado nessa lista** (201 entradas em 11/08/2026). O guard `scripts/tests/invoke-contra-generate-handler.test.mjs` cobra que todo `invoke("...")` do frontend exista nessa lista, e congela o inventário dos que ainda não têm consumidor.
+- **`lib.rs`** — `invoke_handler(tauri::generate_handler![...])`. **Um comando novo só existe depois de ser registrado nessa lista.** O guard `scripts/tests/invoke-contra-generate-handler.test.mjs` cobra que todo `invoke("...")` do frontend exista nessa lista, e congela o inventário dos que ainda não têm consumidor — **ele é a contagem oficial**, e nenhum número escrito aqui é: qualquer total em prosa envelhece no primeiro comando novo.
 
 ### Domínio Rust (`src-tauri/src/`)
 
@@ -84,7 +86,7 @@ SQLite local, migrações versionadas em [db/migrations.rs](src-tauri/src/db/mig
 
 ### Frontend (`src/`)
 
-- **Estado**: Zustand. [`useCareerStore.js`](src/stores/useCareerStore.js) é o hub, mas hoje é só a **composição** dos slices de `src/stores/career/` (`careerSlice`, `raceSlice`, `marketSlice`, `seasonSlice`, `preRaceCacheSlice`) sobre o `initialState` de `career/state.js`. Todos recebem o mesmo par `(set, get)`, então compartilham um único estado e uma ação chama a de outro domínio via `get()`. Os `invoke` ficam nos slices — e, quando o dado é local de uma tela, em hooks `use*.js` dentro de `components/`. O outro store vivo é o `useAttentionStore`, trivial; `useUIStore` e `useNotificationStore` eram stubs vazios sem consumidor e foram removidos em 11/08/2026.
+- **Estado**: Zustand. [`useCareerStore.js`](src/stores/useCareerStore.js) é o hub, mas hoje é só a **composição** dos slices de `src/stores/career/` (`careerSlice`, `raceSlice`, `marketSlice`, `seasonSlice`, `blocoEspecialSlice`, `preRaceCacheSlice`) sobre o `initialState` de `career/state.js`. Todos recebem o mesmo par `(set, get)`, então compartilham um único estado e uma ação chama a de outro domínio via `get()`. Os `invoke` ficam nos slices — e, quando o dado é local de uma tela, em hooks `use*.js` dentro de `components/`. O outro store vivo é o `useAttentionStore`, trivial; `useUIStore` e `useNotificationStore` eram stubs vazios sem consumidor e foram removidos em 11/08/2026.
 - **Navegação**: `pages/` são as telas (MainMenu, Dashboard, NewCareer, Settings) e `pages/tabs/` as abas dentro do Dashboard.
 - **Componentes** em `components/` por domínio: `race`, `market` (dentro de tabs), `driver`, `season`, `standings`, `team`, `layout`, `ui`, `wizard`, `iracing`, `system`.
 - Os `invoke` vêm direto de `@tauri-apps/api/core`, nos slices do store ou nos hooks de dados dos componentes. Não há camada de abstração da ponte: `src/hooks/useTauri.js` era um stub vazio e foi removido em 11/08/2026.
@@ -97,7 +99,9 @@ SQLite local, migrações versionadas em [db/migrations.rs](src-tauri/src/db/mig
 
 ### i18n é obrigatório e tem guard
 
-Um hook de **pre-commit** ([.githooks/pre-commit](.githooks/pre-commit), ativado pelo `npm install`) bloqueia commits com strings de UI em português fora de `t()` em arquivos `.jsx` no stage. O mesmo checker roda em `src/i18n/i18nCoverage.test.js`.
+Um hook de **pre-commit** ([.githooks/pre-commit](.githooks/pre-commit), ativado pelo `npm install`) bloqueia commits com strings de UI em português fora de `t()` nos arquivos `.jsx` **e `.js`** no stage. O mesmo checker roda em `src/i18n/i18nCoverage.test.js`.
+
+O `.js` entrou em 11/08/2026, com varredura própria (`varreduraJs`): mover uma string de um `.jsx` para um helper `.js` deixou de ser um jeito silencioso de sair do radar. O passivo que já existia está congelado em [scripts/i18nBaseline.mjs](scripts/i18nBaseline.mjs), arquivo por arquivo e frase por frase. Regras dele: entrada nova nunca se acrescenta ao baseline para liberar commit, e entrada que o auditor não encontra mais (string traduzida, arquivo apagado, texto reescrito) faz o auditor falhar pedindo a remoção da linha, para o baseline não apodrecer.
 
 Exceções intencionais:
 - `{/* i18n-ignore */}` na linha ou na linha acima
@@ -108,14 +112,47 @@ Frontend: i18next, um namespace por área (`src/i18n/locales/<lang>/common.json`
 
 Backend: `rust-i18n` lendo `src-tauri/locales/*.yml`. **O locale é global do processo** — testes Rust que trocam de idioma precisam de `#[serial]` (crate `serial_test`), senão contaminam testes que asseveram prosa em PT.
 
+### Categoria → carro do iRacing tem fonte única, e ela recusa
+
+[commands/iracing/exportavel.rs](src-tauri/src/commands/iracing/exportavel.rs) é o único lugar que decide o que o export sabe fazer com uma categoria. Roster, temporada e pintura recebem a **categoria**, nunca uma `car_key`: quem traduz é o Rust, uma vez, ali. O frontend não adivinha carro.
+
+O `match` é por identidade da categoria, nunca por substring, e o braço final **recusa com motivo** em vez de escolher um padrão. Hoje exportam `mazda_rookie`, `toyota_rookie`, `mazda_amador`, `toyota_amador` e `bmw_m2`; `gt4`, `gt3` e `lmp2` são recusadas por carro não decidido, e `production_challenger` e `endurance` por serem grid de mais de uma classe. Até 11/08/2026 todas elas caíam num `else → mx5` e o jogador exportava um grid de MX-5 sem que nada acusasse.
+
+A duração segue a mesma regra: `race_length_da_temporada` reduz as durações **efetivas** das etapas ([calendar::duracao_efetiva](src-tauri/src/calendar/entry.rs)) ao único `race_length` que o aiseason aceita, e recusa quando elas divergem. A sentinela `0` de `duracao_corrida_min` morre na cascata e não chega ao arquivo.
+
+O teste `o_catalogo_inteiro_e_mapeado_ou_recusado_explicitamente` percorre `constants::categories` inteiro: categoria nova entra por ali, ou ganhando carro, ou com o motivo da recusa escrito.
+
+### CSP definida, e o corpo da caixa de entrada não é HTML
+
+`tauri.conf.json` traz uma CSP explícita (era `null` até 11/08/2026). Recurso externo novo na webview (fonte, imagem, endpoint) exige mexer nela, e o guard [scripts/tests/csp-e-sink-html.test.mjs](scripts/tests/csp-e-sink-html.test.mjs) cobra as diretivas que não podem sumir, entre elas o `connect-src` com `ipc:` e `http://ipc.localhost`, sem os quais o `invoke` para e o app abre morto. Em `npm run tauri dev` a política não é aplicada, porque o HTML vem do Vite: ela só vale no bundle.
+
+O mesmo guard proíbe `dangerouslySetInnerHTML` alimentado por string montada com dado do banco. HTTP do lado Rust (updater, proxy de notícias) fica fora do alcance da CSP.
+
+### Falha engolida tem rastro
+
+`.catch(() => {})` cru é proibido em `src/components/race/` e `src/stores/` ([guard](scripts/tests/catch-vazio-no-caminho-de-corrida.test.mjs)). No lugar dele, `bestEffort(promessa, rotulo)` de [src/utils/bestEffort.js](src/utils/bestEffort.js): engole igual para a UI e escreve uma linha no `loop.log` pelo comando `diagnostico_registrar`. O app é uma GUI sem console na máquina do jogador, então falha sem rastro chega ao suporte como "não funciona". Fora desse alcance (overlay a 60 Hz, Web Audio) o padrão continua válido, por decisão escrita no próprio guard.
+
 ### Versão tem fonte única
 
 `package.json` é a fonte; `tauri.conf.json` e `Cargo.toml` espelham. O `vite.config.js` injeta `__APP_VERSION__` (do package.json) e `__APP_BUILD__` (contagem de commits do git). Use `scripts/release.mjs` para bumpar — ele sincroniza os três, assina e publica.
 
-### `.cargo/config.toml` é específico da máquina
+### Target-dir do cargo: uma política só
 
-`target-dir = "C:/cargo-target/iracer"` — aponta o target para fora do OneDrive. O CI sobrescreve com `CARGO_TARGET_DIR`. Não commite mudanças nesse arquivo achando que é config geral.
+`src-tauri/.cargo/config.toml` traz `target-dir = "C:/cargo-target/iracer"`, que joga os artefatos para fora do OneDrive. Esse arquivo é **específico da máquina** — não commite mudanças nele achando que é config geral.
+
+A regra vale para desenvolvimento, release e CI, e está implementada em [scripts/lib/cargo-target.mjs](scripts/lib/cargo-target.mjs):
+
+1. `CARGO_TARGET_DIR` explícito no ambiente vence. É o que o CI usa, para o cache do Swatinem achar o target dentro do workspace.
+2. Sem ele, vale o que o cargo resolve **de dentro de `src-tauri/`**, ou seja o `.cargo/config.toml` acima. Nenhum caminho de máquina fica escrito em script.
+
+O `release.mjs` pergunta o caminho ao `cargo metadata` em vez de cravar um. Ele já cravou `C:/dev/loop-target`, e isso fazia o release recompilar do zero o que o desenvolvimento já tinha compilado.
+
+Quando aparecer um `src-tauri/target` no repositório, alguém rodou o cargo da raiz com `--manifest-path`. Ele não é usado por nada e pode ser apagado à mão — em 11/08/2026 esse diretório acidental tinha **91,5 GB**. O `.gitignore` o cobre, então ele não vaza para o commit, só para o disco.
 
 ## Testes estruturais (`scripts/tests/`)
 
 Além dos testes de comportamento, há uma suíte `node --test` que faz guards de **estrutura e consistência visual** lendo o código-fonte como texto: alinhamento de layout, paleta de cores de equipe, contratos dos controles de janela, acentuação de copy em português, sanidade de encoding. Ao mexer em layout ou em paleta, espere que essa suíte reclame — ela existe para pegar regressão visual sem screenshot.
+
+Quem descobre os guards é [scripts/rodar-guards.mjs](scripts/rodar-guards.mjs), por `readdir` e com a lista explícita indo para o `node --test`. Nada de glob: `node --test "scripts/tests/*.test.mjs"` depende de quem expande o asterisco (o `cmd.exe` do `npm run` no Windows não expande, e o resolvedor do runner só existe do Node 21 em diante) e, quando não casa com nada, sai **verde com zero testes**. O runner também guarda um `PISO` com a contagem de guards; apagar guard exige baixá-lo no mesmo commit.
+
+O repositório exige **Node >= 24** (`engines` do package.json), e o CI usa a mesma maior. O `package-lock.json` é escrito pelo npm 11 — com o npm 10 do Node 20 o `npm ci` recusa o lock.

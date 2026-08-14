@@ -25,6 +25,55 @@ fn banco() -> Connection {
     conn
 }
 
+/// Paridade da projeção nomeada com a tabela REAL das migrações.
+///
+/// Complementa o `prepare` dos testes abaixo em vez de repetir: o `prepare` prova que a
+/// consulta INTEIRA resolve, e falha com "no such column: x" sem dizer de qual lista veio
+/// o `x`. Isto aponta a lista e a coluna, o que importa quando a projeção é montada por
+/// `join(", ")` e não aparece escrita em lugar nenhum.
+///
+/// A direção asseverada é UMA: toda coluna da lista existe na tabela. O contrário é
+/// escolha — `teams.car_build_profile` existe e o mapeador não lê de propósito.
+///
+/// Vive aqui, e não copiado nos quatro módulos, porque o `PRAGMA table_info` e a mensagem
+/// de erro são os mesmos; o que muda é a lista. É `pub(super)` para os testes de cada
+/// módulo alcançarem sem promover a visibilidade das constantes de produção.
+pub(super) fn a_projecao_existe_no_schema_real(tabela: &str, lista: &str, colunas: &[&str]) {
+    let conn = banco();
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({tabela})"))
+        .expect("pragma table_info");
+    let no_schema: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>("name"))
+        .expect("colunas da tabela")
+        .collect::<Result<_, _>>()
+        .expect("nome de coluna");
+
+    assert!(
+        !no_schema.is_empty(),
+        "a tabela '{tabela}' não existe no schema das migrações"
+    );
+
+    let faltando: Vec<&&str> = colunas
+        .iter()
+        .filter(|coluna| !no_schema.iter().any(|nome| nome == *coluna))
+        .collect();
+    assert!(
+        faltando.is_empty(),
+        "colunas em {lista} e fora de '{tabela}' (derrubam todo SELECT que usa a projeção): \
+         {faltando:?}"
+    );
+
+    let mut unicas: Vec<&&str> = colunas.iter().collect();
+    unicas.sort_unstable();
+    unicas.dedup();
+    assert_eq!(
+        unicas.len(),
+        colunas.len(),
+        "{lista} tem nome repetido — o SELECT sai com a coluna duplicada"
+    );
+}
+
 /// Busca de linha única em tabela vazia deve dar `NotFound`, nunca erro de SQL.
 ///
 /// É essa distinção que interessa: `NotFound` é a resposta correta para "não existe";

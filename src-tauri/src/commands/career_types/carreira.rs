@@ -179,12 +179,3 @@ pub struct SeasonSummary {
     pub status: String,
     pub fase: String,
 }
-
-#[derive(Debug, Serialize)]
-#[allow(dead_code)]
-pub struct VerifyDatabaseResponse {
-    pub career_number: u32,
-    pub db_path: String,
-    pub table_count: i64,
-    pub status: String,
-}

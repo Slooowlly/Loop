@@ -55,11 +55,12 @@ const MAX_AUDIOS: usize = 200;
 /// Pasta dos registros. `None` até o `init()` do boot.
 static PASTA: OnceLock<PathBuf> = OnceLock::new();
 
-/// Arquivo desta execução do app. Criado no PRIMEIRO registro, não no boot: um app aberto para
+/// Arquivo desta execução do app. Decidido no PRIMEIRO registro, não no boot: um app aberto para
 /// mexer na carreira não deixa arquivo vazio para trás.
 static ARQUIVO: OnceLock<PathBuf> = OnceLock::new();
 
-/// Serializa as escritas. O amostrador roda numa thread e os comandos noutra.
+/// Serializa as escritas **e a decisão de qual arquivo escrever**. O amostrador roda numa thread
+/// e os comandos noutra, e as duas metades da mesma fala nascem em threads diferentes.
 static TRAVA: Mutex<()> = Mutex::new(());
 
 /// O último instante do sim, para o registro poder carimbar a linha do tempo DA CORRIDA.
@@ -173,11 +174,15 @@ pub fn tempo() -> Option<Tempo> {
 
 /// **Registra uma fala.** Best-effort do começo ao fim: este módulo existe para ajudar a
 /// trabalhar no rádio, e nunca para atrapalhar uma fala que está saindo.
+///
+/// A trava vem ANTES de decidir o arquivo, e não depois: o nome tem resolução de segundo, e a
+/// `decidida` e a `tocada` da mesma fala chegam por threads diferentes dentro do mesmo segundo.
+/// Com a decisão fora da trava, as duas montavam o mesmo caminho e as duas o criavam.
 pub fn registrar(r: &Registro) {
-    let Some(path) = arquivo() else {
+    let Ok(_guarda) = TRAVA.lock() else {
         return;
     };
-    let Ok(_guarda) = TRAVA.lock() else {
+    let Some(path) = arquivo() else {
         return;
     };
     escrever_linha(&path, r, tempo());
@@ -205,14 +210,61 @@ fn escrever_linha(path: &Path, r: &Registro, momento: Option<Tempo>) {
         "audio": r.audio,
         "detalhe": r.detalhe,
     });
-    let Ok(mut arquivo) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-    else {
+    let Some((mut arquivo, novo)) = abrir_para_anexar(path) else {
         return;
     };
-    let _ = writeln!(arquivo, "{linha}");
+    // UMA escrita por chamada, e o cabeçalho colado na fala que criou o arquivo. `writeln!` num
+    // `File` — que não tem buffer nenhum — sai em várias chamadas ao sistema, e duas threads em
+    // append intercalam pedaços de JSON dentro da mesma linha. Montar o texto inteiro antes é o
+    // que faz a linha chegar ao disco de uma vez, que é a garantia que o append dá.
+    let texto = if novo {
+        format!("{}\n{linha}\n", cabecalho())
+    } else {
+        format!("{linha}\n")
+    };
+    let _ = arquivo.write_all(texto.as_bytes());
+}
+
+/// Abre o arquivo do registro para anexar, dizendo se ele nasceu **nesta** chamada.
+///
+/// Reivindicar com `create_new` em vez de `create`/`File::create` é o que torna a segunda
+/// tentativa inofensiva: quem chega depois recebe `AlreadyExists` e cai no append, em vez de
+/// truncar o que já foi escrito. Vale entre threads e entre dois apps abertos no mesmo segundo,
+/// porque a atomicidade é do sistema de arquivos e não de uma trava nossa.
+///
+/// O `true` que sai daqui é a única autorização para escrever cabeçalho, e quem escreve é a
+/// chamadora, junto da linha: um cabeçalho escrito antes de haver o que registrar é um arquivo
+/// órfão toda vez que a fala seguinte não vem.
+///
+/// Quem cria é quem cabeçalha, e mais ninguém. Perguntar "o arquivo está vazio?" pareceria mais
+/// generoso e é justamente o que não funciona: a segunda thread faz essa pergunta antes de a
+/// primeira ter escrito, vê zero byte e escreve um segundo cabeçalho. A criação é a única
+/// resposta atômica para "este arquivo é novo", e sai de graça do sistema de arquivos.
+fn abrir_para_anexar(path: &Path) -> Option<(std::fs::File, bool)> {
+    match std::fs::OpenOptions::new()
+        .create_new(true)
+        .append(true)
+        .open(path)
+    {
+        Ok(f) => Some((f, true)),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let f = std::fs::OpenOptions::new().append(true).open(path).ok()?;
+            Some((f, false))
+        }
+        Err(_) => None,
+    }
+}
+
+/// A primeira linha de todo arquivo. Sem ela, um arquivo aberto meses depois não diz de que
+/// versão do rádio ele fala, e comparar duas medições de versões diferentes é o erro mais fácil
+/// de cometer aqui.
+fn cabecalho() -> serde_json::Value {
+    serde_json::json!({
+        "kind": "header",
+        "rel": chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+        "app": env!("CARGO_PKG_VERSION"),
+        "os": std::env::consts::OS,
+    })
 }
 
 /// **Guarda em disco o áudio de uma fala do modelo** e devolve o nome do arquivo, para a linha
@@ -262,10 +314,15 @@ fn extensao(mime: &str) -> &'static str {
     }
 }
 
-/// O arquivo desta execução, criado na primeira fala.
+/// O caminho do arquivo desta execução, decidido na primeira fala.
 ///
-/// O nome carrega o carimbo de tempo do boot, e é o que torna a ordenação por nome igual à
-/// ordenação por tempo — o script de leitura conta com isso, e a poda também.
+/// **Decide, não cria.** Quem cria é [`abrir_para_anexar`], no mesmo instante em que há linha
+/// para escrever. Isso mantém a promessa do módulo (app aberto só para mexer na carreira não
+/// deixa arquivo para trás) sem que a decisão do nome dependa de I/O — e é o que permite que a
+/// única operação de criação do módulo aconteça num ponto só, dentro da trava.
+///
+/// O nome carrega o carimbo de tempo da primeira fala, e é o que torna a ordenação por nome
+/// igual à ordenação por tempo — o script de leitura conta com isso, e a poda também.
 fn arquivo() -> Option<PathBuf> {
     if let Some(p) = ARQUIVO.get() {
         return Some(p.clone());
@@ -276,24 +333,14 @@ fn arquivo() -> Option<PathBuf> {
         chrono::Local::now().format("%Y%m%d-%H%M%S")
     );
     let caminho = pasta.join(nome);
-    // Cabeçalho: sem ele, um arquivo aberto meses depois não diz de que versão do rádio ele
-    // fala, e comparar duas medições de versões diferentes é o erro mais fácil de cometer aqui.
-    let cabecalho = serde_json::json!({
-        "kind": "header",
-        "rel": chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
-        "app": env!("CARGO_PKG_VERSION"),
-        "os": std::env::consts::OS,
-    });
-    if let Ok(mut f) = std::fs::File::create(&caminho) {
-        let _ = writeln!(f, "{cabecalho}");
-    } else {
-        return None;
-    }
-    crate::diagnostico::linha("radio", &format!("registro em {}", caminho.display()));
     // `set` perde a corrida se duas threads chegarem juntas; quem perdeu usa o arquivo do
     // vencedor, que é o comportamento certo — um arquivo por execução, sempre.
     let _ = ARQUIVO.set(caminho);
-    ARQUIVO.get().cloned()
+    let escolhido = ARQUIVO.get().cloned();
+    if let Some(p) = &escolhido {
+        crate::diagnostico::linha("radio", &format!("registro em {}", p.display()));
+    }
+    escolhido
 }
 
 /// Mantém só os [`MAX_ARQUIVOS`] mais recentes.
@@ -460,7 +507,14 @@ mod tests {
         );
 
         let bruto = std::fs::read_to_string(&path).expect("linha escrita");
-        let v: serde_json::Value = serde_json::from_str(bruto.trim()).expect("JSON válido");
+        let mut linhas = bruto.lines().filter(|l| !l.trim().is_empty());
+        // A primeira linha do arquivo é sempre o cabeçalho, escrito junto da fala que criou o
+        // arquivo — nunca antes dela.
+        let cab: serde_json::Value =
+            serde_json::from_str(linhas.next().expect("cabeçalho")).expect("JSON válido");
+        assert_eq!(cab["kind"], "header");
+        let v: serde_json::Value =
+            serde_json::from_str(linhas.next().expect("a fala")).expect("JSON válido");
         assert_eq!(v["canal"], "classificacao");
         assert_eq!(v["fase"], "decidida");
         // Desfecho vazio vira `ok`: o normal não precisa ser declarado em toda chamada.
@@ -498,6 +552,119 @@ mod tests {
             .expect("há duas linhas");
         assert!(ultima["t"].is_null());
         assert!(ultima["volta"].is_null());
+        // E o cabeçalho continua sendo UM só: a segunda escrita anexa, não recomeça o arquivo.
+        let corpo = std::fs::read_to_string(&path).expect("arquivo");
+        assert_eq!(corpo.matches("\"header\"").count(), 1);
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// **A corrida das duas primeiras escritas.** É o defeito que este módulo teve: a `decidida`
+    /// (thread do amostrador) e a `tocada` (thread do comando) chegam no mesmo segundo, montam o
+    /// mesmo caminho, e a criação do arquivo truncava o que a outra tinha acabado de escrever.
+    ///
+    /// O teste bate na camada de escrita SEM a trava de propósito: o que se prova aqui é que a
+    /// criação em si não é destrutiva, e não que a trava esconde a corrida.
+    #[test]
+    fn duas_primeiras_escritas_juntas_nao_se_atropelam() {
+        let dir = std::env::temp_dir().join(format!("loop_radio_corrida_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("pasta temporária");
+        let path = dir.join("corrida.jsonl");
+
+        // Repete: a corrida é uma janela de microssegundos e uma rodada só passaria por sorte.
+        for volta in 0..20 {
+            let _ = std::fs::remove_file(&path);
+            let barreira = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let maos: Vec<_> = ["decidida", "tocada"]
+                .iter()
+                .map(|fase| {
+                    let path = path.clone();
+                    let barreira = std::sync::Arc::clone(&barreira);
+                    let fase = fase.to_string();
+                    std::thread::spawn(move || {
+                        barreira.wait();
+                        escrever_linha(
+                            &path,
+                            &Registro {
+                                canal: "spotter".to_string(),
+                                fase,
+                                ..Default::default()
+                            },
+                            None,
+                        );
+                    })
+                })
+                .collect();
+            for mao in maos {
+                mao.join().expect("thread de escrita");
+            }
+
+            let bruto = std::fs::read_to_string(&path).expect("arquivo escrito");
+            let linhas: Vec<serde_json::Value> = bruto
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| serde_json::from_str(l).expect("JSON válido por linha"))
+                .collect();
+            let fases: Vec<&str> = linhas
+                .iter()
+                .filter(|l| l["kind"] != "header")
+                .filter_map(|l| l["fase"].as_str())
+                .collect();
+            assert_eq!(
+                fases.len(),
+                2,
+                "volta {volta}: nenhuma das duas falas pode se perder, deu {bruto}"
+            );
+            assert!(fases.contains(&"decidida") && fases.contains(&"tocada"));
+            assert_eq!(
+                linhas.iter().filter(|l| l["kind"] == "header").count(),
+                1,
+                "volta {volta}: o cabeçalho sai uma vez só"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Escrever num arquivo que já existe ANEXA, e o que já estava lá continua lá. É o teste do
+    /// truncamento: com `File::create`/`create(true).truncate(true)` no lugar do `create_new`,
+    /// a linha anterior sumiria sem erro nenhum em lugar nenhum.
+    #[test]
+    fn escrever_em_arquivo_existente_anexa_e_nao_recabecalha() {
+        let dir = std::env::temp_dir().join(format!("loop_radio_anexo_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("pasta temporária");
+        let path = dir.join("anexo.jsonl");
+        std::fs::write(&path, b"{\"kind\":\"header\"}\n{\"canal\":\"velha\"}\n")
+            .expect("existente");
+
+        escrever_linha(
+            &path,
+            &Registro {
+                canal: "ritmo".to_string(),
+                fase: "tocada".to_string(),
+                ..Default::default()
+            },
+            None,
+        );
+
+        let bruto = std::fs::read_to_string(&path).expect("arquivo");
+        let linhas: Vec<&str> = bruto.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(linhas.len(), 3, "o que já estava lá sobrevive: {bruto}");
+        assert!(linhas[1].contains("velha"));
+        assert_eq!(
+            bruto.matches("\"header\"").count(),
+            1,
+            "arquivo existente não ganha um segundo cabeçalho"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Decidir o caminho não pode criar arquivo nenhum: um app aberto só para mexer na carreira
+    /// não deixa arquivo órfão de cabeçalho para trás.
+    #[test]
+    fn decidir_o_caminho_nao_toca_no_disco() {
+        // Sem `init()` não há nem pasta — e `arquivo()` recusa antes de qualquer I/O.
+        assert!(arquivo().is_none());
+        assert!(caminho().is_none());
     }
 }

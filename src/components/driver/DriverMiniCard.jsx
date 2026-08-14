@@ -115,7 +115,7 @@ function Corpo({ detail }) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 border-t border-white/8 px-3 py-2">
+      <div className="flex items-center gap-2 border-t border-white/[0.08] px-3 py-2">
         <span
           aria-hidden="true"
           className="h-6 w-1 shrink-0 rounded-full"

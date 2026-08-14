@@ -102,7 +102,7 @@ function NationalitySelect({ value, onChange, options = [], className = "" }) {
               backgroundColor: "rgb(13, 19, 33)",
             }}
             className={[
-              "z-[1000] max-h-64 overflow-y-auto rounded-2xl border border-white/12 p-1 backdrop-blur-xl",
+              "z-[1000] max-h-64 overflow-y-auto rounded-2xl border border-white/[0.12] p-1 backdrop-blur-xl",
               "shadow-[0_16px_40px_rgba(0,0,0,0.55)]",
             ].join(" ")}
           >

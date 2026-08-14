@@ -200,13 +200,161 @@ fn insert_test_driver(conn: &Connection, id: &str, skill: f64, midia: f64) -> Dr
 }
 
 fn archive_row(conn: &Connection, team_id: &str, categoria: &str, pos: i32, pontos: f64) {
+    archive_row_na_temporada(conn, team_id, categoria, 1, pos, pontos);
+}
+
+fn archive_row_na_temporada(
+    conn: &Connection,
+    team_id: &str,
+    categoria: &str,
+    temporada: i32,
+    pos: i32,
+    pontos: f64,
+) {
     conn.execute(
         "INSERT INTO team_season_archive
              (team_id, season_number, ano, categoria, posicao_campeonato, pontos)
-         VALUES (?1, 1, 2026, ?2, ?3, ?4)",
-        rusqlite::params![team_id, categoria, pos, pontos],
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![team_id, temporada, 2025 + temporada, categoria, pos, pontos],
     )
     .unwrap();
+}
+
+/// O pedaço da virada de temporada que este arquivo guarda, na ordem em que
+/// `evolution::pipeline::orquestracao` o roda: DECAIMENTO primeiro, veredito do
+/// campeonato depois.
+fn fecha_temporada(conn: &Connection, temporada: i32) {
+    apply_season_end_team_rivalry_decay(conn, temporada).unwrap();
+    process_constructor_battle_rivalry(conn, temporada).unwrap();
+}
+
+/// Pódio de três em `gt3` na temporada dada: T001 (1º) e T002 (2º) decidem o título;
+/// T003 (3º) entra por top-3 e forma com T002 um par NÃO decisor.
+fn arquiva_podio(conn: &Connection, temporada: i32) {
+    archive_row_na_temporada(conn, "T001", "gt3", temporada, 1, 100.0);
+    archive_row_na_temporada(conn, "T002", "gt3", temporada, 2, 95.0);
+    archive_row_na_temporada(conn, "T003", "gt3", temporada, 3, 90.0);
+}
+
+fn par(conn: &Connection, a: &str, b: &str) -> crate::rivalry::team::TeamRivalrySummary {
+    get_team_rivalries(conn, a)
+        .unwrap()
+        .into_iter()
+        .find(|r| r.rival_id == b)
+        .unwrap_or_else(|| panic!("rivalidade {a} x {b} não existe"))
+}
+
+/// **O par não decisor tem de sobreviver ao próprio nascimento e acumular histórico.**
+///
+/// Ele nasce em (4, 10). Com o veredito de campeonato rodando ANTES do decaimento anual,
+/// o decaimento da mesma virada o levava a (4, 5) — percebida 4,4, abaixo do limiar de
+/// extinção — e a linha era APAGADA na mesma transação em que foi criada. Só o par que
+/// decidiu o título, que nasce em (6, 15), sobrevivia ao próprio tique. Na prática a
+/// espinha dorsal do sistema entregava um clássico por categoria e mais nada.
+#[test]
+fn par_nao_decisor_sobrevive_a_virada_e_acumula_historico() {
+    let conn = setup_db();
+    for id in ["T001", "T002", "T003"] {
+        insert_test_team(&conn, id, "gt3");
+    }
+
+    arquiva_podio(&conn, 1);
+    fecha_temporada(&conn, 1);
+
+    // Temporada 1: nasce em (4, 10) e continua de pé no fim da virada.
+    let t2_t3 = par(&conn, "T002", "T003");
+    assert!((t2_t3.historical_intensity - 4.0).abs() < 1e-9);
+    assert!((t2_t3.recent_activity - 10.0).abs() < 1e-9);
+
+    // Temporada 2, mesma briga: o decaimento esfria o recente pela metade (5) e o
+    // veredito soma (4, 10) por cima → (8, 15). O histórico ACUMULA.
+    arquiva_podio(&conn, 2);
+    fecha_temporada(&conn, 2);
+
+    let t2_t3 = par(&conn, "T002", "T003");
+    assert!(
+        (t2_t3.historical_intensity - 8.0).abs() < 1e-9,
+        "histórico devia acumular para 8, foi {}",
+        t2_t3.historical_intensity
+    );
+    assert!(
+        (t2_t3.recent_activity - 15.0).abs() < 1e-9,
+        "recente devia ser 10*0.5 + 10 = 15, foi {}",
+        t2_t3.recent_activity
+    );
+}
+
+/// O par que decidiu o título nasce em (6, 15) e sempre sobreviveu — o que este teste
+/// guarda é que a inversão da ordem não mexeu nele.
+#[test]
+fn par_decisor_do_titulo_continua_funcionando() {
+    let conn = setup_db();
+    for id in ["T001", "T002", "T003"] {
+        insert_test_team(&conn, id, "gt3");
+    }
+
+    arquiva_podio(&conn, 1);
+    fecha_temporada(&conn, 1);
+
+    let decisor = par(&conn, "T001", "T002");
+    assert_eq!(decisor.tipo, TeamRivalryType::Campeonato);
+    assert!((decisor.historical_intensity - 6.0).abs() < 1e-9);
+    assert!((decisor.recent_activity - 15.0).abs() < 1e-9);
+
+    arquiva_podio(&conn, 2);
+    fecha_temporada(&conn, 2);
+
+    // (6, 15) → decaimento ativo (6, 7.5) → veredito (12, 22.5).
+    let decisor = par(&conn, "T001", "T002");
+    assert!((decisor.historical_intensity - 12.0).abs() < 1e-9);
+    assert!(
+        (decisor.recent_activity - 22.5).abs() < 1e-9,
+        "foi {}",
+        decisor.recent_activity
+    );
+}
+
+/// **Uma virada, um decaimento.** A rivalidade que já existia é esfriada uma única vez,
+/// e o reforço da temporada entra por cima do valor decaído — nunca é decaído junto.
+#[test]
+fn rivalidade_preexistente_decai_uma_vez_por_virada() {
+    let conn = setup_db();
+    for id in ["T001", "T002", "T003", "T005", "T006"] {
+        insert_test_team(&conn, id, "gt3");
+    }
+    // Preexistente que VAI brigar de novo (T002 x T003) e preexistente que NÃO briga.
+    apply_team_rivalry_event(
+        &conn,
+        &event("T002", "T003", TeamRivalryType::Campeonato, 20.0, 40.0),
+    )
+    .unwrap();
+    apply_team_rivalry_event(
+        &conn,
+        &event("T005", "T006", TeamRivalryType::Pista, 20.0, 40.0),
+    )
+    .unwrap();
+
+    arquiva_podio(&conn, 2);
+    fecha_temporada(&conn, 2);
+
+    // Briga de novo: decai UMA vez pelo ramo ativo (20, 20) e recebe (4, 10) por cima.
+    // Dois decaimentos deixariam o recente em 15 (ou o reforço abaixo de 10).
+    let brigou = par(&conn, "T002", "T003");
+    assert!(
+        (brigou.historical_intensity - 24.0).abs() < 1e-9,
+        "foi {}",
+        brigou.historical_intensity
+    );
+    assert!(
+        (brigou.recent_activity - 30.0).abs() < 1e-9,
+        "recente devia ser 40*0.5 + 10 = 30, foi {}",
+        brigou.recent_activity
+    );
+
+    // Não brigou: ramo inativo, uma vez só → (17, 8).
+    let parada = par(&conn, "T005", "T006");
+    assert!((parada.historical_intensity - 17.0).abs() < 1e-9);
+    assert!((parada.recent_activity - 8.0).abs() < 1e-9);
 }
 
 #[test]
@@ -313,6 +461,104 @@ fn collisions_agrega_por_par_de_times_ignora_companheiro() {
     assert_eq!(summ[0].tipo, TeamRivalryType::Pista);
     // Base (2,6) → perceived = 0.6*2 + 0.4*6 = 3.6.
     assert!((summ[0].perceived_intensity - 3.6).abs() < 1e-9);
+}
+
+/// `team1_id` gravado na linha, para conferir a ORDENAÇÃO do par e não só a
+/// existência dele.
+fn team1_gravado(conn: &Connection) -> String {
+    conn.query_row("SELECT team1_id FROM team_rivalries", [], |row| row.get(0))
+        .unwrap()
+}
+
+/// **O par de EQUIPES entra pelo normalizador de equipe.** As duas fontes que
+/// pegam carona no fato de piloto — Pista e Herdada — montavam a chave com
+/// `normalize_pair`, o normalizador de PILOTO, e transportavam ids de time em
+/// campos chamados `piloto1_id`/`piloto2_id`. Funcionava por coincidência de
+/// formato e a dependência vivia só num comentário.
+///
+/// O que estes dois testes travam é o efeito observável: menor id primeiro, e a
+/// ordem em que os times chegam não abre uma segunda linha para a mesma briga.
+#[test]
+fn pista_normaliza_o_par_de_times_em_qualquer_ordem() {
+    use crate::simulation::incidents::{IncidentResult, IncidentSeverity, IncidentType};
+    let conn = setup_db();
+    let mut team_by_driver = HashMap::new();
+    team_by_driver.insert("P1".to_string(), "T020".to_string());
+    team_by_driver.insert("P2".to_string(), "T003".to_string());
+
+    let colisao = |pilot: &str, linked: &str| IncidentResult {
+        pilot_id: pilot.to_string(),
+        incident_type: IncidentType::Collision,
+        severity: IncidentSeverity::Major,
+        segment: String::new(),
+        positions_lost: 2,
+        is_dnf: false,
+        description: String::new(),
+        linked_pilot_id: Some(linked.to_string()),
+        is_two_car_incident: true,
+        injury_risk_multiplier: 1.0,
+        narrative_importance_hint: 0,
+        catalog_id: None,
+        damage_origin_segment: None,
+    };
+
+    // Chega com o maior primeiro (T020 antes de T003).
+    process_team_collisions_rivalry(&conn, &[colisao("P1", "P2")], &team_by_driver, "gt3", 5, 1)
+        .unwrap();
+    assert_eq!(team1_gravado(&conn), "T003", "o menor id fica em team1_id");
+    let primeira = par(&conn, "T003", "T020").perceived_intensity;
+
+    // Mesma briga, ordem invertida: reforça a linha que já existe.
+    process_team_collisions_rivalry(&conn, &[colisao("P2", "P1")], &team_by_driver, "gt3", 6, 1)
+        .unwrap();
+    assert_eq!(
+        get_team_rivalries(&conn, "T003").unwrap().len(),
+        1,
+        "a ordem invertida não pode abrir uma segunda linha para o mesmo par"
+    );
+    assert!(
+        par(&conn, "T003", "T020").perceived_intensity > primeira,
+        "a segunda passagem tem que reforçar a rivalidade, não duplicá-la"
+    );
+}
+
+#[test]
+fn herdada_normaliza_o_par_de_times_em_qualquer_ordem() {
+    use crate::models::rivalry::RivalryType;
+    use crate::rivalry::{apply_rivalry_event, RivalryEvent};
+    let conn = setup_db();
+    apply_rivalry_event(
+        &conn,
+        &RivalryEvent {
+            piloto_a: "P1".to_string(),
+            piloto_b: "P2".to_string(),
+            tipo: RivalryType::Colisao,
+            historical_delta: 60.0,
+            recent_delta: 60.0,
+            temporada: 1,
+        },
+    )
+    .unwrap();
+
+    let mapa = |a: &str, b: &str| {
+        let mut m = HashMap::new();
+        m.insert("P1".to_string(), a.to_string());
+        m.insert("P2".to_string(), b.to_string());
+        m
+    };
+
+    process_driver_rivalry_bleed(&conn, &mapa("T020", "T003"), "gt3", 5, 1).unwrap();
+    assert_eq!(team1_gravado(&conn), "T003", "o menor id fica em team1_id");
+    let primeira = par(&conn, "T003", "T020").perceived_intensity;
+
+    // Os mesmos dois times, trocados de lado no mapa: mesma linha.
+    process_driver_rivalry_bleed(&conn, &mapa("T003", "T020"), "gt3", 6, 1).unwrap();
+    assert_eq!(
+        get_team_rivalries(&conn, "T003").unwrap().len(),
+        1,
+        "a ordem invertida não pode abrir uma segunda linha para o mesmo par"
+    );
+    assert!(par(&conn, "T003", "T020").perceived_intensity > primeira);
 }
 
 #[test]

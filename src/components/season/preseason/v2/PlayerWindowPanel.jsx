@@ -105,7 +105,7 @@ function ForecastCard({ forecast, totalOffers, isOpeningWeek, playerSignedThisWi
 
   if (playerSignedThisWindow && !forecast) {
     return (
-      <div className="mb-2.5 rounded-xl border border-dashed border-white/12 bg-black/15 p-4 text-center text-body text-[color:var(--text-secondary)]">
+      <div className="mb-2.5 rounded-xl border border-dashed border-white/[0.12] bg-black/15 p-4 text-center text-body text-[color:var(--text-secondary)]">
         {t("preSeason.forecast.notInMarket")}
       </div>
     );
@@ -122,7 +122,7 @@ function ForecastCard({ forecast, totalOffers, isOpeningWeek, playerSignedThisWi
     : `${totalOffers}`;
 
   return (
-    <div className="mb-2.5 rounded-xl border border-white/8 bg-black/15 p-3">
+    <div className="mb-2.5 rounded-xl border border-white/[0.08] bg-black/15 p-3">
       <div className="mb-2 flex items-center gap-1.5">
         <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--accent-primary)]" />
         <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
@@ -145,7 +145,7 @@ function ReachableSeatsCard({ seats }) {
   const { t } = useTranslation();
   if (!seats.length) return null;
   return (
-    <div className="mb-2.5 rounded-xl border border-white/8 bg-black/15 p-3">
+    <div className="mb-2.5 rounded-xl border border-white/[0.08] bg-black/15 p-3">
       <div className="mb-1.5 flex items-center gap-1.5">
         <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--status-green)]" />
         <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
@@ -242,7 +242,7 @@ function WindowDiary({ currentWeek, totalWeeks, signingsStartWeek, isComplete, o
   ];
 
   return (
-    <div className="rounded-xl border border-white/8 bg-black/15 p-3">
+    <div className="rounded-xl border border-white/[0.08] bg-black/15 p-3">
       <div className="mb-2.5 flex items-center gap-1.5">
         <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--text-muted)]" />
         <span className="flex-1 text-[9px] font-black uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
@@ -252,7 +252,7 @@ function WindowDiary({ currentWeek, totalWeeks, signingsStartWeek, isComplete, o
           type="button"
           onClick={onHide}
           data-testid="preseason-diary-hide"
-          className="transition-glass -my-1 -mr-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-[color:var(--text-muted)] hover:bg-white/8 hover:text-[color:var(--text-secondary)]"
+          className="transition-glass -my-1 -mr-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-[color:var(--text-muted)] hover:bg-white/[0.08] hover:text-[color:var(--text-secondary)]"
         >
           {t("preSeason.v2.window.diaryHide")}
         </button>
@@ -334,7 +334,7 @@ export default function PlayerWindowPanel({
 
   return (
     <aside className="glass animate-drawer-in flex min-h-0 flex-col rounded-2xl">
-      <div className="flex items-center justify-between border-b border-white/7 px-3.5 py-3 lg:px-4">
+      <div className="flex items-center justify-between border-b border-white/[0.07] px-3.5 py-3 lg:px-4">
         <p className="text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--text-secondary)]">
           {t("preSeason.v2.window.title")}
         </p>
@@ -468,7 +468,7 @@ export default function PlayerWindowPanel({
         )}
 
         {!isOpeningWeek && playerOffers.length === 0 && (
-          <div className="mb-2.5 rounded-xl border border-dashed border-white/12 bg-black/15 p-4 text-center text-body text-[color:var(--text-secondary)]">
+          <div className="mb-2.5 rounded-xl border border-dashed border-white/[0.12] bg-black/15 p-4 text-center text-body text-[color:var(--text-secondary)]">
             {playerSignedThisWindow
               ? t("preSeason.offers.emptySigned")
               : isComplete
@@ -484,7 +484,7 @@ export default function PlayerWindowPanel({
         {weeklyClosingGroups.length > 0 && (
           <div
             data-testid="weekly-closing-market"
-            className="mb-2.5 rounded-xl border border-white/8 bg-black/18 px-3 py-3"
+            className="mb-2.5 rounded-xl border border-white/[0.08] bg-black/[0.18] px-3 py-3"
           >
             <p className="text-[9px] font-black uppercase tracking-[0.18em] text-[color:var(--text-muted)]">
               {t("preSeason.weeklyClosing.title")}

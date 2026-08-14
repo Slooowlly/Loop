@@ -1,6 +1,10 @@
 import { useTranslation } from "react-i18next";
 import { ordinal } from "../../../i18n/format.js";
-import { formatSalaryAnnual, extractNationalityLabel } from "../../../utils/formatters";
+import {
+  formatSalaryAnnual,
+  extractNationalityLabel,
+  formatAttributeName,
+} from "../../../utils/formatters";
 import TeamLogoMark from "../../team/TeamLogoMark";
 import FlagIcon from "../../ui/FlagIcon";
 import Tooltip from "../../ui/Tooltip";
@@ -202,12 +206,15 @@ export default function OfferCardRich({ offer, isAdvancingWeek, onViewContract }
                   ))}
                 </div>
                 {(offer.teammate_strengths?.length > 0 || offer.teammate_weaknesses?.length > 0) && (
-                  <div className="mt-2 space-y-1 border-t border-white/8 pt-2">
+                  <div className="mt-2 space-y-1 border-t border-white/[0.08] pt-2">
                     {offer.teammate_strengths?.length > 0 && (
                       <div className="flex items-start gap-1.5">
                         <span className="mt-px shrink-0 text-[11px] font-bold text-[color:var(--status-green)]">▲</span>
+                        {/* O backend manda IDS de atributo (`racecraft`, `gestao_pneus`),
+                            não prosa: a lista vinha pronta em português e caía crua na
+                            tela em en-US. Quem traduz é o namespace `attribute.*`. */}
                         <span className="text-[11px] text-[color:var(--text-secondary)]">
-                          {offer.teammate_strengths.join(" · ")}
+                          {offer.teammate_strengths.map(formatAttributeName).join(" · ")}
                         </span>
                       </div>
                     )}
@@ -215,14 +222,14 @@ export default function OfferCardRich({ offer, isAdvancingWeek, onViewContract }
                       <div className="flex items-start gap-1.5">
                         <span className="mt-px shrink-0 text-[11px] font-bold text-[#f85149]">▼</span>
                         <span className="text-[11px] text-[color:var(--text-secondary)]">
-                          {offer.teammate_weaknesses.join(" · ")}
+                          {offer.teammate_weaknesses.map(formatAttributeName).join(" · ")}
                         </span>
                       </div>
                     )}
                   </div>
                 )}
                 {offer.teammate_fama != null && (
-                  <div className="mt-2 flex items-center justify-between border-t border-white/8 pt-2">
+                  <div className="mt-2 flex items-center justify-between border-t border-white/[0.08] pt-2">
                     <span className="text-[11px] text-[color:var(--text-muted)]">{t("preSeason.offers.card.fame")}</span>
                     <Tooltip
                       texto={
@@ -237,7 +244,7 @@ export default function OfferCardRich({ offer, isAdvancingWeek, onViewContract }
                     </Tooltip>
                   </div>
                 )}
-                <div className="mt-2 flex items-center justify-between border-t border-white/8 pt-2">
+                <div className="mt-2 flex items-center justify-between border-t border-white/[0.08] pt-2">
                   <span className="text-[11px] text-[color:var(--text-muted)]">{t("preSeason.offers.card.salary")}</span>
                   <span className="num-medium text-[12px] font-bold text-[color:var(--status-green)]">
                     {offer.teammate_salary != null ? formatSalaryAnnual(offer.teammate_salary) : "—"}
@@ -251,7 +258,7 @@ export default function OfferCardRich({ offer, isAdvancingWeek, onViewContract }
         </div>
 
         {/* Duração do contrato ofertado */}
-        <div className="flex items-center justify-between rounded-lg bg-black/18 px-3 py-2">
+        <div className="flex items-center justify-between rounded-lg bg-black/[0.18] px-3 py-2">
           <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
             {t("preSeason.offers.card.offeredContract")}
           </span>

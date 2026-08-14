@@ -50,7 +50,9 @@ pub struct PlayerOfferView {
     /// pesar se a vaga é ao lado de um astro (mais holofote/patrocínio) na decisão.
     pub teammate_fama: Option<u8>,
     pub teammate_carisma: Option<u8>,
-    /// Até 2 atributos mais fortes e mais fracos do companheiro (rótulos em PT).
+    /// Até 2 atributos mais fortes e mais fracos do companheiro, como IDS ESTÁVEIS
+    /// (`consistencia`, `racecraft`, …) — o namespace `attribute.*` do i18n. A
+    /// tradução acontece no card, não aqui.
     pub teammate_strengths: Vec<String>,
     pub teammate_weaknesses: Vec<String>,
     // ── Ficha da equipe (dados ricos para o modal robusto de ofertas) ──
@@ -115,18 +117,24 @@ fn last_championship_position(conn: &rusqlite::Connection, team_id: &str) -> Opt
 
 /// Pontos fortes e fracos do piloto: os 2 maiores e os 2 menores entre um conjunto
 /// CURADO de atributos de pilotagem (exclui skill geral, mídia, estilo e meta).
+///
+/// Devolve o ID do atributo, e não a prosa. A lista saía daqui em português cravado
+/// ("Corpo a corpo", "Gestão de pneus") e o card imprimia crua: o jogador em en-US lia
+/// português no meio do scouting. Os ids são os mesmos nomes de campo de
+/// `DriverAttributes`, que é o namespace `attribute.*` do i18n do frontend — quem
+/// traduz é `formatAttributeName`, no `OfferCardRich`.
 fn driver_strengths_weaknesses(
     attrs: &crate::models::driver::DriverAttributes,
 ) -> (Vec<String>, Vec<String>) {
     let mut scored: Vec<(&str, f64)> = vec![
-        ("Consistência", attrs.consistencia),
-        ("Corpo a corpo", attrs.racecraft),
-        ("Defesa", attrs.defesa),
-        ("Classificação", attrs.ritmo_classificacao),
-        ("Gestão de pneus", attrs.gestao_pneus),
-        ("Largada", attrs.habilidade_largada),
-        ("Adaptabilidade", attrs.adaptabilidade),
-        ("Pilotagem na chuva", attrs.fator_chuva),
+        ("consistencia", attrs.consistencia),
+        ("racecraft", attrs.racecraft),
+        ("defesa", attrs.defesa),
+        ("ritmo_classificacao", attrs.ritmo_classificacao),
+        ("gestao_pneus", attrs.gestao_pneus),
+        ("habilidade_largada", attrs.habilidade_largada),
+        ("adaptabilidade", attrs.adaptabilidade),
+        ("fator_chuva", attrs.fator_chuva),
     ];
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     let strengths = scored.iter().take(2).map(|(l, _)| l.to_string()).collect();
@@ -250,7 +258,10 @@ fn build_payload(
     let player_category = driver_queries::get_player_driver(conn).ok().and_then(|p| {
         p.categoria_atual.clone().or_else(|| {
             conn.query_row(
-                "SELECT categoria FROM contracts WHERE piloto_id = ?1 ORDER BY temporada_fim DESC LIMIT 1",
+                // `temporada_fim` é TEXT: o CAST evita a ordenação lexicográfica,
+                // que colocaria a temporada 9 na frente da 10.
+                "SELECT categoria FROM contracts WHERE piloto_id = ?1
+                 ORDER BY CAST(temporada_fim AS INTEGER) DESC LIMIT 1",
                 [&p.id],
                 |r| r.get::<_, String>(0),
             )
@@ -296,14 +307,14 @@ pub(crate) fn get_transfer_window_state_in_base_dir(
     build_payload(&db.conn, season)
 }
 
-/// O avanço real do mercado é feito por `advance_market_week` (que chama
-/// `preseason::advance_week`). Este comando ficou legado: apenas devolve o estado
-/// atual das ofertas, sem avançar nada — `accepted_seat_id` é ignorado.
-pub(crate) fn advance_transfer_window_in_base_dir(
-    base_dir: &Path,
-    career_id: &str,
-    _accepted_seat_id: Option<&str>,
-) -> Result<TransferWindowPayload, String> {
-    let (db, season) = open_career(base_dir, career_id)?;
-    build_payload(&db.conn, season)
-}
+// REMOVIDO em 11/08/2026: `advance_transfer_window_in_base_dir` (e o comando
+// `advance_transfer_window` que o expunha).
+//
+// Ele nunca avançou nada: o corpo era idêntico ao de `get_transfer_window_state_in_base_dir`
+// acima, e o único parâmetro que o distinguia (`accepted_seat_id`) era ignorado. Quem avança
+// o mercado é `advance_market_week` → `preseason::advance_week`.
+//
+// Ficou dois anos registrado no `invoke_handler` esperando o F-01. O F-01 foi feito: a tela
+// do mercado em temporada é a `MercadoSection.jsx`, e quem a escreveu recusou ligá-lo com a
+// justificativa correta — "um botão aqui seria um botão que não faz nada". Um comando que a
+// única tela que o pediria já decidiu não chamar não é feature futura, é registro órfão.

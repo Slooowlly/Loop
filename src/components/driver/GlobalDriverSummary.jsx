@@ -92,7 +92,7 @@ function UserDriverFocusCard({ row, ranks }) {
 function FocusStat({ label, value, rank, title }) {
   return (
     <Tooltip texto={title || undefined}>
-      <div className={`min-h-24 rounded-2xl border border-white/8 bg-black/10 p-3${title ? " cursor-help" : ""}`}>
+      <div className={`min-h-24 rounded-2xl border border-white/[0.08] bg-black/10 p-3${title ? " cursor-help" : ""}`}>
         <p className="text-[10px] uppercase tracking-[0.14em] text-text-muted">{label}</p>
         <p className="mt-2 font-mono text-lg font-semibold text-text-primary">{value ?? 0}</p>
         <p className="mt-1 text-xs text-accent-primary">Top #{rank || "--"}</p>
@@ -139,7 +139,7 @@ export function ChampionshipChampionPanel({ sections, onOpenChampionship }) {
                     type="button"
                     aria-label={i18n.t("globalDrivers.viewChampionsAria", { group: group.label })}
                     onClick={() => onOpenChampionship(group)}
-                    className="flex min-h-20 items-center justify-between gap-4 rounded-2xl border border-white/8 bg-black/10 px-4 py-3 text-left transition-glass hover:border-accent-primary/40 hover:bg-accent-primary/10"
+                    className="flex min-h-20 items-center justify-between gap-4 rounded-2xl border border-white/[0.08] bg-black/10 px-4 py-3 text-left transition-glass hover:border-accent-primary/40 hover:bg-accent-primary/10"
                   >
                     <span>
                       <span className="block text-sm font-semibold text-text-primary">{group.label}</span>
@@ -156,7 +156,7 @@ export function ChampionshipChampionPanel({ sections, onOpenChampionship }) {
             </div>
           ))
         ) : (
-          <p className="rounded-2xl border border-white/8 bg-black/10 px-4 py-3 text-sm text-text-secondary">
+          <p className="rounded-2xl border border-white/[0.08] bg-black/10 px-4 py-3 text-sm text-text-secondary">
             {i18n.t("globalDrivers.noChampionsRecorded")}
           </p>
         )}

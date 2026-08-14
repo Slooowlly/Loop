@@ -409,7 +409,8 @@ impl Observador {
         // pretender ser notícia — e some sozinho no instante em que o "livre" sai.
         if let Some(chave) = self.confirmada.chave_lembrete() {
             if tempo_s - self.ultimo_anuncio_s >= self.intervalo_lembrete {
-                self.intervalo_lembrete = (self.intervalo_lembrete + LEMBRETE_PASSO_S).min(LEMBRETE_MAX_S);
+                self.intervalo_lembrete =
+                    (self.intervalo_lembrete + LEMBRETE_PASSO_S).min(LEMBRETE_MAX_S);
                 return Some(self.emitir(chave, tempo_s, 0.0));
             }
         }
@@ -463,7 +464,9 @@ impl Observador {
         // informação exatamente no formato mais perigoso.
         let chave = if matches!(self.confirmada, Vizinhanca::Desligado) {
             None
-        } else if self.confirmada.ocupada() && (!anterior.ocupada() || escalou(anterior, self.confirmada)) {
+        } else if self.confirmada.ocupada()
+            && (!anterior.ocupada() || escalou(anterior, self.confirmada))
+        {
             Some(self.confirmada.chave())
         } else {
             liberacao(anterior, self.confirmada)
@@ -642,7 +645,10 @@ pub fn observar(t: &IracingTelemetry) {
     if let Some(e) = evento {
         crate::diagnostico::linha(
             "spotter",
-            &format!("{} @ {:.1}s (lado a lado {:.1}s)", e.chave, e.sessao_s, e.duracao_s),
+            &format!(
+                "{} @ {:.1}s (lado a lado {:.1}s)",
+                e.chave, e.sessao_s, e.duracao_s
+            ),
         );
         // E na LINHA DO TEMPO do rádio, que é onde ele se soma às outras bocas. Aqui a fala
         // ainda é só decisão: quem diz se ela chegou ao ouvido é o front, com a fase `tocada`.
@@ -963,7 +969,11 @@ mod tests {
         // Carro exatamente na borda da zona: entra e sai no ritmo mais rápido que a
         // máquina consegue acompanhar.
         while t < 20.0 {
-            let bruto = if (t % 0.5) < 0.15 { LR_ESQUERDA } else { LR_LIVRE };
+            let bruto = if (t % 0.5) < 0.15 {
+                LR_ESQUERDA
+            } else {
+                LR_LIVRE
+            };
             if let Some(e) = obs.observar(na_pista(bruto, t)) {
                 if e.chave == "esquerda" {
                     quando.push(e.sessao_s);
@@ -971,11 +981,17 @@ mod tests {
             }
             t += 1.0 / 60.0;
         }
-        assert!(quando.len() >= 2, "o cenário deveria repetir a entrada: {quando:?}");
+        assert!(
+            quando.len() >= 2,
+            "o cenário deveria repetir a entrada: {quando:?}"
+        );
         let minimo = CONFIRMA_LIVRE_S + CONFIRMA_LADO_S;
         for w in quando.windows(2) {
             let gap = w[1] - w[0];
-            assert!(gap >= minimo - 0.02, "duas entradas a {gap:.3}s (mínimo {minimo:.2}s)");
+            assert!(
+                gap >= minimo - 0.02,
+                "duas entradas a {gap:.3}s (mínimo {minimo:.2}s)"
+            );
         }
     }
 
@@ -1076,11 +1092,16 @@ mod tests {
             no_carro: true,
             na_pista: false, // ainda parado no box, antes da largada
         };
-        let primeiro = obs.observar(no_box(0.0)).expect("teste de rádio na entrada");
+        let primeiro = obs
+            .observar(no_box(0.0))
+            .expect("teste de rádio na entrada");
         assert_eq!(primeiro.chave, CHAVE_TESTE);
         let mut t = 1.0 / 60.0;
         while t < 5.0 {
-            assert!(obs.observar(no_box(t)).is_none(), "o teste não pode repetir");
+            assert!(
+                obs.observar(no_box(t)).is_none(),
+                "o teste não pode repetir"
+            );
             t += 1.0 / 60.0;
         }
     }
@@ -1127,7 +1148,10 @@ mod tests {
                 na_pista: false
             })
             .is_none());
-        assert_eq!(obs.observar(amostra(0.3)).map(|e| e.chave), Some(CHAVE_TESTE));
+        assert_eq!(
+            obs.observar(amostra(0.3)).map(|e| e.chave),
+            Some(CHAVE_TESTE)
+        );
     }
 
     #[test]
@@ -1154,7 +1178,12 @@ mod tests {
         let mut obs = sentado();
         let mut t = 0.0;
         while t < 3.0 {
-            obs.observar(Amostra { bruto: LR_ESQUERDA, tempo_s: t, no_carro: true, na_pista: false });
+            obs.observar(Amostra {
+                bruto: LR_ESQUERDA,
+                tempo_s: t,
+                no_carro: true,
+                na_pista: false,
+            });
             t += 1.0 / 60.0;
         }
         assert!(obs.estado().eventos.is_empty());

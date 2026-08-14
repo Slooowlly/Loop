@@ -13,8 +13,9 @@ use crate::constants::historical_timeline::{
     apply_historical_performance_band, category_start_year, historical_team_foundation_year,
 };
 use crate::constants::teams::{get_team_templates, TeamTemplate};
+use crate::generators::teams::generate_teams_for_category;
 use crate::models::driver::Driver;
-use crate::models::team::{generate_teams_for_category, Team};
+use crate::models::team::Team;
 
 const HISTORICAL_AMATEUR_STARTING_TEAMS: usize = 6;
 

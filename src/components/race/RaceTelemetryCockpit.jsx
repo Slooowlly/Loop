@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import { bestEffort } from "../../utils/bestEffort";
 import useCareerStore from "../../stores/useCareerStore";
 import LapTimeLineChart from "./LapTimeLineChart";
 import RaceTraceChart from "./RaceTraceChart";
@@ -105,9 +106,11 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
 
   useEffect(() => {
     if (!careerId) return;
-    invoke("iracing_car_colors", { careerId })
-      .then((c) => setCarColors(c || { by_name: {}, player_color: null }))
-      .catch(() => {});
+    // Mesma leitura do RaceCharts: cor é decoração, a paleta padrão cobre a falha, e o
+    // rastro separa "falhou" de "não há cor".
+    bestEffort(invoke("iracing_car_colors", { careerId }), "iracing_car_colors").then((c) =>
+      setCarColors(c || { by_name: {}, player_color: null }),
+    );
   }, [careerId]);
 
   const orderedCars = useMemo(() => {

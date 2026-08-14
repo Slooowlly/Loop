@@ -38,6 +38,9 @@ pub const COBERTURA_MINIMA: usize = 95;
 /// décimos é ruído de pilotagem; um segundo e meio numa volta de um e trinta é 1,7% e não volta.
 pub const LIMIAR_VOLTA_MORTA_S: f64 = 1.5;
 
+/// Uma volta desenhada: o tempo decorrido em cada balde e quais baldes foram visitados.
+type Curva = ([f32; BALDES], [bool; BALDES]);
+
 /// A melhor volta da sessão, guardada como curva, e a volta em curso sendo desenhada por cima.
 #[derive(Debug, Clone)]
 pub struct VoltaReferencia {
@@ -50,6 +53,8 @@ pub struct VoltaReferencia {
     /// Que baldes a volta em curso já preencheu. Sem isto, um balde nunca visitado (o carro
     /// entrou no box no meio) valeria zero e a volta entraria como referência absurda.
     vistos: [bool; BALDES],
+    /// A volta que já cruzou a linha e ainda espera o tempo dela. Ver [`Self::suspender_volta`].
+    suspensa: Option<Curva>,
 }
 
 impl Default for VoltaReferencia {
@@ -65,6 +70,7 @@ impl VoltaReferencia {
             melhor_s: 0.0,
             parcial: [0.0; BALDES],
             vistos: [false; BALDES],
+            suspensa: None,
         }
     }
 
@@ -91,7 +97,28 @@ impl VoltaReferencia {
         self.parcial[i] = tempo_na_volta_s as f32;
     }
 
-    /// A volta terminou com este tempo. Vira referência se for a melhor E se estiver inteira.
+    /// A volta cruzou a linha, e o tempo dela ainda não chegou.
+    ///
+    /// O fecho tem dois tempos porque a fonte do tempo tem dois tempos. O `LapLastLapTime` só é
+    /// publicado de 0,067 s a 0,433 s DEPOIS da virada da contagem (medido em `race_monitor/
+    /// voltas.rs`), e ler o campo no tique da virada entrega o tempo da volta anterior — aqui
+    /// isso doeria em dobro, porque casaria a curva de uma volta com o relógio de outra.
+    ///
+    /// A curva, porém, não pode esperar junto: a volta seguinte já começa a ser desenhada no
+    /// tique seguinte, e cada balde é escrito uma vez só. Então ela sai de cena agora, e
+    /// [`Self::confirmar_suspensa`] junta as duas metades quando o tempo aparece.
+    ///
+    /// Suspender de novo antes de confirmar descarta a suspensa anterior: uma volta cujo tempo
+    /// nunca chegou não é volta nenhuma, e guardá-la faria a referência sair atrasada em uma
+    /// posição — exatamente o defeito que este par existe para matar.
+    pub fn suspender_volta(&mut self) {
+        self.suspensa = Some((self.parcial, self.vistos));
+        self.descartar_volta();
+    }
+
+    /// O tempo da volta suspensa chegou: ela vira referência se for a melhor E se estiver
+    /// inteira. Sem volta suspensa não faz nada — é o caso da volta de preparação e da volta
+    /// suja, que nem chegam a ser suspensas.
     ///
     /// "Inteira" é o guarda que importa: uma volta com buraco na curva produziria delta negativo
     /// gigante no trecho que faltou, e o rádio diria que estamos voando quando estamos no box.
@@ -101,34 +128,40 @@ impl VoltaReferencia {
     /// pista é pior — basta um quadro perdido. Então o piso é [`COBERTURA_MINIMA`] e os buracos
     /// interiores são **interpolados** entre os vizinhos, que é o único preenchimento que não
     /// inventa tempo para nenhum dos dois lados.
-    pub fn fechar_volta(&mut self, tempo_da_volta_s: f64) {
-        let vistos = self.vistos.iter().filter(|v| **v).count();
-        let coberta = vistos * 100 >= BALDES * COBERTURA_MINIMA;
+    pub fn confirmar_suspensa(&mut self, tempo_da_volta_s: f64) {
+        let Some((parcial, vistos)) = self.suspensa.take() else {
+            return;
+        };
+        let cobertos = vistos.iter().filter(|v| **v).count();
+        let coberta = cobertos * 100 >= BALDES * COBERTURA_MINIMA;
         if tempo_da_volta_s > 0.0
             && coberta
             && (self.melhor_s <= 0.0 || tempo_da_volta_s < self.melhor_s)
         {
             self.melhor_s = tempo_da_volta_s;
-            self.referencia = Some(self.preencher_buracos(tempo_da_volta_s));
+            self.referencia = Some(Self::preencher_buracos(&parcial, &vistos, tempo_da_volta_s));
         }
-        self.descartar_volta();
     }
 
     /// Interpola os baldes que a volta não visitou. Buraco no começo vira 0 (a linha), buraco no
     /// fim vira o tempo da volta — os dois extremos são conhecidos por definição.
-    fn preencher_buracos(&self, tempo_da_volta_s: f64) -> [f32; BALDES] {
-        let mut curva = self.parcial;
+    fn preencher_buracos(
+        parcial: &[f32; BALDES],
+        vistos: &[bool; BALDES],
+        tempo_da_volta_s: f64,
+    ) -> [f32; BALDES] {
+        let mut curva = *parcial;
         let mut anterior_i = 0usize;
         let mut anterior_t = 0.0f32;
         for i in 0..BALDES {
-            if self.vistos[i] {
+            if vistos[i] {
                 anterior_i = i;
                 anterior_t = curva[i];
                 continue;
             }
             // Procura o próximo balde conhecido; se não houver, o fim da volta serve de âncora.
             let (proximo_i, proximo_t) = (i + 1..BALDES)
-                .find(|j| self.vistos[*j])
+                .find(|j| vistos[*j])
                 .map_or((BALDES, tempo_da_volta_s as f32), |j| (j, curva[j]));
             let vao = (proximo_i - anterior_i) as f32;
             curva[i] = anterior_t + (proximo_t - anterior_t) * ((i - anterior_i) as f32 / vao);

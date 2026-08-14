@@ -7,7 +7,7 @@ use winapi::um::memoryapi::{MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FI
 use super::util::{decode_latin1, read_i32, read_value, type_size, wide_null, IRSDK_MAX_CARS};
 use crate::iracing_sdk::{
     header, parse_track_name, CarSnapshot, IracingError, IracingSession, IracingTelemetry,
-    MEM_MAP_FILE_NAME, MEM_MAP_FILE_NAME_NU, STATUS_CONNECTED, VarDoSdk,
+    VarDoSdk, MEM_MAP_FILE_NAME, MEM_MAP_FILE_NAME_NU, STATUS_CONNECTED,
 };
 
 /// `ERROR_FILE_NOT_FOUND` — o mapeamento não existe: o sim está fechado (ou não

@@ -24,7 +24,7 @@ function StepIndicator({ currentStep, steps }) {
 
           return (
             <div key={step} className="space-y-2">
-              <div className="h-1.5 overflow-hidden rounded-full bg-white/8">
+              <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
                 <div
                   className={[
                     "h-full rounded-full transition-glass",

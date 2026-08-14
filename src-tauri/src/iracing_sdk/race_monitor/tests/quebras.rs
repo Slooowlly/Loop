@@ -353,3 +353,101 @@ fn clima_vivo_pista_seca_zera_o_molhado() {
     assert_eq!(w.temperature, 22.0);
     assert_eq!(w.humidity, 60.0);
 }
+
+// ── O ARME DE DEBUG cumpre o que promete ────────────────────────────────────
+//
+// A ferramenta anuncia "quebra garantida na próxima volta cruzada", e por um tempo ela não
+// entregou isso: o desgaste estava cravado em 1.10, número que era além da parede quando ela
+// valia 1.05 e virou regime de SOBREUSO quando ela subiu para 1.20. A garantia passou a ser
+// sorte alta, e quem estava testando o disparo na pista não tinha como saber.
+
+/// Monitor com o jogador identificado (idx 0, carro 7) e nada mais — é tudo de que o arme
+/// precisa para montar o diretor.
+fn monitor_com_jogador() -> RaceMonitor {
+    let mut m = RaceMonitor::new();
+    m.history.player_car_idx = 0;
+    m.car_number[0] = 7;
+    m
+}
+
+/// Uma volta do jogador na telemetria, sem nada além do que o tick de quebra lê.
+fn tique_do_jogador(volta: i32) -> IracingTelemetry {
+    IracingTelemetry {
+        session_state: STATE_RACING,
+        player_car_idx: 0,
+        lap_completed: volta,
+        cars: vec![on_track(0, 1, volta)],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn o_arme_de_debug_poe_a_peca_na_parede_e_nao_um_numero_qualquer() {
+    // O estado que a garantia exige: motor NA parede. Abaixo dela a falha volta a ser
+    // rolagem de sorte, e o contrato do comando deixa de valer.
+    let mut m = monitor_com_jogador();
+    assert!(
+        m.arm_test_breakdown(),
+        "o arme recusou com o jogador em cena"
+    );
+
+    let dir = m.breakdown.as_ref().expect("diretor armado");
+    // `car_parts_in_danger` é a janela [RISK_OPEN, HARD_WALL) — a peça na parede fica FORA
+    // dela de propósito, então a ausência aqui é a própria evidência.
+    assert!(
+        !dir.car_parts_in_danger(7)
+            .iter()
+            .any(|(_, pt, _)| *pt == crate::car::PartType::Engine),
+        "o motor ficou na janela de sorte em vez de na parede"
+    );
+    assert!(m.breakdown_debug, "o arme não liberou o gate de sessão");
+}
+
+#[test]
+fn o_arme_de_debug_quebra_na_primeira_volta_cruzada() {
+    // A ponta que importa: uma volta depois do arme, o carro TEM de ter quebrado, sem
+    // depender de sorte nenhuma. E por parede (`forced`), que é o que "garantida" quer dizer.
+    let mut m = monitor_com_jogador();
+    assert!(m.arm_test_breakdown());
+
+    m.tick_breakdown_player(&tique_do_jogador(1));
+
+    let quebras: Vec<&BreakdownOutcome> = m.breakdown_log.iter().collect();
+    assert_eq!(
+        quebras.len(),
+        1,
+        "o arme prometeu quebra garantida e a volta passou sem nenhuma"
+    );
+    assert_eq!(quebras[0].car_number, 7);
+    assert_eq!(quebras[0].part, crate::car::PartType::Engine.as_str());
+    assert!(
+        quebras[0].forced,
+        "a quebra saiu por sorte na janela, não pela parede"
+    );
+    // E o comando ao sim foi enfileirado — é ele que o teste na pista quer ver chegar.
+    assert!(
+        m.pending_breakdown_cmds.iter().any(|c| c.contains("#7")),
+        "nenhum comando de quebra foi enfileirado para o carro do jogador"
+    );
+}
+
+#[test]
+fn o_arme_de_debug_ignora_a_carencia_de_largada() {
+    // A carência tranca a falha nos primeiros minutos do verde. O arme é ferramenta de teste
+    // na pista e passa por cima dela — se não passasse, quem armasse na volta 1 esperaria três
+    // minutos por uma quebra que o botão disse ser imediata.
+    let mut m = monitor_com_jogador();
+    assert!(m.arm_test_breakdown());
+    let mut t = tique_do_jogador(1);
+    t.session_time = BREAKDOWN_GRACE_SECS / 2.0;
+
+    m.tick_breakdown_player(&t);
+    assert_eq!(m.breakdown_log.len(), 1);
+}
+
+#[test]
+fn sem_jogador_identificado_o_arme_recusa_em_vez_de_montar_nada() {
+    let mut m = RaceMonitor::new(); // sem `player_car_idx` e sem número
+    assert!(!m.arm_test_breakdown());
+    assert!(m.breakdown.is_none());
+}

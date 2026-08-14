@@ -137,7 +137,10 @@ fn o_titulo_GANHA_da_primeira_vitoria_e_leva_ela_junto() {
     let linhas = marco::linhas(Marco::Titulo, &c).join(" ");
     assert!(linhas.contains("CAMPEÃO"), "{linhas}");
     assert!(linhas.contains("primeira vitória"), "{linhas}");
-    assert!(linhas.contains("dezenove"), "a espera entra por extenso: {linhas}");
+    assert!(
+        linhas.contains("dezenove"),
+        "a espera entra por extenso: {linhas}"
+    );
 }
 
 // ─── As linhas que sobem ao modelo ───────────────────────────────────────────

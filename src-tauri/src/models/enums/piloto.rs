@@ -22,18 +22,11 @@ impl DriverStatus {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Lesionado" => DriverStatus::Lesionado,
-            "Aposentado" => DriverStatus::Aposentado,
-            "Suspenso" => DriverStatus::Suspenso,
-            _ => DriverStatus::Ativo,
-        }
-    }
-
     /// Parser estrito para leitura de banco de dados.
     /// Erros de valor inválido são propagados — sem fallback silencioso.
-    /// Para uso em row mappers de queries. Manter from_str() para contextos permissivos.
+    /// Para uso em row mappers de queries. É o ÚNICO parser: o `from_str()` permissivo,
+    /// que devolvia `Ativo` para qualquer texto desconhecido, saiu em 12/08/2026 sem
+    /// nenhum chamador.
     pub fn from_str_strict(s: &str) -> Result<Self, String> {
         match s.trim() {
             "Ativo" => Ok(DriverStatus::Ativo),
@@ -62,16 +55,6 @@ impl PrimaryPersonality {
             PrimaryPersonality::Consolidador => "Consolidador",
             PrimaryPersonality::Mercenario => "Mercenario",
             PrimaryPersonality::Leal => "Leal",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Ambicioso" => PrimaryPersonality::Ambicioso,
-            "Consolidador" | "Tecnico" | "Consistente" => PrimaryPersonality::Consolidador,
-            "Mercenario" | "Agressivo" => PrimaryPersonality::Mercenario,
-            "Leal" | "Calmo" => PrimaryPersonality::Leal,
-            _ => PrimaryPersonality::Ambicioso,
         }
     }
 
@@ -114,20 +97,6 @@ impl SecondaryPersonality {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "CabecaQuente" => SecondaryPersonality::CabecaQuente,
-            "SangueFrio" | "Sensivel" => SecondaryPersonality::SangueFrio,
-            "Apostador" | "Competitivo" => SecondaryPersonality::Apostador,
-            "Calculista" => SecondaryPersonality::Calculista,
-            "Showman" | "Lider" => SecondaryPersonality::Showman,
-            "TeamPlayer" | "Trabalhador" => SecondaryPersonality::TeamPlayer,
-            "Solitario" => SecondaryPersonality::Solitario,
-            "Estudioso" | "Inteligente" => SecondaryPersonality::Estudioso,
-            _ => SecondaryPersonality::Calculista,
-        }
-    }
-
     pub fn from_str_strict(s: &str) -> Result<Self, String> {
         match s.trim() {
             "CabecaQuente" => Ok(SecondaryPersonality::CabecaQuente),
@@ -139,33 +108,6 @@ impl SecondaryPersonality {
             "Solitario" => Ok(SecondaryPersonality::Solitario),
             "Estudioso" | "Inteligente" => Ok(SecondaryPersonality::Estudioso),
             other => Err(format!("SecondaryPersonality invalido: '{other}'")),
-        }
-    }
-}
-
-// ── Hierarquia da equipe (N1/N2) ──────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum DriverHierarchyRole {
-    N1,
-    N2,
-    Independente,
-}
-
-impl DriverHierarchyRole {
-    pub fn as_str(&self) -> &str {
-        match self {
-            DriverHierarchyRole::N1 => "N1",
-            DriverHierarchyRole::N2 => "N2",
-            DriverHierarchyRole::Independente => "Independente",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "N1" => DriverHierarchyRole::N1,
-            "N2" => DriverHierarchyRole::N2,
-            _ => DriverHierarchyRole::Independente,
         }
     }
 }
@@ -215,18 +157,17 @@ impl InjuryType {
         }
     }
 
-    /// Lesão que tira o piloto de circulação de verdade (o selo 🚑 da classificação).
+    /// Lesão que tira o piloto de circulação de verdade.
+    ///
+    /// **Não é quem decide o selo 🚑 da classificação.** Quem decide é o
+    /// `SEVERE_INJURY_TYPES` de `src/components/standings/DriverStandingsTable.jsx`, com a
+    /// mesma lista de palavras em português. Esta função é o espelho Rust desse corte, e
+    /// existe para o teste `lesao_seria_e_grave_ou_critica` cobrar que os dois lados
+    /// concordem. Fica sem chamador de produção de propósito: apagá-la deixaria o corte
+    /// escrito só no JSX.
+    #[allow(dead_code)]
     pub fn e_seria(&self) -> bool {
         matches!(self, InjuryType::Grave | InjuryType::Critica)
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Moderada" => InjuryType::Moderada,
-            "Grave" => InjuryType::Grave,
-            "Critica" => InjuryType::Critica,
-            _ => InjuryType::Leve,
-        }
     }
 
     /// Parser estrito para leitura de banco de dados.

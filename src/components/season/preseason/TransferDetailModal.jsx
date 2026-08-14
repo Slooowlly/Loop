@@ -31,7 +31,7 @@ export default function TransferDetailModal({ event: ev, onClose }) {
         <button
           onClick={onClose}
           aria-label={t("preSeason.actions.close")}
-          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg border border-white/12 bg-white/5 text-[color:var(--text-muted)] transition-glass hover:bg-white/10 hover:text-[color:var(--text-primary)]"
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.12] bg-white/5 text-[color:var(--text-muted)] transition-glass hover:bg-white/10 hover:text-[color:var(--text-primary)]"
         >
           ✕
         </button>

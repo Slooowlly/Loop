@@ -3,6 +3,15 @@
 
 use super::*;
 
+/// Interruptor SO DE TESTE: mata a operacao entre o staging do arquivo e o commit do
+/// banco, que e a janela em que os dois podiam acabar em lados opostos da decisao. Some
+/// inteiro do binario de release.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SABOTAR_COMMIT_DA_JANELA_DE_MERCADO: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerProposalView {
     pub proposal_id: String,
@@ -41,12 +50,11 @@ pub(crate) fn advance_market_week_in_base_dir(
     career_id: &str,
     accepted_seat_id: Option<&str>,
 ) -> Result<WeekResult, String> {
-    let _career_number =
-        career_number_from_id(career_id).ok_or_else(errors::invalid_career_id)?;
+    let _career_number = career_number_from_id(career_id).ok_or_else(errors::invalid_career_id)?;
     let (db, career_dir, mut meta) = open_career_resources(base_dir, career_id)?;
     let meta_path = career_dir.join("meta.json");
-    let mut plan = load_preseason_plan(&career_dir)?
-        .ok_or_else(errors::preseason_plan_not_found)?;
+    let mut plan =
+        load_preseason_plan(&career_dir)?.ok_or_else(errors::preseason_plan_not_found)?;
     let tx = db
         .conn
         .unchecked_transaction()
@@ -56,9 +64,20 @@ pub(crate) fn advance_market_week_in_base_dir(
         persist_market_week_news(&tx, &plan.state, &result),
         "Falha ao persistir noticias da semana de mercado",
     );
-    crate::market::preseason::save_preseason_plan(&career_dir, &plan)?;
+    // O plano da semana nasce em staging e so entra no lugar DEPOIS do commit. Gravado
+    // direto, ele sobrevivia ao rollback do banco e passava a descrever uma semana de
+    // mercado que a carreira nunca viveu — mesmo caso, mesma solucao da virada de
+    // temporada. Ver `PreSeasonPlanStaging`.
+    let plano_em_staging =
+        crate::market::preseason::PreSeasonPlanStaging::preparar(&career_dir, &plan)?;
+    #[cfg(test)]
+    if SABOTAR_COMMIT_DA_JANELA_DE_MERCADO.with(|interruptor| interruptor.get()) {
+        return Err("Falha injetada entre o staging do plano e o commit.".to_string());
+    }
+
     tx.commit()
         .map_err(|e| format!("Falha ao confirmar semana de mercado: {e}"))?;
+    plano_em_staging.publicar()?;
 
     meta.last_played = Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
     warn_if_noncritical(
@@ -73,8 +92,8 @@ pub(crate) fn get_preseason_state_in_base_dir(
     career_id: &str,
 ) -> Result<PreSeasonState, String> {
     let (db, career_dir, _) = open_career_resources_read_only(base_dir, career_id)?;
-    let mut plan = load_preseason_plan(&career_dir)?
-        .ok_or_else(errors::preseason_plan_not_found)?;
+    let mut plan =
+        load_preseason_plan(&career_dir)?.ok_or_else(errors::preseason_plan_not_found)?;
     let season = season_queries::get_active_season(&db.conn)
         .map_err(|e| format!("Falha ao carregar temporada da pre-temporada: {e}"))?
         .ok_or_else(|| format!("Temporada {} nao encontrada", plan.state.season_number))?;
@@ -105,8 +124,7 @@ pub(crate) fn get_player_poach_offer_in_base_dir(
     career_id: &str,
 ) -> Result<Option<crate::market::pipeline::PlayerPoachOffer>, String> {
     let (_, career_dir, _) = open_career_resources_read_only(base_dir, career_id)?;
-    let plan = load_preseason_plan(&career_dir)?
-        .ok_or_else(errors::preseason_plan_not_found)?;
+    let plan = load_preseason_plan(&career_dir)?.ok_or_else(errors::preseason_plan_not_found)?;
     Ok(plan.player_poach_offer)
 }
 
@@ -163,27 +181,49 @@ pub(crate) fn resolve_player_poach_offer_in_base_dir(
         None => offer.clone(),
     };
 
+    // Consome a oferta do plano da janela (uma decisão por janela) ANTES do commit, em
+    // staging. Gravado depois do commit, o consumo ficava do outro lado da decisão: uma
+    // queda entre as duas escritas deixava o contrato já trocado no banco e a oferta
+    // ainda viva no plano, e o jogador decidia duas vezes sobre a mesma quebra.
+    let plano_em_staging = match plan_on_disk {
+        Some(mut plan) if plan.player_poach_offer.is_some() => {
+            plan.player_poach_offer = None;
+            plan.state.player_has_team = true;
+            Some(crate::market::preseason::PreSeasonPlanStaging::preparar(
+                &career_dir,
+                &plan,
+            )?)
+        }
+        _ => None,
+    };
+
     let tx = db
         .conn
         .unchecked_transaction()
         .map_err(|e| format!("Falha ao iniciar transacao da quebra de contrato: {e}"))?;
-    let outcome =
-        crate::market::pipeline::resolve_player_poach(&tx, &effective_offer, accept, season.numero)?;
+    let outcome = crate::market::pipeline::resolve_player_poach(
+        &tx,
+        &effective_offer,
+        accept,
+        season.numero,
+    )?;
+    #[cfg(test)]
+    if SABOTAR_COMMIT_DA_JANELA_DE_MERCADO.with(|interruptor| interruptor.get()) {
+        return Err("Falha injetada entre o staging do plano e o commit.".to_string());
+    }
+
     tx.commit()
         .map_err(|e| format!("Falha ao confirmar quebra de contrato: {e}"))?;
 
-    // Consome a oferta do plano da janela, se houver (uma decisão por janela).
-    if let Ok(Some(mut plan)) = load_preseason_plan(&career_dir) {
-        if plan.player_poach_offer.is_some() {
-            plan.player_poach_offer = None;
-            plan.state.player_has_team = true;
-            crate::market::preseason::save_preseason_plan(&career_dir, &plan)?;
-        }
+    if let Some(staging) = plano_em_staging {
+        staging.publicar()?;
     }
     Ok(outcome)
 }
 
-/// DEBUG: relatório do dry-run do leilão de poaching (Fase 2b.2).
+/// DEBUG: relatório do dry-run do leilão de poaching (Fase 2b.2). Só existe no build
+/// de depuração, junto do comando que o produz.
+#[cfg(debug_assertions)]
 #[derive(Debug, Serialize)]
 pub(crate) struct PoachDebugReport {
     /// `true` = o mundo foi TEMPERADO pra garantir briga (não é o estado real do save).
@@ -273,13 +313,25 @@ pub(crate) fn respond_to_proposal_in_base_dir(
             .transaction()
             .map_err(|e| format!("Falha ao iniciar transacao de aceite: {e}"))?;
         accept_player_proposal_tx(&tx, &player, &season, &proposal)?;
+        // O plano reconciliado nasce em staging DENTRO da transacao e so entra no lugar
+        // depois do commit. Gravado depois do commit e em best-effort, ele ficava do outro
+        // lado da decisao: o contrato ja trocado no banco e o plano ainda carregando os
+        // eventos do jogador, que a semana seguinte executaria por cima do assento
+        // recem-assinado. A leitura tambem passa a ser pela `tx`, ou seja enxerga o assento
+        // ja ocupado — que e o estado sobre o qual o plano precisa ser reconciliado. Mesmo
+        // caso, mesma solucao da semana de mercado e da quebra de contrato acima. Ver
+        // `PreSeasonPlanStaging`.
+        let plano_em_staging = reconcile_plan_after_player_accept(&career_dir, &tx, &proposal)?;
+        #[cfg(test)]
+        if SABOTAR_COMMIT_DA_JANELA_DE_MERCADO.with(|interruptor| interruptor.get()) {
+            return Err("Falha injetada entre o staging do plano e o commit.".to_string());
+        }
+
         tx.commit()
             .map_err(|e| format!("Falha ao confirmar aceite da proposta: {e}"))?;
-
-        warn_if_noncritical(
-            reconcile_plan_after_player_accept(&career_dir, &db.conn, &proposal),
-            "Falha ao reconciliar plano apos aceite da proposta",
-        );
+        if let Some(staging) = plano_em_staging {
+            staging.publicar()?;
+        }
         new_team_name = Some(proposal.equipe_nome.clone());
     } else {
         let tx = db
@@ -319,10 +371,17 @@ pub(crate) fn respond_to_proposal_in_base_dir(
         }
     }
 
-    warn_if_noncritical(
-        sync_preseason_pending_flag(&career_dir, remaining > 0),
-        "Falha ao sincronizar indicador de propostas pendentes",
-    );
+    // So na recusa. No aceite o indicador ja saiu zerado no plano publicado junto do
+    // commit, e uma segunda escrita aqui reabriria exatamente a janela que o staging
+    // fechou. Na recusa o banco inteiro ja esta comitado — inclusive as propostas
+    // emergenciais e o encaixe forcado, que rodam em transacao propria — entao o arquivo e
+    // a ultima escrita da operacao e nao tem com o que divergir.
+    if !accept {
+        warn_if_noncritical(
+            sync_preseason_pending_flag(&career_dir, remaining > 0),
+            "Falha ao sincronizar indicador de propostas pendentes",
+        );
+    }
     let headlines = news_items
         .iter()
         .map(|item| item.titulo.clone())
@@ -377,8 +436,7 @@ pub(crate) fn finalize_preseason_in_base_dir(
 ) -> Result<(), String> {
     let (db, career_dir, mut meta) = open_career_resources(base_dir, career_id)?;
     let meta_path = career_dir.join("meta.json");
-    let plan = load_preseason_plan(&career_dir)?
-        .ok_or_else(errors::preseason_plan_not_found)?;
+    let plan = load_preseason_plan(&career_dir)?.ok_or_else(errors::preseason_plan_not_found)?;
     if !plan.state.is_complete {
         return Err(errors::preseason_not_finished());
     }
@@ -668,13 +726,19 @@ pub(crate) fn is_team_role_vacant(
     Ok(is_vacant)
 }
 
+/// Reconcilia o plano da janela com o aceite do jogador e devolve o resultado em STAGING,
+/// para o chamador publicar depois do commit. `None` = nao ha plano no disco (aceite fora
+/// da pre-temporada), e entao nao ha nada a publicar.
+///
+/// A `conn` aqui e a transacao ainda aberta do aceite, de proposito: as leituras precisam
+/// enxergar o assento ja ocupado pelo jogador para decidir que `PlaceRookie` ficou obsoleto.
 pub(crate) fn reconcile_plan_after_player_accept(
     career_dir: &Path,
     conn: &rusqlite::Connection,
     proposal: &MarketProposal,
-) -> Result<(), String> {
+) -> Result<Option<crate::market::preseason::PreSeasonPlanStaging>, String> {
     let Some(mut plan) = load_preseason_plan(career_dir)? else {
-        return Ok(());
+        return Ok(None);
     };
     let mut affected_team_ids = HashSet::from([proposal.equipe_id.clone()]);
     plan.planned_events.retain(|event| {
@@ -716,7 +780,7 @@ pub(crate) fn reconcile_plan_after_player_accept(
         refresh_planned_hierarchy_for_team(&mut plan, conn, &team_id)?;
     }
     plan.state.player_has_pending_proposals = false;
-    save_preseason_plan(career_dir, &plan)
+    crate::market::preseason::PreSeasonPlanStaging::preparar(career_dir, &plan).map(Some)
 }
 
 pub(crate) fn sync_preseason_pending_flag(

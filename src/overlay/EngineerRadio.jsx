@@ -4,7 +4,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import "./EngineerRadio.css";
-import { useBreakdownFeed, usePaceFeed, usePlayerWarnings, useChatSendBlocked } from "./useBreakdownFeed";
+import {
+  useBreakdownFeed,
+  useClassificacaoFeed,
+  usePaceFeed,
+  usePlayerWarnings,
+  useChatSendBlocked,
+} from "./useBreakdownFeed";
 import TowerCanvasView from "./TowerCanvasView";
 import { OVERLAY_MOCK } from "./overlayMockData";
 import { estaNoTauri } from "../lib/tauri";
@@ -36,6 +42,17 @@ export function useMaisRecente(...fontes) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, fontes);
   return atual;
+}
+
+// O canal do REGISTRO DO RÁDIO a partir da severidade da mensagem.
+//
+// A severidade carrega duas coisas: a cor do card e a família de que a fala veio. `pace` e
+// `quali` não são gravidade nenhuma — são os canais do ritmo e da classificação, que caem no
+// mesmo card do rádio da equipe. O resto (light/heavy/dnf) é quebra de verdade.
+export function canalDaVoz(severity) {
+  if (severity === "pace") return "ritmo";
+  if (severity === "quali") return "classificacao";
+  return "quebra";
 }
 
 // Deixa o detalhe (causa, que vem em minúsculo) apresentável na MESMA linha: só a 1ª
@@ -72,7 +89,7 @@ export function EngineerRadioCard({ message, holdMs = 6000, windowed = false, mu
       // mesma mão — no áudio elas já são só chaves de peça.
       anunciar(message.pecas, {
         pausasMs: pausasDoRadio(message.pecas),
-        canal: message.severity === "pace" ? "ritmo" : "quebra",
+        canal: canalDaVoz(message.severity),
         texto: message.text ?? "",
       }).catch(() => {});
     }
@@ -286,11 +303,15 @@ export function EngineerRadioLive() {
 
   const quebra = useBreakdownFeed(demo ? null : careerId); // no demo, pausa o feed real
   const ritmo = usePaceFeed(demo ? null : careerId); // volta mais rápida da corrida
-  // Dois canais, um card. Cada hook tem cursor próprio (os feeds crescem em ritmos diferentes
-  // e um id só embaralharia os dois), então a arbitragem é aqui: vale a mensagem que CHEGOU
+  // A classificação não pede carreira (nenhuma fala dela nomeia piloto ou equipe) e, por
+  // construção, nunca disputa espaço com as outras duas: ela só existe na sessão de quali, onde
+  // não há quebra nem volta mais rápida da corrida.
+  const classificacao = useClassificacaoFeed(!demo);
+  // Três canais, um card. Cada hook tem cursor próprio (os feeds crescem em ritmos diferentes
+  // e um id só embaralharia os três), então a arbitragem é aqui: vale a mensagem que CHEGOU
   // por último. Elas quase nunca colidem — a quebra sai ~33 vezes por corrida e o ritmo umas
   // poucas —, e quando colidem a mais nova é a que o piloto ainda não ouviu.
-  const liveMessage = useMaisRecente(quebra, ritmo);
+  const liveMessage = useMaisRecente(quebra, ritmo, classificacao);
   const warning = usePlayerWarnings(!demo && Boolean(careerId)); // aviso pessoal real
   const chatBlocked = useChatSendBlocked(!demo && Boolean(careerId)); // comandos não chegam ao sim
   const pool = demoMsgs.length ? demoMsgs : MOCK_MESSAGES;

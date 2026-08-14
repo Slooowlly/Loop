@@ -237,6 +237,18 @@ pub fn reserva_de_sobrevivencia_em_meses() -> f64 {
 ///
 /// O NÍVEL da receita de verdade não mora aqui (isto é planejamento, não dinheiro): mora nos
 /// canais de `commands::race::financas`, e é da sessão de receita.
+///
+/// # O paraquedas entra AQUI, e só aqui
+///
+/// `parachute_payment_remaining` é o saldo que a equipe rebaixada ainda tem a receber
+/// (`promotion::effects`), e ele vira dinheiro de verdade em parcelas por rodada — o
+/// `aid_income` de `commands::race::financas`, que `finance::cashflow` abate do saldo. Somá-lo
+/// à receita projetada do ano é a leitura certa da grandeza: um FLUXO que a equipe espera
+/// receber ao longo da temporada, na mesma unidade dos outros termos daqui.
+///
+/// É por isso que ele **não** aparece de novo em [`calculate_spending_power`]: o poder de
+/// gasto já lê esta função inteira dentro do resultado projetado. Ele aparecia nos dois, e o
+/// paraquedas de uma equipe rebaixada entrava 1,x vez no que ela achava que podia gastar.
 pub fn calculate_projected_income(team: &Team) -> f64 {
     let scale = category_finance_scale_for(&team.categoria, team.classe.as_deref());
     let reputation_factor = 0.70 + team.reputacao.clamp(0.0, 100.0) / 250.0;
@@ -332,6 +344,15 @@ pub fn calculate_safety_reserve(team: &Team) -> f64 {
 /// 100% — o que fazia a equipe mediana planejar um buraco anual de meio custo operacional
 /// todo ano, para sempre. A regra nova diz a coisa prudente sem dizer a coisa falsa: *não
 /// conto com o que talvez não venha, e conto inteiro com o que talvez me falte.*
+///
+/// # O paraquedas não é uma quarta parcela
+///
+/// A tabela acima tem três linhas, e a soma tem que ter três termos. `parachute_payment_remaining`
+/// era somado aqui **por fora**, depois de já ter entrado inteiro em
+/// [`calculate_projected_income`] e portanto no resultado projetado: cada real do paraquedas
+/// contava uma vez pela confiança do estado e outra vez cheio. Uma equipe rebaixada em estado
+/// `stable` lia 1,6 paraquedas de poder de gasto; em `elite`, 1,9. O termo saiu — o paraquedas
+/// continua inteiro no planejamento, pela porta da receita, que é onde a grandeza dele fecha.
 pub fn calculate_spending_power(team: &Team) -> f64 {
     let mensal =
         crate::finance::state::custo_operacional_mensal(&team.categoria, team.classe.as_deref());
@@ -349,10 +370,7 @@ pub fn calculate_spending_power(team: &Team) -> f64 {
     let credito_usavel =
         calculate_available_credit(team) * credit_aggressiveness_for_state(&team.financial_state);
 
-    folga_de_caixa
-        + resultado_ponderado
-        + credito_usavel
-        + team.parachute_payment_remaining.max(0.0)
+    folga_de_caixa + resultado_ponderado + credito_usavel
 }
 
 /// **Quantos meses de operação a equipe terá quando a temporada acabar.**
@@ -557,6 +575,79 @@ mod tests {
 
         team.cash_balance = crate::economia::temporada::caixa_para_meses("gt3", None, piso + 3.0);
         assert!(calculate_spending_power(&team) > 0.0, "acima do piso");
+    }
+
+    /// **A prova de que o paraquedas entra uma vez.**
+    ///
+    /// Ele era somado em [`calculate_projected_income`] e OUTRA vez, cheio, no fim de
+    /// [`calculate_spending_power`]. Como o poder de gasto lê a receita projetada inteira
+    /// dentro do resultado, cada real do paraquedas contava `1 + confiança_do_estado` vezes —
+    /// 1,6 em `stable`, 1,9 em `elite`. Nenhuma asserção direcional via isso: mais paraquedas
+    /// dava mais poder de gasto tanto na conta certa quanto na errada.
+    ///
+    /// As duas afirmações aqui prendem o defeito pelos dois lados. A primeira é a
+    /// decomposição documentada — três parcelas, três termos, nada por fora. A segunda é o
+    /// TETO do efeito: o paraquedas não pode acrescentar ao poder de gasto mais do que ele
+    /// mesmo vale.
+    #[test]
+    fn o_paraquedas_entra_uma_vez_no_poder_de_gasto() {
+        const PARAQUEDAS: f64 = 900_000.0;
+
+        for estado in [
+            "elite",
+            "healthy",
+            "stable",
+            "pressured",
+            "crisis",
+            "collapse",
+        ] {
+            let mut sem = sample_team("gt3", 0.0, 0.0, estado);
+            sem.cash_balance = crate::economia::temporada::caixa_de_referencia("gt3", None);
+            let mut com = sem.clone();
+            com.parachute_payment_remaining = PARAQUEDAS;
+
+            // A decomposição da doc, recomputada aqui: folga + resultado ponderado + crédito.
+            let mensal = crate::finance::state::custo_operacional_mensal("gt3", None);
+            let folga = (crate::finance::state::meses_de_operacao(&com)
+                - reserva_de_sobrevivencia_em_meses())
+                * mensal;
+            let resultado = calculate_projected_income(&com) - calculate_committed_costs(&com);
+            let ponderado = if resultado > 0.0 {
+                resultado * income_confidence_for_state(estado)
+            } else {
+                resultado
+            };
+            let credito =
+                calculate_available_credit(&com) * credit_aggressiveness_for_state(estado);
+
+            let poder = calculate_spending_power(&com);
+            assert!(
+                (poder - (folga + ponderado + credito)).abs() < 1.0,
+                "{estado}: o poder de gasto tem um termo fora das três parcelas \
+                 documentadas — leu {poder:.0} contra {:.0}",
+                folga + ponderado + credito
+            );
+
+            // O paraquedas entra INTEIRO na receita projetada, e é essa a única porta.
+            let delta_receita = calculate_projected_income(&com) - calculate_projected_income(&sem);
+            assert!(
+                (delta_receita - PARAQUEDAS).abs() < 1.0,
+                "{estado}: o paraquedas deveria entrar inteiro na receita projetada e \
+                 entrou {delta_receita:.0}"
+            );
+
+            let delta_poder = poder - calculate_spending_power(&sem);
+            assert!(
+                delta_poder <= PARAQUEDAS + 1.0,
+                "{estado}: {PARAQUEDAS:.0} de paraquedas acrescentaram {delta_poder:.0} ao \
+                 poder de gasto — mais do que o paraquedas vale, ou seja, ele foi contado \
+                 mais de uma vez"
+            );
+            assert!(
+                delta_poder > 0.0,
+                "{estado}: o paraquedas precisa continuar valendo alguma coisa"
+            );
+        }
     }
 
     #[test]

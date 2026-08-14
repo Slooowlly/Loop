@@ -8,22 +8,6 @@ pub enum TrackType {
     Roval,
 }
 
-impl TrackType {
-    pub fn as_str(&self) -> &str {
-        match self {
-            TrackType::Road => "Road",
-            TrackType::Roval => "Roval",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Roval" => TrackType::Roval,
-            _ => TrackType::Road,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RaceStatus {
     Pendente,
@@ -35,13 +19,6 @@ impl RaceStatus {
         match self {
             RaceStatus::Pendente => "Pendente",
             RaceStatus::Concluida => "Concluida",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Concluida" => RaceStatus::Concluida,
-            _ => RaceStatus::Pendente,
         }
     }
 
@@ -59,99 +36,6 @@ impl RaceStatus {
 impl std::fmt::Display for RaceStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-// ── Tipo de incidente ─────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum IncidentType {
-    Colisao,
-    Toque,
-    SpinOut,
-    FalhaMecanica,
-    ErroPit,
-}
-
-impl IncidentType {
-    pub fn as_str(&self) -> &str {
-        match self {
-            IncidentType::Colisao => "Colisao",
-            IncidentType::Toque => "Toque",
-            IncidentType::SpinOut => "SpinOut",
-            IncidentType::FalhaMecanica => "FalhaMecanica",
-            IncidentType::ErroPit => "ErroPit",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Colisao" => IncidentType::Colisao,
-            "Toque" => IncidentType::Toque,
-            "SpinOut" => IncidentType::SpinOut,
-            "FalhaMecanica" => IncidentType::FalhaMecanica,
-            _ => IncidentType::ErroPit,
-        }
-    }
-}
-
-// ── Severidade do incidente ───────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum IncidentSeverity {
-    Leve,
-    Moderado,
-    Grave,
-}
-
-impl IncidentSeverity {
-    pub fn as_str(&self) -> &str {
-        match self {
-            IncidentSeverity::Leve => "Leve",
-            IncidentSeverity::Moderado => "Moderado",
-            IncidentSeverity::Grave => "Grave",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Moderado" => IncidentSeverity::Moderado,
-            "Grave" => IncidentSeverity::Grave,
-            _ => IncidentSeverity::Leve,
-        }
-    }
-}
-
-// ── Segmento de corrida ───────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum RaceSegment {
-    Largada,
-    Abertura,
-    Desenvolvimento,
-    RetaFinal,
-    Conclusao,
-}
-
-impl RaceSegment {
-    pub fn as_str(&self) -> &str {
-        match self {
-            RaceSegment::Largada => "Largada",
-            RaceSegment::Abertura => "Abertura",
-            RaceSegment::Desenvolvimento => "Desenvolvimento",
-            RaceSegment::RetaFinal => "RetaFinal",
-            RaceSegment::Conclusao => "Conclusao",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Largada" => RaceSegment::Largada,
-            "Abertura" => RaceSegment::Abertura,
-            "Desenvolvimento" => RaceSegment::Desenvolvimento,
-            "RetaFinal" => RaceSegment::RetaFinal,
-            _ => RaceSegment::Conclusao,
-        }
     }
 }
 

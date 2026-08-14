@@ -151,9 +151,68 @@ fn test_generate_all_calendars_no_conflicts() {
 fn test_generate_calendar_voltas_reasonable() {
     let mut rng = StdRng::seed_from_u64(6);
     let calendar = generate_calendar_for_category("S001", "endurance", &mut rng).expect("calendar");
-    assert!(calendar
+    // O Endurance sorteia 120/180/240/360 min: todas acima do corte de sprint, então o teto
+    // que vale é o longo. O piso é o mesmo de sempre.
+    assert!(calendar.iter().all(|entry| (super::montagem::PISO_DE_VOLTAS
+        ..=super::montagem::TETO_DE_VOLTAS_LONGA)
+        .contains(&entry.voltas)));
+}
+
+/// **B19** — o teto de voltas passou a depender da duração. O contrato antigo (5..=50) vale
+/// letra por letra para sprint; a prova longa é que ganhou espaço.
+#[test]
+fn teto_de_voltas_separa_sprint_de_prova_longa() {
+    use super::montagem::{
+        estimate_laps, teto_de_voltas, PISO_DE_VOLTAS, TETO_DE_VOLTAS_LONGA, TETO_DE_VOLTAS_SPRINT,
+    };
+
+    // Sprint: nada mudou.
+    for min in [20, 30, 45, 60] {
+        assert_eq!(
+            teto_de_voltas(min),
+            TETO_DE_VOLTAS_SPRINT,
+            "{min} min deveria seguir o teto de sprint"
+        );
+    }
+    // Prova longa: teto novo.
+    for min in [61, 120, 180, 240, 360] {
+        assert_eq!(
+            teto_de_voltas(min),
+            TETO_DE_VOLTAS_LONGA,
+            "{min} min deveria seguir o teto longo"
+        );
+    }
+
+    // Pista curta, onde o teto morde de verdade (Lime Rock-like: 2,4 km → ~1,2 min/volta).
+    let curta = crate::constants::tracks::get_all_tracks()
         .iter()
-        .all(|entry| (5..=50).contains(&entry.voltas)));
+        .min_by(|a, b| {
+            a.comprimento_km
+                .partial_cmp(&b.comprimento_km)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .expect("catálogo de pistas não vazio");
+
+    // Sprint continua grampeado em 50 e nunca passa disso.
+    for min in [20, 30, 45, 60] {
+        let voltas = estimate_laps(curta, min);
+        assert!(
+            (PISO_DE_VOLTAS..=TETO_DE_VOLTAS_SPRINT).contains(&voltas),
+            "sprint de {min} min saiu com {voltas} voltas"
+        );
+    }
+    // Prova longa passa de 50 e nunca passa de 150.
+    for min in [120, 180, 240, 360] {
+        let voltas = estimate_laps(curta, min);
+        assert!(
+            voltas > TETO_DE_VOLTAS_SPRINT,
+            "prova de {min} min ficou presa em {voltas} voltas na pista mais curta"
+        );
+        assert!(
+            voltas <= TETO_DE_VOLTAS_LONGA,
+            "prova de {min} min estourou o teto longo com {voltas} voltas"
+        );
+    }
 }
 
 // ── Testes de week_for_rodada ─────────────────────────────────────────────

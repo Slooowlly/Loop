@@ -7,12 +7,24 @@
 //!
 //! Enquanto elas estiverem de pé, este módulo é o lugar ÚNICO onde estão declaradas:
 //! nome, valor padrão do jogo, quem lê e o que muda. [`INVENTARIO`] é a lista, e o
-//! teste no fim do arquivo cobra que nenhuma flag nova apareça no mercado ou na escada
-//! sem passar por aqui.
+//! teste no fim do arquivo **varre a árvore inteira do crate** cobrando que nenhuma env
+//! de regra apareça em lugar nenhum sem passar por aqui.
+//!
+//! Antes o teste vigiava três arquivos escritos à mão, e por isso deu verde por anos com
+//! `IRACER_GATE_SHARE`, `IRACER_SALARY_SHARE`, `IRACER_TRACK_RIVALRY` e `IRACER_QUALI_WRECK`
+//! soltos fora do inventário — a vistoria V5.1 achou os três primeiros. A vigilância agora
+//! é por descoberta: qualquer `.rs` sob `src-tauri/src`, e o que não é regra de jogo precisa
+//! estar na allowlist `ENVS_DE_AMBIENTE` do módulo de teste, nomeado e justificado.
 //!
 //! **Cada entrada carrega um [`Destino`]**: se a decisão de produto já foi tomada
 //! (virar padrão definitivo e sumir com a flag) ou se ela ainda serve para um A/B em
 //! aberto. Fechar as `Indefinido` é decisão de produto/calibração, não de código.
+//!
+//! Declarar aqui **não** obriga o dono a ler pelos helpers [`booleana`]/[`numerica`]: quatro
+//! entradas têm parser próprio (`LazyLock` com `filter`, ou `is_ok()` de presença) e foram
+//! declaradas sem mexer no leitor. O que o inventário promete nesses casos é só o **padrão
+//! sem env** — e o teste `o_padrao_declarado_bate_com_o_do_dono` cobra isso onde o número
+//! está escrito duas vezes.
 
 /// Como a flag lê o ambiente.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -45,10 +57,10 @@ pub struct FlagExperimental {
     pub destino: Destino,
 }
 
-/// TODAS as flags de regra de jogo lidas do ambiente pelo mercado e pela escada.
+/// TODAS as flags de regra de jogo lidas do ambiente, em qualquer canto do crate.
 ///
 /// Ordem: mercado primeiro, escada depois — a mesma ordem em que a virada de temporada
-/// as executa.
+/// as executa —, e no fim as que não estão na virada (economia, importação, pista).
 pub const INVENTARIO: &[FlagExperimental] = &[
     FlagExperimental {
         nome: "IRACER_ROOKIE_MERIT",
@@ -97,6 +109,46 @@ pub const INVENTARIO: &[FlagExperimental] = &[
         tipo: TipoDaFlag::Numerica { padrao: 0.15 },
         dono: "promotion::effects",
         efeito: "piso do fator, para uma sequência longa nunca zerar o pacote",
+        destino: Destino::Indefinido,
+    },
+    // ── Fora da virada de temporada ───────────────────────────────────────────────────
+    // As quatro abaixo já existiam soltas quando o guard só olhava mercado e escada. Foram
+    // declaradas em 11/08/2026 SEM tocar no valor nem no leitor: cada uma continua sendo
+    // lida pelo seu próprio dono, do jeito que era. O destino é `Indefinido` porque nada
+    // foi decidido sobre elas — declarar não é fechar experimento.
+    FlagExperimental {
+        nome: "IRACER_GATE_SHARE",
+        tipo: TipoDaFlag::Numerica { padrao: 0.12 },
+        dono: "finance::cashflow",
+        // Lida uma vez por `gate_pot_coeff()` (LazyLock), que só aceita 0 < v < 1.
+        efeito: "fração do custo operacional da rodada que vira o bolo de bilheteria",
+        destino: Destino::Indefinido,
+    },
+    FlagExperimental {
+        nome: "IRACER_SALARY_SHARE",
+        tipo: TipoDaFlag::Numerica { padrao: 0.15 },
+        dono: "finance::salary",
+        // Lida uma vez por `team_salary_share_of_operating()` (LazyLock), 0 < v < 1.
+        efeito: "fração do custo operacional que a folha de uma equipe (2 pilotos) representa",
+        destino: Destino::Indefinido,
+    },
+    FlagExperimental {
+        nome: "IRACER_TRACK_RIVALRY",
+        tipo: TipoDaFlag::Booleana { padrao: false },
+        dono: "commands::iracing::importacao",
+        // Lida por PRESENÇA (`is_ok()`): qualquer valor liga, inclusive "0". O padrão
+        // declarado descreve só o caso sem env, que é o que o jogador roda.
+        efeito: "aplica no motor as rivalidades de pista que o SDK percebeu na corrida importada",
+        destino: Destino::Indefinido,
+    },
+    FlagExperimental {
+        nome: "IRACER_QUALI_WRECK",
+        tipo: TipoDaFlag::Booleana { padrao: false },
+        dono: "iracing_sdk::race_monitor",
+        // Também por presença, e por cima do interruptor das Configurações — é o atalho
+        // de teste da regra. Está aqui, e não na allowlist de ambiente, porque ligá-la
+        // muda o que acontece na classificação.
+        efeito: "arma a penalidade do carro destruído na classificação, vencendo a preferência do jogador",
         destino: Destino::Indefinido,
     },
 ];
@@ -181,46 +233,277 @@ fn interpretar_booleana(valor: &str) -> Option<bool> {
 mod tests {
     use super::*;
 
-    /// Fontes que têm permissão de ler flag de regra de jogo do ambiente. Qualquer
-    /// `env::var("IRACER_…")` aqui dentro precisa estar no [`INVENTARIO`].
-    const FONTES_VIGIADAS: &[(&str, &str)] = &[
+    use std::path::{Path, PathBuf};
+
+    /// Envs que a varredura acha e que NÃO são regra de jogo: ambiente, bancada e
+    /// integração. Cada uma precisa de um motivo escrito — a allowlist é a única saída do
+    /// inventário, e uma saída sem justificativa é o buraco que o guard antigo tinha.
+    const ENVS_DE_AMBIENTE: &[(&str, &str)] = &[
         (
-            "market/pipeline/consolidacao.rs",
-            include_str!("../market/pipeline/consolidacao.rs"),
+            "IRACER_MC_RUNS",
+            "tamanho do harness de Monte Carlo (quantas carreiras); não muda regra, muda a amostra",
         ),
         (
-            "promotion/pipeline.rs",
-            include_str!("../promotion/pipeline.rs"),
+            "IRACER_MC_SEASONS",
+            "temporadas por run do mesmo harness",
         ),
         (
-            "promotion/effects.rs",
-            include_str!("../promotion/effects.rs"),
+            "IRACER_OVERLAY_DEMO",
+            "modo demo do overlay de rádio (retrocompat do botão das Configurações); é tela, não jogo",
+        ),
+        (
+            "IRACER_OVERLAY_DISABLE",
+            "`disable_environment` do manifesto OpenXR — convenção do loader para desligar a API layer",
+        ),
+        (
+            "LOOP_BASE_DIR",
+            "diretório de save que a bancada de fatura aponta; caminho, não regra",
+        ),
+        ("LOOP_BENCH_DB", "banco do bench de overlay"),
+        ("LOOP_BENCH_YAML", "YAML de sessão do bench de overlay"),
+        (
+            "LOOP_RADIO_SAIDA",
+            "onde a medição de rádio escreve o JSON, para o arreio de JS não depender do %TEMP%",
+        ),
+        (
+            "LOOP_SEM_IA",
+            "corta a chamada HTTP de enriquecimento por IA; a notícia determinística é a mesma",
+        ),
+        (
+            "USERPROFILE",
+            "perfil do Windows, para achar a pasta do iRacing e a do diagnóstico",
         ),
     ];
 
-    /// Nomes passados a `env::var("…")` no texto de um arquivo.
-    fn envs_lidas(fonte: &str) -> Vec<String> {
+    fn e_de_ambiente(nome: &str) -> bool {
+        ENVS_DE_AMBIENTE.iter().any(|(n, _)| *n == nome)
+    }
+
+    fn raiz_do_crate() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")
+    }
+
+    /// Todo `.rs` sob `raiz`, em qualquer profundidade. É esta recursão que substitui a
+    /// lista de três arquivos escrita à mão.
+    fn arquivos_rs(raiz: &Path) -> Vec<PathBuf> {
+        let mut achados = Vec::new();
+        let Ok(itens) = std::fs::read_dir(raiz) else {
+            return achados;
+        };
+        for item in itens.flatten() {
+            let caminho = item.path();
+            if caminho.is_dir() {
+                achados.extend(arquivos_rs(&caminho));
+            } else if caminho.extension().is_some_and(|e| e == "rs") {
+                achados.push(caminho);
+            }
+        }
+        achados.sort();
+        achados
+    }
+
+    /// Um nome de env plausível? Serve para descartar o lixo que a varredura por texto
+    /// pega em doc-comment (`env::var("IRACER_…")` do topo deste arquivo, por exemplo).
+    fn nome_plausivel(nome: &str) -> bool {
+        nome.len() >= 4
+            && nome
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '(' || c == ')')
+    }
+
+    /// O nome entre aspas que começa em `inicio` (índice do caractere logo após a aspa).
+    fn ate_a_aspa(fonte: &str, inicio: usize) -> Option<&str> {
+        let resto = &fonte[inicio..];
+        resto.find('"').map(|fim| &resto[..fim])
+    }
+
+    /// Nomes de env candidatos no texto de um arquivo, por duas redes:
+    ///
+    ///   1. **todo literal `"IRACER_*"`**, esteja ele num `env::var` ou numa `const` que
+    ///      alguém lê depois. É esta rede que enxerga o `QUALI_WRECK_ENV` de
+    ///      `race_monitor/constantes.rs`, invisível para qualquer busca por `env::var`;
+    ///   2. **todo nome literal passado a `env::var`/`env::var_os`**, para que uma regra
+    ///      nova batizada fora do prefixo `IRACER_` também caia no guard.
+    fn envs_no_texto(fonte: &str) -> Vec<String> {
         let mut nomes = Vec::new();
-        for pedaco in fonte.split("env::var(\"").skip(1) {
-            if let Some(fim) = pedaco.find('"') {
-                nomes.push(pedaco[..fim].to_string());
+        let mut empurrar = |nome: &str| {
+            if nome_plausivel(nome) && !nomes.iter().any(|n: &String| n == nome) {
+                nomes.push(nome.to_string());
+            }
+        };
+
+        for (i, _) in fonte.match_indices("\"IRACER_") {
+            if let Some(nome) = ate_a_aspa(fonte, i + 1) {
+                // `"IRACER_"` cru é o prefixo do teste de nomenclatura, não uma flag.
+                if nome.len() > "IRACER_".len() {
+                    empurrar(nome);
+                }
+            }
+        }
+        for marcador in ["env::var(\"", "env::var_os(\""] {
+            for (i, _) in fonte.match_indices(marcador) {
+                if let Some(nome) = ate_a_aspa(fonte, i + marcador.len()) {
+                    empurrar(nome);
+                }
             }
         }
         nomes
     }
 
-    #[test]
-    fn nenhuma_flag_de_regra_escapa_do_inventario() {
-        for (arquivo, fonte) in FONTES_VIGIADAS {
-            for nome in envs_lidas(fonte) {
-                assert!(
-                    declarada(&nome).is_some(),
-                    "{arquivo} lê a env '{nome}' e ela não está no INVENTARIO de \
-                     constants::flags_experimentais — regra de jogo decidida por ambiente \
-                     precisa estar declarada num lugar só"
-                );
+    struct Varredura {
+        arquivos: usize,
+        nomes: usize,
+        /// (caminho relativo, nome) das que não estão nem no INVENTARIO nem na allowlist.
+        fora_do_inventario: Vec<(String, String)>,
+    }
+
+    fn varrer(raiz: &Path) -> Varredura {
+        let arquivos = arquivos_rs(raiz);
+        let mut nomes = 0;
+        let mut fora_do_inventario = Vec::new();
+        for caminho in &arquivos {
+            let Ok(fonte) = std::fs::read_to_string(caminho) else {
+                continue;
+            };
+            let rel = caminho
+                .strip_prefix(raiz)
+                .unwrap_or(caminho)
+                .to_string_lossy()
+                .replace('\\', "/");
+            for nome in envs_no_texto(&fonte) {
+                nomes += 1;
+                if declarada(&nome).is_none() && !e_de_ambiente(&nome) {
+                    fora_do_inventario.push((rel.clone(), nome));
+                }
             }
         }
+        Varredura {
+            arquivos: arquivos.len(),
+            nomes,
+            fora_do_inventario,
+        }
+    }
+
+    #[test]
+    fn nenhuma_flag_de_regra_escapa_do_inventario() {
+        let varredura = varrer(&raiz_do_crate());
+        // Um guard que não acha o que procura precisa gritar em vez de passar vazio.
+        assert!(
+            varredura.arquivos >= 400,
+            "só {} arquivos .rs varridos — a descoberta furou",
+            varredura.arquivos
+        );
+        assert!(
+            varredura.nomes >= 20,
+            "só {} nomes de env extraídos — a extração furou",
+            varredura.nomes
+        );
+
+        let escapadas: Vec<String> = varredura
+            .fora_do_inventario
+            .iter()
+            .map(|(arquivo, nome)| format!("  {arquivo}: {nome}"))
+            .collect();
+        assert!(
+            escapadas.is_empty(),
+            "env de regra fora do INVENTARIO de constants::flags_experimentais:\n{}\n\n\
+             Regra de jogo decidida por ambiente precisa estar declarada num lugar só. \
+             Se a variável for de ambiente/bancada e não de regra, some-a a \
+             ENVS_DE_AMBIENTE com o motivo.",
+            escapadas.join("\n")
+        );
+    }
+
+    /// A allowlist é a saída do inventário: ela não pode conter nada que já esteja
+    /// declarado (duas verdades sobre a mesma flag) nem apodrecer com nome que sumiu do
+    /// crate — uma entrada morta ali é permissão em branco esperando um nome reciclado.
+    #[test]
+    fn a_allowlist_de_ambiente_nao_se_sobrepoe_nem_apodrece() {
+        let mut vivas = std::collections::HashSet::new();
+        for caminho in arquivos_rs(&raiz_do_crate()) {
+            if let Ok(fonte) = std::fs::read_to_string(&caminho) {
+                vivas.extend(envs_no_texto(&fonte));
+            }
+        }
+        for (nome, motivo) in ENVS_DE_AMBIENTE {
+            assert!(
+                declarada(nome).is_none(),
+                "'{nome}' está no INVENTARIO e na allowlist ao mesmo tempo"
+            );
+            assert!(
+                !motivo.trim().is_empty(),
+                "'{nome}' está na allowlist sem motivo escrito"
+            );
+            assert!(
+                vivas.contains(*nome),
+                "'{nome}' está na allowlist e não é mais lida em lugar nenhum — apague a entrada"
+            );
+        }
+    }
+
+    /// Os nomes das fixtures são montados por `concat!` porque **este arquivo também é
+    /// varrido**: um literal `"IRACER_…"` inteiro aqui faria o guard acusar a própria
+    /// fixture — e essa foi a primeira coisa que ele fez, o que é a melhor prova de que a
+    /// varredura enxerga a árvore de verdade em vez de uma lista escrita à mão.
+    const FLAG_FICTICIA: &str = concat!("IRACER", "_REGRA_NAO_DECLARADA");
+    const FLAG_EM_CONST: &str = concat!("IRACER", "_ESCONDIDA");
+
+    /// MUTAÇÃO: uma flag de regra nova, num arquivo em subpasta que a antiga lista fixa
+    /// (`market/pipeline/consolidacao.rs`, `promotion/pipeline.rs`, `promotion/effects.rs`)
+    /// jamais cobriria, precisa fazer o guard falhar.
+    #[test]
+    fn flag_nova_em_arquivo_novo_derruba_o_guard() {
+        // O pid isola a fixture de outra sessão rodando `cargo test` ao mesmo tempo, e o
+        // `remove_dir_all` de entrada limpa o resto de uma execução interrompida.
+        let raiz = std::env::temp_dir().join(format!("loop_flags_guard_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&raiz);
+        let fundo = raiz.join("dominio").join("fundo").join("do").join("poco");
+        std::fs::create_dir_all(&fundo).expect("criar a árvore de fixture");
+        std::fs::write(
+            fundo.join("regra_nova.rs"),
+            format!("pub fn ligada() -> bool {{ std::env::var(\"{FLAG_FICTICIA}\").is_ok() }}\n"),
+        )
+        .expect("escrever a fixture");
+        // Uma env de infra na mesma árvore não pode virar falso positivo.
+        std::fs::write(
+            raiz.join("infra.rs"),
+            "fn perfil() -> Option<String> { std::env::var(\"USERPROFILE\").ok() }\n",
+        )
+        .expect("escrever a fixture de infra");
+
+        let varredura = varrer(&raiz);
+        let _ = std::fs::remove_dir_all(&raiz);
+
+        assert_eq!(
+            varredura.arquivos, 2,
+            "a recursão não achou os dois arquivos"
+        );
+        assert_eq!(
+            varredura.fora_do_inventario,
+            vec![(
+                "dominio/fundo/do/poco/regra_nova.rs".to_string(),
+                FLAG_FICTICIA.to_string()
+            )],
+            "a flag nova no fundo da árvore tinha de ser a única acusada"
+        );
+    }
+
+    /// A rede 1 existe porque a flag pode estar numa `const` e ser lida por variável —
+    /// exatamente o caso do `IRACER_QUALI_WRECK`, que passou anos invisível.
+    #[test]
+    fn a_varredura_enxerga_flag_escondida_em_const() {
+        let nomes = envs_no_texto(&format!(
+            "pub(super) const ALGO_ENV: &str = \"{FLAG_EM_CONST}\";\n\
+             fn ligada() -> bool {{ std::env::var(ALGO_ENV).is_ok() }}\n"
+        ));
+        assert_eq!(nomes, vec![FLAG_EM_CONST.to_string()]);
+
+        // E uma regra batizada fora do prefixo também é vista, pela rede do `env::var`.
+        let nomes = envs_no_texto("std::env::var_os(\"LOOP_REGRA_NOVA\")");
+        assert_eq!(nomes, vec!["LOOP_REGRA_NOVA".to_string()]);
+
+        // Já o prefixo cru do teste de nomenclatura não é flag nenhuma.
+        assert!(envs_no_texto("flag.nome.starts_with(\"IRACER_\")").is_empty());
     }
 
     #[test]
@@ -272,6 +555,30 @@ mod tests {
                     flag.nome
                 ),
             }
+        }
+    }
+
+    /// As flags de parser próprio guardam o padrão em DOIS lugares: a `const` do dono e a
+    /// declaração daqui. O teste acima só compara o inventário consigo mesmo — este é o
+    /// que impede a dupla de divergir em silêncio quando alguém recalibra a economia.
+    #[test]
+    fn o_padrao_declarado_bate_com_o_do_dono() {
+        // Com a env definida o `LazyLock` do dono já resolveu com ela; comparar não diria nada.
+        if std::env::var("IRACER_GATE_SHARE").is_err() {
+            let dono = crate::finance::cashflow::gate_pot_coeff();
+            assert!(
+                (dono - numerica("IRACER_GATE_SHARE")).abs() < f64::EPSILON,
+                "finance::cashflow usa {dono} e o INVENTARIO declara {}",
+                numerica("IRACER_GATE_SHARE")
+            );
+        }
+        if std::env::var("IRACER_SALARY_SHARE").is_err() {
+            let dono = crate::finance::salary::team_salary_share_of_operating();
+            assert!(
+                (dono - numerica("IRACER_SALARY_SHARE")).abs() < f64::EPSILON,
+                "finance::salary usa {dono} e o INVENTARIO declara {}",
+                numerica("IRACER_SALARY_SHARE")
+            );
         }
     }
 }

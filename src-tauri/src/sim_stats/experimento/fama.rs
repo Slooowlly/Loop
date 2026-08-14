@@ -38,7 +38,10 @@ pub(super) fn coletar_fama(db_path: &Path, t: &mut Totals) {
     });
     if let Ok(linhas) = linhas {
         for (categoria, midia) in linhas.flatten() {
-            t.fama_por_categoria.entry(categoria).or_default().push(midia);
+            t.fama_por_categoria
+                .entry(categoria)
+                .or_default()
+                .push(midia);
         }
     }
 }
@@ -67,8 +70,8 @@ pub(super) fn coletar_atracao(db_path: &Path, t: &mut Totals) {
     let posicoes = crate::public_presence::atracao::posicoes_por_pontos(&ativas);
 
     for equipe in equipes.iter().filter(|e| e.ativa) {
-        let medias =
-            crate::db::queries::teams::get_team_lineup_medias(&db.conn, &equipe.id).unwrap_or_default();
+        let medias = crate::db::queries::teams::get_team_lineup_medias(&db.conn, &equipe.id)
+            .unwrap_or_default();
         let n = por_categoria
             .get(&equipe.categoria)
             .copied()
@@ -90,7 +93,9 @@ pub(super) fn coletar_atracao(db_path: &Path, t: &mut Totals) {
         t.presenca_por_categoria
             .entry(equipe.categoria.clone())
             .or_default()
-            .push(crate::public_presence::team::derive_team_public_presence(&medias));
+            .push(crate::public_presence::team::derive_team_public_presence(
+                &medias,
+            ));
     }
 }
 

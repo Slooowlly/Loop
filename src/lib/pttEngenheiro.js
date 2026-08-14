@@ -184,6 +184,13 @@ export function criarOrquestrador({
     if (freio.bloqueado()) {
       marco = performance.now();
       passo("bloqueado", `rádio mudo por mais ${Math.ceil(freio.restanteMs() / 1000)} s`);
+      // OCIOSO explícito, e não o estado que estava aí. As duas linhas acima já desfizeram a
+      // fala anterior — o `geracao += 1` órfã quem estava no ar e o `voz.cancelar()` cala o
+      // áudio —, então quem tocava não volta mais para pôr o estado no lugar: o `ir(OCIOSO)`
+      // do fim daquele fluxo é guardado por `geracao === minhaVez`, e a geração já mudou.
+      // Sem esta linha o estado ficava preso em FALANDO para sempre, com o indicador aceso e
+      // o `soltar()` recusando tudo (ele só age vindo de OUVINDO) — o botão emudecia de vez.
+      ir(OCIOSO);
       return;
     }
     if (!microfone.estaArmado()) {
@@ -194,6 +201,9 @@ export function criarOrquestrador({
       ultimoErro = "Microfone não está armado.";
       marco = performance.now();
       passo("sem_microfone", ultimoErro);
+      // Mesmo motivo do freio, acima: a fala anterior já foi órfã e calada, e ninguém mais
+      // vem devolver o estado.
+      ir(OCIOSO);
       return;
     }
     try {

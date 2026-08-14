@@ -3,9 +3,11 @@
 //!
 //! Espelha [`crate::models::rivalry`] (piloto↔piloto) para o par de TIMES. O motor de
 //! dois eixos é o MESMO — as funções puras `perceived_intensity`, `rivalry_lifecycle` e
-//! `normalize_pair` de `models::rivalry` são agnósticas de piloto (operam só sobre
-//! f64/strings) e por isso são **reutilizadas como estão**. O que é próprio de time é só
-//! o tipo de origem ([`TeamRivalryType`]) e o carregador do par ([`TeamRivalry`]).
+//! `ordered_pair` de `models::rivalry` são agnósticas de piloto (operam só sobre
+//! f64/strings) e por isso são **reutilizadas como estão**. O par de time entra pela
+//! porta dele, `normalize_team_pair`: `normalize_pair` devolve campos com nome de
+//! piloto e não serve aqui. O que é próprio de time é só o tipo de origem
+//! ([`TeamRivalryType`]) e o carregador do par ([`TeamRivalry`]).
 //!
 //! Ver `docs/superpowers/specs/2026-07-19-team-rivalry-design.md`.
 
@@ -72,7 +74,7 @@ pub struct TeamRivalry {
 }
 
 impl TeamRivalry {
-    /// Intensidade percebida: `0.4·historical + 0.6·recent` (idêntica à de piloto).
+    /// Intensidade percebida: `0.6·historical + 0.4·recent` (idêntica à de piloto).
     pub fn perceived_intensity(&self) -> f64 {
         perceived_intensity(self.historical_intensity, self.recent_activity)
     }

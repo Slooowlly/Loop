@@ -3,13 +3,10 @@
 
 use super::*;
 
-const SNAPSHOT_SIDE_CAR_FILES: &[&str] = &[
-    "meta.json",
-    "race_results.json",
-    "resume_context.json",
-    "briefing_phrase_history.json",
-    "preseason_plan.json",
-];
+/// O `meta.json` entra no snapshot junto com os auxiliares, e por isso não mora na lista
+/// compartilhada: o restore o trata à parte, porque sem ele no backup o meta é
+/// reconstruído a partir do banco restaurado.
+const SNAPSHOT_META_FILE: &str = "meta.json";
 
 pub(crate) fn backup_season_internal(
     db_path: &Path,
@@ -36,16 +33,22 @@ pub(crate) fn backup_season_internal(
             .map_err(|e| format!("Falha ao criar backup: {e}"))?;
         snapshot_sidecar_files(career_dir, &staged_sidecars)?;
 
+        // O meta com os carimbos novos entra primeiro no snapshot, que ainda esta em
+        // staging, e so vai para o meta.json da carreira depois das duas trocas darem
+        // certo. Gravar antes fazia o save anunciar "ultimo backup: agora" mesmo quando
+        // a substituicao final falhava e o backup daquela temporada nunca existia.
         let now = Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
-        update_meta_timestamps(meta_path, |meta| {
+        let meta_atualizado = render_meta_timestamps(meta_path, |meta| {
             meta.last_backup = Some(now.clone());
             meta.last_saved = Some(now.clone());
         })?;
-        std::fs::copy(meta_path, staged_sidecars.join("meta.json"))
+        std::fs::write(staged_sidecars.join("meta.json"), &meta_atualizado)
             .map_err(|e| format!("Falha ao atualizar meta.json no snapshot do backup: {e}"))?;
 
         replace_backup_file(&staged_db, &final_db)?;
         replace_backup_sidecars(&staged_sidecars, &final_sidecars)?;
+
+        write_meta(meta_path, &meta_atualizado)?;
 
         file_backup_info(&final_db, season_number, &file_name)
     })();
@@ -190,7 +193,7 @@ fn snapshot_sidecar_files(career_dir: &Path, snapshot_dir: &Path) -> Result<(), 
         )
     })?;
 
-    for file_name in SNAPSHOT_SIDE_CAR_FILES {
+    for file_name in std::iter::once(&SNAPSHOT_META_FILE).chain(SIDECAR_FILES.iter()) {
         let source = career_dir.join(file_name);
         if !source.exists() {
             continue;
@@ -208,43 +211,39 @@ fn snapshot_sidecar_files(career_dir: &Path, snapshot_dir: &Path) -> Result<(), 
         })?;
     }
 
+    // As telas pós-corrida vão inteiras — ver `RACE_SCREENS_DIR`.
+    let telas = career_dir.join(RACE_SCREENS_DIR);
+    if telas.is_dir() {
+        copiar_diretorio(&telas, &snapshot_dir.join(RACE_SCREENS_DIR)).map_err(|e| {
+            format!(
+                "Falha ao copiar '{}' para o snapshot do backup: {e}",
+                telas.display()
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+fn copiar_diretorio(origem: &Path, destino: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(destino)?;
+    for entrada in std::fs::read_dir(origem)? {
+        let entrada = entrada?;
+        let caminho = entrada.path();
+        let alvo = destino.join(entrada.file_name());
+        if caminho.is_dir() {
+            copiar_diretorio(&caminho, &alvo)?;
+        } else {
+            std::fs::copy(&caminho, &alvo)?;
+        }
+    }
     Ok(())
 }
 
 fn replace_backup_file(staged_db: &Path, final_db: &Path) -> Result<(), String> {
-    if final_db.exists() {
-        std::fs::remove_file(final_db).map_err(|e| {
-            format!(
-                "Falha ao sobrescrever backup anterior '{}': {e}",
-                final_db.display()
-            )
-        })?;
-    }
-
-    std::fs::rename(staged_db, final_db).map_err(|e| {
-        format!(
-            "Falha ao finalizar backup '{}' a partir de '{}': {e}",
-            final_db.display(),
-            staged_db.display()
-        )
-    })
+    substituir_preservando_anterior(staged_db, final_db, "backup")
 }
 
 fn replace_backup_sidecars(staged_dir: &Path, final_dir: &Path) -> Result<(), String> {
-    if final_dir.exists() {
-        std::fs::remove_dir_all(final_dir).map_err(|e| {
-            format!(
-                "Falha ao sobrescrever snapshot auxiliar '{}': {e}",
-                final_dir.display()
-            )
-        })?;
-    }
-
-    std::fs::rename(staged_dir, final_dir).map_err(|e| {
-        format!(
-            "Falha ao finalizar snapshot auxiliar '{}' a partir de '{}': {e}",
-            final_dir.display(),
-            staged_dir.display()
-        )
-    })
+    substituir_preservando_anterior(staged_dir, final_dir, "snapshot auxiliar")
 }

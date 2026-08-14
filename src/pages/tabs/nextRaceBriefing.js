@@ -209,7 +209,7 @@ function resolveVariantIndex(driver, form, profile, candidateCount) {
 
   const profileOffset = PROFILE_OFFSETS[profile] ?? PROFILE_OFFSETS.baseline;
   const score =
-    ((driver.posição_campeonato ?? 0) * 7) +
+    ((driver.posicao_campeonato ?? 0) * 7) +
     ((driver.rating ?? 0) * 3) +
     (form.topFiveCount * 11) +
     (form.podiumCount * 13) +

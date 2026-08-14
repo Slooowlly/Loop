@@ -27,11 +27,11 @@ use crate::finance::state::{choose_season_strategy, refresh_team_financial_state
 use crate::generators::ids::{next_id, IdType};
 use crate::generators::nationality::format_nationality;
 use crate::generators::world::generate_historical_world;
+use crate::licensing::grant_driver_license_for_division_if_needed;
 use crate::market::pipeline::fill_all_remaining_vacancies;
 use crate::models::contract::generate_initial_contract;
 use crate::models::driver::Driver;
 use crate::models::enums::{ContractStatus, SeasonPhase, TeamRole};
-use crate::models::license::grant_driver_license_for_division_if_needed;
 use crate::models::season::Season;
 use crate::models::team::Team;
 use crate::world::integrity::{audit_historical_world, WorldAuditReport};

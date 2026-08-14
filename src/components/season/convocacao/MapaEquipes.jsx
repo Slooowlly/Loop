@@ -129,14 +129,14 @@ export default function MapaEquipes({ filteredSections, totalVisibleTeams, curre
                                   </p>
                                 </div>
                                 {vacancies > 0 && (
-                                  <span className="ml-auto shrink-0 rounded-md border border-white/12 bg-white/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--text-secondary)]">
+                                  <span className="ml-auto shrink-0 rounded-md border border-white/[0.12] bg-white/5 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[color:var(--text-secondary)]">
                                     {t("convocation.teamMap.vacancies", { count: vacancies })}
                                   </span>
                                 )}
                               </div>
                             </div>
 
-                            <div className="relative divide-y divide-white/8">
+                            <div className="relative divide-y divide-white/[0.08]">
                               <TeamPilotRow
                                 name={team.piloto_1_nome}
                                 fallback={t("convocation.teamMap.pilotOpen", { slot: 1 })}

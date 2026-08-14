@@ -141,14 +141,17 @@ impl RaceMonitor {
             let delta = t.incident_count - prev;
             if delta > 0 {
                 let (pts, kind) = if delta >= 4 {
-                    (INCIDENT_4X, "contato (+4x)")
+                    (INCIDENT_4X, "race_monitor.factor.incident_contact")
                 } else if delta >= 2 {
-                    (INCIDENT_2X, "rodada (+2x)")
+                    (INCIDENT_2X, "race_monitor.factor.incident_spin")
                 } else {
-                    (INCIDENT_1X, "saída (+1x)")
+                    (INCIDENT_1X, "race_monitor.factor.incident_off")
                 };
                 c.incident = pts;
-                factors.push(format!("incidente: {kind}"));
+                factors.push(
+                    rust_i18n::t!("race_monitor.factor.incident", kind = rust_i18n::t!(kind))
+                        .to_string(),
+                );
             }
         }
 
@@ -157,20 +160,23 @@ impl RaceMonitor {
             let g_impact = g_total - 1.0;
             if g_impact > G_THRESHOLD {
                 c.g = ((g_impact - G_THRESHOLD) * G_RATE).min(G_CAP);
-                factors.push(format!("impacto {g_total:.1}g"));
+                factors.push(
+                    rust_i18n::t!("race_monitor.factor.impact", g = format!("{g_total:.1}"))
+                        .to_string(),
+                );
             }
             if t.yaw_rate.abs() > YAW_THRESHOLD {
                 c.yaw = ((t.yaw_rate.abs() - YAW_THRESHOLD) * YAW_RATE_W).min(YAW_CAP);
-                factors.push("guinada brusca (yaw)".to_string());
+                factors.push(rust_i18n::t!("race_monitor.factor.yaw").to_string());
             }
             let rot = t.roll_rate.abs().max(t.pitch_rate.abs());
             if rot > ROT_THRESHOLD {
                 c.rot = ((rot - ROT_THRESHOLD) * ROT_RATE_W).min(ROT_CAP);
-                factors.push("rotação violenta (roll/pitch)".to_string());
+                factors.push(rust_i18n::t!("race_monitor.factor.rotation").to_string());
             }
             if t.track_surface == SURFACE_OFF_TRACK {
                 c.offtrack = OFFTRACK_PTS;
-                factors.push("fora da pista".to_string());
+                factors.push(rust_i18n::t!("race_monitor.factor.off_track").to_string());
             }
         }
 

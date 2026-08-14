@@ -907,6 +907,122 @@ fn test_aposentado_fica_na_foto_e_sai_na_semana_2_com_evento() {
     );
 }
 
+/// A motivação de todo mundo, por id — a foto de antes.
+fn motivacoes(conn: &Connection) -> std::collections::HashMap<String, f64> {
+    driver_queries::get_all_drivers(conn)
+        .expect("pilotos")
+        .into_iter()
+        .map(|driver| (driver.id, driver.motivacao))
+        .collect()
+}
+
+/// **O -10 por perder a vaga cai na SEMANA em que a vaga se perde.** Bug irmão do B35, e
+/// este é o teste do defeito temporal: ele passa pela janela jogável de verdade.
+///
+/// A semana 1 é a FOTO — e é exatamente o instante em que o segundo passe da motivação
+/// rodava na virada jogável. Ali ninguém perdeu vaga nenhuma: o grid está inteiro, os
+/// contratos vencidos ainda não expiraram. Era por isso que o -10 nunca disparava neste
+/// modo; o passe olhava o banco antes de o evento existir.
+///
+/// A perda acontece ao SAIR da semana 1, que é onde as pré-passes caem. O teste cobra as
+/// três coisas de uma vez: nada se move na foto, o desconto bate exatamente no conjunto
+/// que o feed narra como dispensa (e só nele), e o resto da janela — em que esses mesmos
+/// pilotos são recontratados pela escada — não desconta nem devolve nada.
+#[test]
+fn a_perda_de_vaga_desconta_dez_ao_sair_da_semana_um_e_uma_vez_so() {
+    let conn = setup_market_fixture();
+
+    // A dispensa precisa ser CERTA, e o sorteio de renovação não é: a semente da semana
+    // sai de (temporada, semana), então não há como varrer sementes por fora. O P002 entra
+    // lesionado — o caso real que o pipeline já descreve (quem se machuca na última corrida
+    // com o contrato vencendo é largado pela renovação e pelo leilão). Ele não é
+    // aposentado, então perdeu a vaga como qualquer outro.
+    let mut lesionado = driver_queries::get_driver(&conn, "P002").expect("piloto P002");
+    lesionado.status = DriverStatus::Lesionado;
+    driver_queries::update_driver(&conn, &lesionado).expect("machuca P002");
+
+    let antes = motivacoes(&conn);
+    let mut rng = StdRng::seed_from_u64(5067);
+    let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plano da pré-temporada");
+
+    assert_eq!(
+        contract_queries::get_all_active_regular_contracts(&conn)
+            .expect("contratos da foto")
+            .len(),
+        4,
+        "a foto da semana 1 tem que mostrar o grid como a temporada terminou"
+    );
+    assert_eq!(
+        motivacoes(&conn),
+        antes,
+        "a abertura da janela não pode ter mexido na motivação de ninguém"
+    );
+
+    let semana_1 = advance_week(&conn, &mut plan, None).expect("semana 1 deve avancar");
+    let depois = motivacoes(&conn);
+
+    // Quem o feed narra como DISPENSA (a saída por fim de contrato, separada da
+    // aposentadoria) é exatamente quem tem de ter levado o -10.
+    let dispensados: std::collections::HashSet<String> = semana_1
+        .events
+        .iter()
+        .filter(|evento| evento.movement_kind.as_deref() == Some("departure"))
+        .filter_map(|evento| evento.driver_id.clone())
+        .collect();
+    assert!(
+        !dispensados.is_empty(),
+        "nenhuma dispensa nesta semente — o teste não mediu nada"
+    );
+    let renovados: std::collections::HashSet<String> = plan
+        .pending_renewals
+        .iter()
+        .filter_map(|evento| evento.driver_id.clone())
+        .collect();
+
+    for (id, base) in &antes {
+        let esperado = if dispensados.contains(id) {
+            base - 10.0
+        } else if renovados.contains(id) {
+            base + 5.0
+        } else {
+            *base
+        };
+        assert_eq!(
+            depois[id], esperado,
+            "{id}: motivação fechou a semana 1 em {} e não em {esperado}",
+            depois[id]
+        );
+    }
+
+    // O jogador está com contrato vencendo como os outros, e perde o assento na mesma
+    // semana — mas a mecânica é de IA e continua sendo. Ele não aparece na dispensa nem
+    // leva desconto nenhum.
+    assert!(
+        !dispensados.contains("P007"),
+        "o jogador não pode ser narrado como dispensa da IA"
+    );
+    assert_eq!(
+        depois["P007"], antes["P007"],
+        "o jogador levou o -10 de vaga perdida"
+    );
+
+    // O resto da janela: a escada recontrata quem ficou sem assento, e recontratar não
+    // desfaz a perda nem a cobra de novo.
+    let mut guarda = 0;
+    while !plan.state.is_complete {
+        advance_week(&conn, &mut plan, None).expect("as semanas seguintes devem avancar");
+        guarda += 1;
+        assert!(guarda < 30, "a janela deve fechar em tempo razoavel");
+    }
+    let no_fechamento = motivacoes(&conn);
+    for id in antes.keys() {
+        assert_eq!(
+            no_fechamento[id], depois[id],
+            "{id}: a motivação mudou depois da semana em que a vaga se perdeu"
+        );
+    }
+}
+
 /// A escolha do jogador vale na semana em que ele a fez.
 ///
 /// O jogador escolhe um assento olhando o grid da semana ANTERIOR. Se o mercado mexer no

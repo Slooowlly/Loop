@@ -45,12 +45,11 @@ pub(super) fn build_driver_championship_curve(
     // chave, e uma consulta por ponto do grafico seria uma consulta por ano de
     // carreira. A falha e engolida — cor de chip e acabamento, e uma curva que
     // morre porque o plantel nao pode ser lido troca desenho por nada.
-    let equipes: HashMap<String, (String, String)> =
-        crate::db::queries::teams::get_all_teams(conn)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|equipe| (equipe.id, (equipe.nome, equipe.cor_primaria)))
-            .collect();
+    let equipes: HashMap<String, (String, String)> = crate::db::queries::teams::get_all_teams(conn)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|equipe| (equipe.id, (equipe.nome, equipe.cor_primaria)))
+        .collect();
 
     let mut pontos: Vec<DriverChampionshipCurvePoint> = season_archive
         .iter()
@@ -66,12 +65,9 @@ pub(super) fn build_driver_championship_curve(
             DriverChampionshipCurvePoint {
                 season_number: temporada.season_number,
                 ano: temporada.ano,
-                categoria: timeline_division_key(
-                    &temporada.categoria,
-                    temporada.classe.as_deref(),
-                )
-                .filter(|_| correu)
-                .unwrap_or_default(),
+                categoria: timeline_division_key(&temporada.categoria, temporada.classe.as_deref())
+                    .filter(|_| correu)
+                    .unwrap_or_default(),
                 equipe_nome: equipe.map(|(nome, _)| nome.clone()).filter(|_| correu),
                 equipe_cor: equipe.map(|(_, cor)| cor.clone()).filter(|_| correu),
                 posicao: temporada.posicao_campeonato.filter(|_| correu),
@@ -138,8 +134,7 @@ pub(super) fn build_driver_championship_curve(
 /// Categoria desconhecida cai em `false`: sem saber, o grafico desenha a
 /// expectativa como desenha em GT3, que e a leitura sem ressalva.
 fn categoria_monomarca(categoria: &str) -> bool {
-    crate::constants::categories::get_category(categoria)
-        .is_some_and(|config| config.monomarca)
+    crate::constants::categories::get_category(categoria).is_some_and(|config| config.monomarca)
 }
 
 /// Onde o CARRO deveria ter terminado, em cada temporada arquivada do piloto.
@@ -231,9 +226,7 @@ fn esperados_por_temporada(
             .iter()
             .map(|(_, posicao, assentos)| (-(*posicao as f64), *assentos))
             .collect();
-        if let Some(esperado) =
-            expected_position_from_grid(-(*minha_posicao as f64), &ranking)
-        {
+        if let Some(esperado) = expected_position_from_grid(-(*minha_posicao as f64), &ranking) {
             esperados.insert(linha.season_number, esperado);
         }
     }

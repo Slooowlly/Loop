@@ -321,7 +321,10 @@ pub(crate) fn debug_stamp_player_championship_in_base_dir(
     let categoria: String = db
         .conn
         .query_row(
-            "SELECT categoria FROM contracts WHERE piloto_id = ?1 ORDER BY temporada_fim DESC LIMIT 1",
+            // `temporada_fim` é coluna TEXT: sem o CAST a ordenação é lexicográfica
+            // e a temporada 9 passa na frente da 10.
+            "SELECT categoria FROM contracts WHERE piloto_id = ?1
+             ORDER BY CAST(temporada_fim AS INTEGER) DESC LIMIT 1",
             rusqlite::params![player.id],
             |r| r.get::<_, String>(0),
         )

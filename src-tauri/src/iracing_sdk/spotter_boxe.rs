@@ -209,7 +209,9 @@ impl ObservadorBoxe {
             if i >= MAX_CARROS || c.idx == a.jogador_idx || c.track_surface != SUP_NA_PISTA {
                 continue;
             }
-            let Some(saiu) = self.carros[i].saiu_em_s else { continue };
+            let Some(saiu) = self.carros[i].saiu_em_s else {
+                continue;
+            };
             if a.tempo_s - saiu > SAIDA_JANELA_S {
                 continue;
             }
@@ -271,7 +273,9 @@ impl ObservadorBoxe {
 
     /// A chave devolvida pela última [`ObservadorBoxe::observar`] virou fala de fato.
     pub fn confirmar_aviso(&mut self) {
-        let Some(ep) = self.pendente.take() else { return };
+        let Some(ep) = self.pendente.take() else {
+            return;
+        };
         self.aberto = true;
         empurrar_com_teto(&mut self.encerrados, ep, MAX_EPISODIOS);
     }
@@ -362,7 +366,8 @@ mod tests {
 
         /// Um carro `metros` à frente, a `kmh`, ainda na via de box.
         fn no_box_a_frente(&mut self, metros: f64, kmh: f64) {
-            self.alvos.push((self.jog + metros / PISTA, kmh, SUP_ENTRANDO_BOX, true));
+            self.alvos
+                .push((self.jog + metros / PISTA, kmh, SUP_ENTRANDO_BOX, true));
         }
 
         /// Todos os alvos deixam a via de box neste instante.
@@ -423,9 +428,14 @@ mod tests {
         // Um carro lento à frente que não veio dos boxes é assunto da família `lento`,
         // engavetada. Esta família é sobre a TRANSIÇÃO, e é isso que a torna defensável.
         let mut c = Cena::nova();
-        c.alvos.push((c.jog + 150.0 / PISTA, 90.0, SUP_NA_PISTA, false));
+        c.alvos
+            .push((c.jog + 150.0 / PISTA, 90.0, SUP_NA_PISTA, false));
         c.rodar(3.0);
-        assert!(c.chaves.is_empty(), "falou sem saída de box: {:?}", c.chaves);
+        assert!(
+            c.chaves.is_empty(),
+            "falou sem saída de box: {:?}",
+            c.chaves
+        );
     }
 
     #[test]
@@ -508,7 +518,10 @@ mod tests {
         c.rodar(0.5);
         c.saem_do_box();
         c.rodar(0.5);
-        assert!(c.conta(CHAVE_SAINDO_BOX) > 1, "sem confirmação deveria insistir");
+        assert!(
+            c.conta(CHAVE_SAINDO_BOX) > 1,
+            "sem confirmação deveria insistir"
+        );
     }
 
     #[test]
@@ -522,6 +535,11 @@ mod tests {
         c.t += SALTO_MAX_S + 1.0;
         c.rodar(0.5);
         // Zerou: a borda de saída se perdeu com a máquina, e ninguém "acabou de sair".
-        assert_eq!(c.chaves.len(), antes, "inventou fala após o salto: {:?}", c.chaves);
+        assert_eq!(
+            c.chaves.len(),
+            antes,
+            "inventou fala após o salto: {:?}",
+            c.chaves
+        );
     }
 }

@@ -125,6 +125,9 @@ pub fn build_race_result_from_aiseason(
             gap_to_winner_ms: row.interval_ms.max(0.0),
             is_dnf,
             dnf_reason,
+            // O resultado OFICIAL do iRacing não sabe de peça: a quebra é carimbada depois, em
+            // `commands::race::importacao`, e é lá que a chave entra.
+            dnf_reason_key: None,
             dnf_segment: None,
             incidents_count: row.incidents,
             incidents: Vec::new(),
@@ -287,7 +290,8 @@ pub fn build_race_result_from_aiseason(
                     "corrida",
                     0,
                     true,
-                    format!("Colisão com {other_name}"),
+                    rust_i18n::t!("race.incident.collision_with", other = other_name.as_str())
+                        .to_string(),
                     Some(other_id),
                     true,
                     None,
@@ -304,7 +308,7 @@ pub fn build_race_result_from_aiseason(
                 "corrida",
                 0,
                 true,
-                "Abandonou após incidente".to_string(),
+                rust_i18n::t!("race.incident.retired_after_incident").to_string(),
                 None,
                 false,
                 None,

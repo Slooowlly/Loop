@@ -100,8 +100,12 @@ pub(crate) fn build_race_results(
             };
 
             let total_race_time_ms = if state.is_dnf {
-                // Tempo proporcional às voltas completadas + pequeno overhead
-                winner_total_time_ms * (laps_completed as f64 / ctx.total_laps as f64) * 1.05
+                // Tempo proporcional às voltas completadas + pequeno overhead.
+                // O `max(1)` é o mesmo guarda do resto do módulo (o `lap_time_ms` acima,
+                // `estimate_laps_at_dnf`, `RaceSegment::from_lap`): `total_laps == 0` é
+                // alcançável por config, e aqui a divisão crua dava `1/0 = inf` vezes um
+                // `winner_total_time_ms` zerado, ou seja NaN no tempo de corrida e no gap.
+                winner_total_time_ms * (laps_completed as f64 / ctx.total_laps.max(1) as f64) * 1.05
             } else {
                 winner_total_time_ms + atraso_ms
             };
@@ -142,6 +146,7 @@ pub(crate) fn build_race_results(
                 gap_to_winner_ms,
                 is_dnf: state.is_dnf,
                 dnf_reason: state.dnf_reason.clone(),
+                dnf_reason_key: state.dnf_reason_key.clone(),
                 dnf_segment: state.dnf_segment.map(|s| s.as_str().to_string()),
                 incidents_count: state.incidents.len() as i32,
                 incidents: state.incidents.clone(),

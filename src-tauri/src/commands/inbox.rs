@@ -89,7 +89,15 @@ pub fn get_inbox_messages(app: tauri::AppHandle, career_id: String) -> Result<In
 
     let player =
         dq::get_player_driver(conn).map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
-    let categoria = match player.categoria_atual.clone() {
+    // Categoria atual = do contrato ativo do jogador; senão, do campo do piloto. Mesma
+    // ordem do rodapé do mundo e do preview de temporada: `categoria_atual` sobrevive a
+    // quem está SEM ASSENTO, então o contrato é a fonte mais fiel de onde ele corre hoje.
+    let categoria = match cq::get_active_contract_for_pilot(conn, &player.id)
+        .ok()
+        .flatten()
+        .map(|c| c.categoria)
+        .or_else(|| player.categoria_atual.clone())
+    {
         Some(c) if !c.is_empty() => c,
         _ => return Ok(InboxFacts::default()),
     };

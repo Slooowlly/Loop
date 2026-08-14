@@ -33,18 +33,18 @@
 /// distância inventada.
 const PONTOS: &[(&str, f64, f64)] = &[
     // ── Europa ───────────────────────────────────────────────────────────────────
-    ("reino unido", 52.5, -1.5),      // Silverstone/Donington/Brands, miolo inglês
-    ("alemanha", 50.3, 8.0),          // Nürburgring/Hockenheim
-    ("franca", 47.0, 3.0),            // Magny-Cours/Le Mans
-    ("italia", 44.8, 10.5),           // Monza/Imola/Mugello
-    ("espanha", 41.3, 2.0),           // Barcelona; Jerez puxa para o sul, Aragón para o norte
-    ("holanda", 52.4, 4.6),           // Zandvoort
-    ("belgica", 50.4, 5.9),           // Spa
-    ("portugal", 38.8, -9.0),         // Estoril/Portimão
-    ("austria", 47.2, 14.8),          // Red Bull Ring
-    ("suica", 46.9, 7.4),             // sem circuito no jogo; sede de equipe
-    ("noruega", 59.4, 11.4),          // Rudskogen
-    ("hungria", 47.6, 19.2),          // Hungaroring
+    ("reino unido", 52.5, -1.5), // Silverstone/Donington/Brands, miolo inglês
+    ("alemanha", 50.3, 8.0),     // Nürburgring/Hockenheim
+    ("franca", 47.0, 3.0),       // Magny-Cours/Le Mans
+    ("italia", 44.8, 10.5),      // Monza/Imola/Mugello
+    ("espanha", 41.3, 2.0),      // Barcelona; Jerez puxa para o sul, Aragón para o norte
+    ("holanda", 52.4, 4.6),      // Zandvoort
+    ("belgica", 50.4, 5.9),      // Spa
+    ("portugal", 38.8, -9.0),    // Estoril/Portimão
+    ("austria", 47.2, 14.8),     // Red Bull Ring
+    ("suica", 46.9, 7.4),        // sem circuito no jogo; sede de equipe
+    ("noruega", 59.4, 11.4),     // Rudskogen
+    ("hungria", 47.6, 19.2),     // Hungaroring
     ("finlandia", 60.5, 22.3),
     ("suecia", 58.4, 13.5),
     ("dinamarca", 55.7, 12.1),
@@ -52,17 +52,17 @@ const PONTOS: &[(&str, f64, f64)] = &[
     ("irlanda", 53.3, -6.3),
     ("republica tcheca", 49.4, 17.0),
     // ── Américas ────────────────────────────────────────────────────────────────
-    ("eua", 39.5, -98.4),   // o país é largo; o centro é a melhor aposta única
-    ("canada", 45.5, -74.5), // Montreal/Mosport, onde o automobilismo canadense mora
-    ("mexico", 19.4, -99.1), // Hermanos Rodríguez
+    ("eua", 39.5, -98.4),     // o país é largo; o centro é a melhor aposta única
+    ("canada", 45.5, -74.5),  // Montreal/Mosport, onde o automobilismo canadense mora
+    ("mexico", 19.4, -99.1),  // Hermanos Rodríguez
     ("brasil", -23.6, -46.7), // Interlagos
     ("argentina", -34.7, -58.5),
     // ── Ásia e Oceania ──────────────────────────────────────────────────────────
-    ("japao", 35.4, 138.9),      // Suzuka/Fuji/Motegi
+    ("japao", 35.4, 138.9), // Suzuka/Fuji/Motegi
     ("taiwan", 23.7, 121.0),
-    ("china", 31.3, 121.2),      // Xangai
+    ("china", 31.3, 121.2), // Xangai
     ("coreia do sul", 34.7, 126.4),
-    ("emirados", 24.5, 54.6),    // Yas Marina
+    ("emirados", 24.5, 54.6), // Yas Marina
     ("bahrein", 26.0, 50.5),
     ("catar", 25.5, 51.5),
     ("india", 28.4, 77.5),

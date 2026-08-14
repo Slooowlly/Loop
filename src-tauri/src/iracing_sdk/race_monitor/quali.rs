@@ -35,6 +35,7 @@ impl RaceMonitor {
             self.quali_sessao = t.session_num;
             self.classificacao.reiniciar();
             self.volta_ref.reiniciar();
+            self.voltas_quali_jogador.reiniciar();
             self.classificacao_log.clear();
             self.quali_volta = -1;
             self.quali_saiu_do_box = false;
@@ -44,9 +45,34 @@ impl RaceMonitor {
         let no_box = t.player_on_pit_road;
         let na_pista = t.on_track && !t.is_replay_playing && !no_box;
 
-        // Cruzou a linha: fecha a volta que acabou e classifica a que começa.
+        // COM QUE TEMPO a volta que cruzou a linha fechou não se lê aqui: quem sabe é o ciclo de
+        // volta de `voltas.rs`, o mesmo que o histórico e a quali por carro usam. O `last_lap_time`
+        // no tique da virada ainda carrega a volta ANTERIOR (0,067 s a 0,433 s de atraso, medidos),
+        // e aqui isso doía em dobro — a curva desenhada era de uma volta e o relógio era de outra,
+        // então a melhor volta da sessão saía com o par trocado e o delta passava a medir contra
+        // uma volta que não existiu.
+        let fechada = self.voltas_quali_jogador.tique(voltas::Tique {
+            agora: t.session_time,
+            contagem: t.lap_completed,
+            ultimo_tempo_sdk: t.last_lap_time,
+            // No tique da virada este canal ainda marca a volta que fechou — é a rede para
+            // quando o tempo oficial não vem (volta anulada, out lap, quadro perdido).
+            cronometro_do_sim: Some(t.lap_current_time),
+            combustivel_l: -1.0,
+            no_box,
+        });
+        // ANTES de suspender a próxima, e não depois: no tique da virada o coletor pode entregar
+        // a volta ANTERIOR, fechada pelo cronômetro por falta do tempo oficial. Suspender primeiro
+        // casaria a curva de uma volta com o relógio da outra.
+        if let Some(v) = fechada {
+            self.volta_ref.confirmar_suspensa(v.tempo_s);
+        }
+
+        // Cruzou a linha: tira de cena a volta que acabou e classifica a que começa. Contagem
+        // negativa é o carro fora do mundo (garagem, guincho) — ausência de dado, não virada. O
+        // coletor congela pelo mesmo motivo.
         let volta = t.lap_completed;
-        if volta != self.quali_volta {
+        if volta >= 0 && volta != self.quali_volta {
             let anterior_era_preparacao = self.quali_saiu_do_box;
             let sujou = self.quali_sujou;
             self.quali_volta = volta;
@@ -55,10 +81,12 @@ impl RaceMonitor {
             self.quali_saiu_do_box = no_box;
             self.quali_sujou = false;
 
-            // A volta que fechou só vira referência se foi uma tentativa limpa. Volta de
-            // preparação é lenta por definição, e volta suja mediria contra um erro.
-            if !anterior_era_preparacao && !sujou && t.last_lap_time > 0.0 {
-                self.volta_ref.fechar_volta(t.last_lap_time);
+            // A volta que fechou só concorre a referência se foi uma tentativa limpa. Volta de
+            // preparação é lenta por definição, e volta suja mediria contra um erro. A curva sai
+            // de cena agora de qualquer jeito: a próxima já começa a ser desenhada no tique
+            // seguinte, e cada balde é escrito uma vez só.
+            if !anterior_era_preparacao && !sujou {
+                self.volta_ref.suspender_volta();
             } else {
                 self.volta_ref.descartar_volta();
             }
@@ -97,15 +125,18 @@ impl RaceMonitor {
             // isso que ela existe — na PRIMEIRA tentativa não há curva contra a que comparar.
             volta_morta: voando
                 && (self.quali_sujou
-                    || self.volta_ref.volta_morta(t.lap_dist_pct, t.lap_current_time)),
+                    || self
+                        .volta_ref
+                        .volta_morta(t.lap_dist_pct, t.lap_current_time)),
             em_preparacao,
             voando,
         });
         if let Some(f) = fala {
-            // Na linha do tempo do rádio esta família aparece como `decidida` e nunca como
-            // `tocada`, e isso é o próprio achado: o canal existe, produz fala e não tem
-            // consumidor nenhum do lado do app. Registrar aqui é o que torna essa diferença
-            // visível num arquivo em vez de depender de alguém lembrar dela.
+            // `decidida` é o primeiro dos dois carimbos desta fala na linha do tempo do rádio; o
+            // segundo (`tocada`) vem do front, quando o card sai e o áudio toca. Enquanto o
+            // canal não tinha comando nenhum lendo o log — até 12/08/2026 —, a família aparecia
+            // aqui e nunca do outro lado, e era esse par faltando que denunciava o buraco. Ver
+            // `commands::overlay::get_classificacao_feed`.
             crate::radio_registro::registrar(&crate::radio_registro::Registro {
                 canal: "classificacao".to_string(),
                 fase: "decidida".to_string(),

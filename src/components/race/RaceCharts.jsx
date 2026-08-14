@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import { bestEffort } from "../../utils/bestEffort";
 import useCareerStore from "../../stores/useCareerStore";
 import LapTimeLineChart from "./LapTimeLineChart";
 import RaceTraceChart from "./RaceTraceChart";
@@ -91,9 +92,12 @@ function RaceCharts({ charts, mistakeLap = 0, bestMomentLap = 0 }) {
   // Cores dos times (por nome do piloto) para colorir as linhas.
   useEffect(() => {
     if (!careerId) return;
-    invoke("iracing_car_colors", { careerId })
-      .then((c) => setCarColors(c || { by_name: {}, player_color: null }))
-      .catch(() => {});
+    // Best-effort: sem as cores o gráfico usa a paleta padrão e continua legível. O
+    // rastro existe porque a falha aqui é indistinguível de "esta carreira não tem
+    // cores", e as duas explicam um gráfico monocromático.
+    bestEffort(invoke("iracing_car_colors", { careerId }), "iracing_car_colors").then((c) =>
+      setCarColors(c || { by_name: {}, player_color: null }),
+    );
   }, [careerId]);
 
   // Carros ordenados com o jogador por ÚLTIMO (linha dele por cima).

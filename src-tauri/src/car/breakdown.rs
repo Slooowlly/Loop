@@ -2,7 +2,7 @@
 //!
 //! Dado o carro (com o desgaste que cada peça carrega da economia), o nº de voltas da
 //! corrida, a semente e a qualidade do pit crew da equipe, faz o **pré-roll** da corrida
-//! inteira: simula o desgaste volta a volta, joga a sorte na janela de perigo (95%→105%),
+//! inteira: simula o desgaste volta a volta, joga a sorte na janela de perigo (90%→120%),
 //! e devolve os EVENTOS de quebra (qual peça, em que volta, severidade, e quantos segundos
 //! de penalidade ou DNF). O mesmo pré-roll alimenta o disparo ao vivo (`!black`/`!dq` na
 //! volta-alvo) E o aviso pré-corrida. Não toca DB, SDK nem economia — é wiring da Fase 3.
@@ -32,6 +32,52 @@ const OVERUSE: f64 = 1.00;
 /// A PAREDE: ao atingir/passar, a peça acabou (falha forçada). Subiu (1.13→1.20) pra dar
 /// corredor ao regime de sobreuso antes da morte súbita.
 const HARD_WALL: f64 = 1.20;
+
+// ── O que sai do módulo, e por quê ──
+//
+// A curva de risco é privada de propósito: quem quiser saber se uma peça vai quebrar chama
+// `LiveBreakdown`, não recalcula o hazard por fora. O que atravessa a fronteira são os TRÊS
+// marcos do desgaste, porque há dois caminhos legítimos que precisam deles e que, sem isto,
+// só tinham a opção de cravar o número de novo:
+//
+// 1. a ferramenta de DEBUG que promete uma quebra garantida na pista;
+// 2. o harness de Monte Carlo, que existe para retratar a produção.
+//
+// Os dois já cravaram, e os dois envelheceram calados quando a parede subiu de 1.05 para 1.20.
+
+/// Desgaste em que a janela de risco ABRE. Espelho de [`RISK_OPEN`].
+pub(crate) const WEAR_RISK_OPEN: f64 = RISK_OPEN;
+/// Fim da vida NOMINAL — a fronteira serviço→sobreuso. Espelho de [`OVERUSE`].
+pub(crate) const WEAR_OVERUSE: f64 = OVERUSE;
+/// A PAREDE. Espelho de [`HARD_WALL`].
+pub(crate) const WEAR_HARD_WALL: f64 = HARD_WALL;
+/// Ruído de sorte no desgaste por volta. Espelho de [`WEAR_NOISE`].
+pub(crate) const WEAR_RUIDO: f64 = WEAR_NOISE;
+/// Piso de desgaste que uma parada de manutenção troca. Espelho de [`SERVICE_WEAR_FLOOR`].
+pub(crate) const WEAR_PISO_DE_SERVICO: f64 = SERVICE_WEAR_FLOOR;
+
+/// A curva de risco por volta de produção, para quem precisa RETRATÁ-LA.
+///
+/// O único consumidor é o harness de Monte Carlo ([`crate::car::breakdown_sim`]): ele existe
+/// para medir o sistema, e uma segunda curva ali envelhece sozinha — foi o que aconteceu, e o
+/// relatório passou a descrever um jogo que não existe mais. Quem quer saber se uma peça vai
+/// quebrar continua chamando [`LiveBreakdown`], não isto.
+pub(crate) fn hazard_por_volta(pt: PartType, wear: f64) -> f64 {
+    per_lap_hazard(pt, wear)
+}
+
+/// O sorteio de severidade de produção, pelo mesmo motivo de [`hazard_por_volta`].
+pub(crate) fn severidade_da_falha(pt: PartType, forced: bool, r: f64, is_enduro: bool) -> Severity {
+    sample_severity(pt, forced, r, is_enduro)
+}
+
+/// Desgaste que torna a falha CERTA na próxima volta avaliada, qualquer que seja a sorte.
+///
+/// É [`HARD_WALL`] e não um número escolhido à parte: a falha forçada é `wear >= HARD_WALL`, e
+/// o desgaste só cresce dentro da volta. Quem quiser uma quebra garantida usa esta constante —
+/// o valor literal já ficou para trás uma vez, quando a parede subiu de 1.05 para 1.20 e o
+/// `arm_test_breakdown` continuou armando 1.10, que virou "sorte alta" em vez de garantia.
+pub(crate) const WEAR_QUEBRA_GARANTIDA: f64 = HARD_WALL;
 /// Hazard/volta na BORDA de baixo do regime em-serviço (em RISK_OPEN). Baixo = o "azar" raro.
 const HAZARD_SERVICE_LO: f64 = 0.006;
 /// Hazard/volta no FIM da vida nominal (em OVERUSE). Ainda modesto — o carro bem-mantido que
@@ -52,16 +98,13 @@ const SERVICE_WEAR_FLOOR: f64 = 0.60;
 
 // ──────────── Enduro (corridas longas): um arquivo só das regras dele ────────────
 mod enduro;
-// `DuracaoDeProva` e `ENDURO_DURATION_GATE_MIN` ainda não têm consumidor fora do módulo: o
-// tipo existe para os call sites de `commands/` migrarem para ele (ver o doc dele), e o gate
-// é referência de documentação. Ficam re-exportados porque a fronteira pública do sistema de
-// quebra é esta, não o submódulo.
-#[allow(unused_imports)]
-pub use enduro::{
-    enduro_economy_wear_mult, enduro_pit_relief, is_enduro_duration, modeled_ai_pits,
-    DuracaoDeProva, ENDURO_DURATION_GATE_MIN,
-};
+// `DuracaoDeProva` é a ÚNICA porta da régua de enduro: quem quer saber se a prova é longa, o
+// sobrecusto dela ou as paradas modeladas da IA precisa ter uma. `ENDURO_DURATION_GATE_MIN`
+// sai junto por ser referência de documentação. Ficam re-exportados porque a fronteira pública
+// do sistema de quebra é esta, não o submódulo.
 use enduro::{enduro_late_ramp, ENDURO_DNF_SCALE};
+#[allow(unused_imports)]
+pub use enduro::{enduro_pit_relief, DuracaoDeProva, ENDURO_DURATION_GATE_MIN};
 // Os testes de enduro seguem em `breakdown/tests`, com os do resto do sistema.
 #[cfg(test)]
 use enduro::ENDURO_LATE_RAMP_EXTRA;
@@ -144,9 +187,9 @@ pub struct BreakdownEvent {
     pub penalty_secs: Option<u32>,
     /// Desgaste da peça ao LARGAR a corrida (pra narrativa/aviso).
     pub entered_wear: f64,
-    /// Desgaste no momento da falha (sempre ≥ 95%).
+    /// Desgaste no momento da falha (sempre ≥ [`RISK_OPEN`], hoje 90%).
     pub wear_at_fail: f64,
-    /// `true` se foi na parede (105%), `false` se foi por sorte na janela.
+    /// `true` se foi na parede ([`HARD_WALL`], hoje 120%), `false` se foi por sorte na janela.
     pub forced: bool,
     /// Modo de falha concreto (0..[`FAILURE_MODES`]) — QUAL o problema na peça. Sorteado por
     /// `(seed, peça, volta)`; combinado com a severidade dá a frase (ver [`problem_text`]).
@@ -169,139 +212,69 @@ impl BreakdownEvent {
 
     /// A frase do problema concreto (peça + modo + severidade) — o "o que" da quebra, pra
     /// narrativa (debrief/notícia). Ex.: "motor fundiu por superaquecimento".
-    pub fn problem_label(&self) -> &'static str {
+    ///
+    /// Resolvida no LOCALE ATIVO. O que identifica a frase é a trinca `(peça, modo,
+    /// severidade)` — ver [`problem_key`] —, e é ela que o save guarda.
+    pub fn problem_label(&self) -> String {
         problem_text(self.part, self.problem, self.severity)
     }
 }
 
-/// Frase do problema concreto por `(peça, modo 0..`[`FAILURE_MODES`]`, severidade)`. 3 modos por
-/// peça; a severidade escolhe a intensidade (leve = perdeu rendimento, grave = parada, DNF =
-/// abandono). Voz de boletim, PT. Usado pela narrativa da Peça 3.
-pub fn problem_text(pt: PartType, mode: u8, sev: Severity) -> &'static str {
-    let m = (mode % FAILURE_MODES) as usize;
-    use Severity::{Dnf, Heavy, Light};
-    match pt {
-        PartType::Engine => match (m, sev) {
-            (0, Light) => "superaquecimento — perdeu potência",
-            (0, Heavy) => "motor fervendo — parada pra baixar temperatura",
-            (0, Dnf) => "motor fundiu por superaquecimento",
-            (1, Light) => "queda na pressão de óleo — segurou o ritmo",
-            (1, Heavy) => "vazamento de óleo — reparo demorado",
-            (1, Dnf) => "quebra de biela por falta de óleo",
-            (_, Light) => "falha de ignição — engasgando",
-            (_, Heavy) => "falha na injeção — parada nos boxes",
-            (_, Dnf) => "pane de ignição — motor morreu",
-        },
-        PartType::Gearbox => match (m, sev) {
-            (0, Light) => "engate falhando — perdendo marchas",
-            (0, Heavy) => "câmbio travando — parada longa",
-            (0, Dnf) => "câmbio quebrou",
-            (1, Light) => "embreagem patinando — largadas fracas",
-            (1, Heavy) => "embreagem queimada — box",
-            (1, Dnf) => "embreagem destruída — sem tração",
-            (_, Light) => "diferencial nervoso — traseira solta",
-            (_, Heavy) => "diferencial superaquecido — parada",
-            (_, Dnf) => "diferencial travou",
-        },
-        PartType::Brakes => match (m, sev) {
-            (0, Light) => "fadiga de freio — pedal longo",
-            (0, Heavy) => "superaquecimento dos freios — parada",
-            (0, Dnf) => "perda total de freio",
-            (1, Light) => "pastilhas no fim — frenagens fracas",
-            (1, Heavy) => "disco trincado — box",
-            (1, Dnf) => "disco de freio estourou",
-            (_, Light) => "ar na linha — pedal esponjoso",
-            (_, Heavy) => "vazamento de fluido de freio — parada",
-            (_, Dnf) => "pane hidráulica de freio",
-        },
-        PartType::Suspension => match (m, sev) {
-            (0, Light) => "bandeja folgada — carro impreciso",
-            (0, Heavy) => "braço de suspensão trincado — box",
-            (0, Dnf) => "braço de suspensão quebrou",
-            (1, Light) => "amortecedor vazando — carro saltando",
-            (1, Heavy) => "amortecedor morto — parada",
-            (1, Dnf) => "colapso da suspensão",
-            (_, Light) => "alinhamento fugindo — comendo pneu",
-            (_, Heavy) => "rolamento de roda gritando — box",
-            (_, Dnf) => "rolamento travou a roda",
-        },
-        PartType::FrontWing => match (m, sev) {
-            (0, Light) => "asa dianteira frouxa — perdeu downforce",
-            (0, Heavy) => "flap dianteiro solto — parada pra trocar",
-            (0, Dnf) => "asa dianteira arrancou",
-            (1, Light) => "suporte da asa trincado — subvirando",
-            (1, Heavy) => "asa desalinhada — reparo nos boxes",
-            (1, Dnf) => "estrutura da asa dianteira cedeu",
-            (_, Light) => "endplate danificado — leve perda aero",
-            (_, Heavy) => "flap preso — pit pra ajustar",
-            (_, Dnf) => "asa dianteira destruída",
-        },
-        PartType::RearWing => match (m, sev) {
-            (0, Light) => "asa traseira frouxa — traseira solta",
-            (0, Heavy) => "asa traseira desregulada — box",
-            (0, Dnf) => "asa traseira arrancou",
-            (1, Light) => "flap teimando — perda nas retas",
-            (1, Heavy) => "mecanismo da asa travado — parada",
-            (1, Dnf) => "colapso da asa traseira",
-            (_, Light) => "suporte da asa vibrando",
-            (_, Heavy) => "montante da asa cedendo — reparo",
-            (_, Dnf) => "asa traseira desprendeu",
-        },
-        PartType::Cooling => match (m, sev) {
-            (0, Light) => "radiador entupindo — temperatura subindo",
-            (0, Heavy) => "radiador furado — parada pra completar água",
-            (0, Dnf) => "perda total de líquido — motor cozinhou",
-            (1, Light) => "bomba d'água fraca — aquecendo",
-            (1, Heavy) => "falha na bomba d'água — box",
-            (1, Dnf) => "bomba d'água travou — superaquecimento fatal",
-            (_, Light) => "intercooler sujo — perda de potência",
-            (_, Heavy) => "ventoinha falhando — parada",
-            (_, Dnf) => "colapso do arrefecimento",
-        },
-        PartType::Sidepods => match (m, sev) {
-            (0, Light) => "sidepod amassado — leve perda aero",
-            (0, Heavy) => "lateral danificada — reparo",
-            (0, Dnf) => "sidepod arrancou",
-            (1, Light) => "entrada de ar obstruída — temperatura subindo",
-            (1, Heavy) => "duto lateral rompido — parada",
-            (1, Dnf) => "lateral comprometeu a refrigeração",
-            (_, Light) => "painel lateral solto — vibração",
-            (_, Heavy) => "lateral desprendendo — box",
-            (_, Dnf) => "colapso da lateral",
-        },
-        PartType::Underbody => match (m, sev) {
-            (0, Light) => "assoalho raspando — perda de rendimento",
-            (0, Heavy) => "assoalho danificado — parada",
-            (0, Dnf) => "assoalho destruído — carro ingável",
-            (1, Light) => "difusor lascado — leve perda de carga",
-            (1, Heavy) => "difusor quebrado — reparo",
-            (1, Dnf) => "difusor arrancou — perda total de carga",
-            (_, Light) => "skid desgastado — carro baixo demais",
-            (_, Heavy) => "plank comprometido — box",
-            (_, Dnf) => "assoalho rompeu",
-        },
-        PartType::Chassis => match (m, sev) {
-            (0, Light) => "trinca no chassi — carro perdeu firmeza",
-            (0, Heavy) => "trinca estrutural — carro difícil de guiar",
-            (0, Dnf) => "chassi rompeu",
-            (1, Light) => "fixação folgada — alinhamento fugindo",
-            (1, Heavy) => "suporte estrutural cedendo — muito tempo perdido",
-            (1, Dnf) => "estrutura do chassi colapsou",
-            (_, Light) => "vibração estrutural — carro nervoso",
-            (_, Heavy) => "ressonância forte — parada de emergência",
-            (_, Dnf) => "fadiga do chassi — quebra total",
-        },
-        PartType::Electronics => match (m, sev) {
-            (0, Light) => "sensor falhando — leituras erradas",
-            (0, Heavy) => "chicote com mau contato — parada",
-            (0, Dnf) => "pane elétrica geral",
-            (1, Light) => "bateria fraca — eletrônica instável",
-            (1, Heavy) => "alternador falhando — box",
-            (1, Dnf) => "morte elétrica — carro desligou",
-            (_, Light) => "ECU limitando potência — modo seguro",
-            (_, Heavy) => "ECU reiniciando — parada",
-            (_, Dnf) => "ECU travou — carro parou",
-        },
+/// A CHAVE de uma frase de problema — o identificador estável de `(peça, modo, severidade)`.
+///
+/// **É a chave que atravessa o save, nunca a prosa.** `race_breakdowns` guarda as três partes em
+/// colunas próprias (`part`, `problem`, `severity`) desde a v52, e a frase é derivada delas na
+/// hora de mostrar — trocar o idioma do jogo re-renderiza o desfecho de uma quebra sem tocar em
+/// nada gravado. A coluna `label`, também da v52, é a prosa RENDERIZADA e continua sendo escrita:
+/// ela é a rede de save legado, para o caso de a linha do locale sumir.
+///
+/// O modo é reduzido por [`FAILURE_MODES`] aqui, e não no chamador: um `problem` de save antigo
+/// fora da faixa vira um modo válido em vez de uma chave que não existe em locale nenhum.
+pub fn problem_key(pt: PartType, mode: u8, sev: Severity) -> String {
+    format!(
+        "car_breakdown.problem.{}_{}_{}",
+        pt.as_str(),
+        mode % FAILURE_MODES,
+        sev.key()
+    )
+}
+
+/// Frase do problema concreto por `(peça, modo 0..`[`FAILURE_MODES`]`, severidade)`, resolvida no
+/// LOCALE ATIVO. 3 modos por peça; a severidade escolhe a intensidade (leve = perdeu rendimento,
+/// grave = parada, DNF = abandono). Voz de boletim. Usada pela narrativa da Peça 3.
+///
+/// Eram 99 `&'static str` em português dentro deste arquivo até 12/08/2026, e elas chegavam ao
+/// jogador — no card do rádio, no debrief, no `dnf_reason` do resultado. Quem jogava em inglês
+/// lia "motor fundiu por superaquecimento" no meio de uma tela em inglês. Hoje o texto mora em
+/// `locales/*.yml` sob [`problem_key`], e a guarda `toda_frase_de_problema_existe_nos_dois_locales`
+/// impede que uma linha falte.
+///
+/// Chave sem linha no locale devolve a PRÓPRIA chave, como no catálogo de incidentes: é feio de
+/// propósito, porque é o sintoma visível de um buraco que a guarda deveria ter pego antes.
+pub fn problem_text(pt: PartType, mode: u8, sev: Severity) -> String {
+    let chave = problem_key(pt, mode, sev);
+    rust_i18n::t!(&chave).to_string()
+}
+
+/// A frase de uma CHAVE de problema já persistida, resolvida no locale ATIVO.
+///
+/// É o caminho de volta de [`problem_key`], e existe para quem guardou a chave e não a trinca:
+/// `race_results.dnf_reason_key` (v68) guarda exatamente isto. `None` quando a chave é vazia ou
+/// quando não há linha para ela no locale — `rust_i18n::t!` devolve a PRÓPRIA chave nesse caso,
+/// e devolver `None` aqui é o que permite ao chamador cair na prosa que o save congelou em vez
+/// de mostrar `car_breakdown.problem.engine_1_dnf` ao jogador.
+///
+/// Mesmo contrato do `resolver_no_locale` do catálogo de incidentes, de propósito: as duas
+/// pontas do jogo que guardam chave de i18n degradam do mesmo jeito.
+pub fn problem_text_from_key(chave: &str) -> Option<String> {
+    if chave.is_empty() {
+        return None;
+    }
+    let texto = rust_i18n::t!(chave).to_string();
+    if texto == chave {
+        None
+    } else {
+        Some(texto)
     }
 }
 
@@ -328,8 +301,11 @@ fn roll(seed: u64, part_idx: usize, lap: u32, channel: u64) -> f64 {
 
 // ───────────────────────── Modelo de risco (quando quebra) ─────────────────────────
 
-/// Fragilidade relativa: peça de vida curta falha mais (∝ 1/durabilidade, normalizada à
-/// mais durável = 0.5). Motor/câmbio/asas/freios/suspensão (vida 3) = 1.0; eletrônica = 0.5.
+/// Fragilidade relativa: peça de vida curta falha mais (∝ 1/durabilidade, com piso 0.5 na
+/// mais durável). Pelas durabilidades reais de [`PartType::durability`]: motor, câmbio, freios,
+/// suspensão e a asa DIANTEIRA (vida 3) = 1.0; asa TRASEIRA e laterais (4) = 0.75; chassi,
+/// assoalho e arrefecimento (5) = 0.6; eletrônica (6) = 0.5. As duas asas foram diferenciadas
+/// no redesign 2026-07-22 §4.7, então elas não compartilham mais a mesma fragilidade.
 fn fragility(pt: PartType) -> f64 {
     (3.0 / pt.durability() as f64).clamp(0.5, 1.0)
 }
@@ -435,7 +411,8 @@ fn is_structural(pt: PartType) -> bool {
     matches!(pt, PartType::Engine | PartType::Gearbox)
 }
 
-/// Sorteia a severidade. Falha FORÇADA na parede (105%) sobe um degrau (a peça foi ao limite).
+/// Sorteia a severidade. Falha FORÇADA na parede ([`HARD_WALL`], hoje 120%) sobe um degrau (a
+/// peça foi ao limite).
 ///
 /// No **enduro** (`is_enduro`), o DNF fica RARO: a maior parte da fatia de DNF é rebaixada a
 /// Grave (só [`ENDURO_DNF_SCALE`] permanece DNF), e a parede não empurra peça não-estrutural
@@ -692,7 +669,7 @@ impl LiveBreakdown {
 
     /// Avança UMA volta com o clima daquela volta e o `progress` (0..1) da corrida, devolvendo os
     /// eventos de quebra que aconteceram (0 ou 1 no caso comum; para no 1º DNF). Cada peça acumula
-    /// desgaste (pista × clima × ruído × — só no enduro — rampa de fim); na janela [95%,105%] a
+    /// desgaste (pista × clima × ruído × — só no enduro — rampa de fim); na janela [90%,120%] a
     /// sorte decide, na parede é forçado. `progress` só importa no enduro (ver [`enduro_late_ramp`]).
     pub fn advance_lap_at(
         &mut self,
@@ -980,3 +957,7 @@ mod tests;
 #[cfg(test)]
 #[path = "breakdown/medicao.rs"]
 mod medicao;
+
+#[cfg(test)]
+#[path = "breakdown/pendencias.rs"]
+mod pendencias;

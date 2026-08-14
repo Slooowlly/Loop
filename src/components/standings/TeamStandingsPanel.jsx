@@ -69,7 +69,7 @@ function TeamStandingCard({
     isRelegationZone
       ? "border-status-red/35 bg-status-red/[0.12] shadow-[inset_3px_0_0_0_rgba(248,81,73,0.75)] hover:bg-status-red/[0.18]"
       : !isHistoryActive
-        ? `border-white/6 ${foco ? "" : "bg-white/[0.03] hover:bg-white/[0.05]"}`
+        ? `border-white/[0.06] ${foco ? "" : "bg-white/[0.03] hover:bg-white/[0.05]"}`
         : "",
   ].join(" ");
 
@@ -167,7 +167,7 @@ function TeamStandingsPanel({
             foco ? "" : "hover:bg-white/[0.05]",
             isHistoryActive
               ? "border-status-yellow/45 bg-status-yellow/10 shadow-[inset_4px_0_0_rgba(242,196,109,0.95)]"
-              : `border-white/6 ${foco ? "" : "bg-white/[0.03]"}`,
+              : `border-white/[0.06] ${foco ? "" : "bg-white/[0.03]"}`,
           ].join(" ")}
           style={foco}
         >

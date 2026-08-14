@@ -70,7 +70,7 @@ function Header({ activeTab, onTabChange }) {
                 <button
                   type="button"
                   onClick={() => setLeaveConfirm(true)}
-                  className="flex items-center gap-2 rounded-xl px-1.5 py-1 transition-colors hover:bg-white/8"
+                  className="flex items-center gap-2 rounded-xl px-1.5 py-1 transition-colors hover:bg-white/[0.08]"
                 >
                   <img
                     src="/utilities/Logo%20sem%20fundo.webp"

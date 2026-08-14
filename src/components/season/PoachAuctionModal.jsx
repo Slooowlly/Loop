@@ -158,7 +158,7 @@ export default function PoachAuctionModal({ offer, onDecide, onClose, isResolvin
               <div className="text-[15px] text-gray-200">
                 {t("poachAuction.intro.pullOut")}<span className="font-semibold text-white">{offer.current_team_name}</span>
               </div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/5 px-3 py-1 text-[11px] text-gray-300">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/[0.12] bg-white/5 px-3 py-1 text-[11px] text-gray-300">
                 {t("poachAuction.intro.buyoutLabel")}
                 <span className="font-bold tabular-nums text-white">{formatMoneyCompact(offer.buyout)}</span>
               </div>

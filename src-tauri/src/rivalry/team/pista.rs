@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use rusqlite::Connection;
 
 use crate::db::connection::DbError;
-use crate::models::rivalry::normalize_pair;
+use crate::models::rivalry::normalize_team_pair;
 use crate::models::team_rivalry::TeamRivalryType;
 
 use super::motor::{apply_team_rivalry_event, TeamRivalryEvent};
@@ -44,7 +44,7 @@ pub fn process_team_collisions_rivalry(
         if ta == tb {
             continue; // bater no próprio companheiro não é rivalidade de time
         }
-        let Some(pair) = normalize_pair(ta, tb) else {
+        let Some(pair) = normalize_team_pair(ta, tb) else {
             continue;
         };
         // Severidade máxima do par → delta (base capado por corrida).
@@ -54,7 +54,7 @@ pub fn process_team_collisions_rivalry(
             (2.0, 6.0)
         };
         let e = pairs
-            .entry((pair.piloto1_id, pair.piloto2_id))
+            .entry((pair.team1_id, pair.team2_id))
             .or_insert((0.0, 0.0));
         if h > e.0 {
             *e = (h, r);

@@ -18,14 +18,20 @@ import { formatAudience } from "./raceEventContext";
 const INJURY_SEVERITIES = new Set(["light", "moderate", "severe", "critical"]);
 
 // Cor/rótulo do nível de risco de quebra (card da Sala de Estratégia).
+//
+// O `"médio"` comparado nas três funções abaixo é o TOKEN que o Rust manda no payload, e não
+// texto de tela: quem vira copy é o retorno, que já sai por `i18n.t`. Traduzir o token
+// quebraria a comparação sem mudar uma letra do que o jogador lê — daí os `i18n-ignore`.
 export function riskColor(level) {
   if (level === "alto") return "#f87171";
+  // i18n-ignore
   if (level === "médio") return "#f0b37a";
   return "#34d399";
 }
 
 export function riskLabel(level) {
   if (level === "alto") return i18n.t("raceContext.display.risk.high");
+  // i18n-ignore
   if (level === "médio") return i18n.t("raceContext.display.risk.medium");
   return i18n.t("raceContext.display.risk.low");
 }
@@ -34,6 +40,7 @@ export function riskLabel(level) {
 // Separada de `riskLabel` (rótulo capitalizado do card de display).
 function riskLevelWord(level) {
   if (level === "alto") return i18n.t("raceContext.breakdownRisk.wordHigh");
+  // i18n-ignore
   if (level === "médio") return i18n.t("raceContext.breakdownRisk.wordMedium");
   return i18n.t("raceContext.breakdownRisk.wordLow");
 }

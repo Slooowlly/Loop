@@ -1,12 +1,12 @@
 //! Testes do engenheiro. Tudo aqui é puro: nenhum SDK, nenhuma sessão, nenhum Tauri.
 
-mod momento;
-mod memoria;
-mod vizinhanca;
 mod campeonato;
-mod marco;
-mod tratamento;
 mod fala;
+mod marco;
+mod memoria;
+mod momento;
+mod tratamento;
+mod vizinhanca;
 
 use crate::engenheiro::fatos::dossie;
 use crate::engenheiro::{classificar, Intencao};

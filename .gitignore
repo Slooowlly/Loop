@@ -58,9 +58,11 @@ src-tauri/__codex_tmp_*
 # a sua no disco, e ela para de aparecer no `git status` de todo mundo. Bancada que virar
 # ferramenta de verdade tem lugar próprio — `src/dev/`, roteado por `import.meta.env.DEV`.
 #
-# O `__curva_preview.html` não é escrito à mão: um teste de `DriverDetailModalV2.test.jsx`
-# o REGRAVA a cada `npm run test:ui`. Ignorá-lo é o único desfecho possível enquanto esse
-# teste existir — apagar o arquivo não adianta, ele volta na próxima suíte.
+# O `__curva_preview.html` era escrito por um `it("DUMP")` de
+# `DriverDetailModalV2.mercado.test.jsx` que REGRAVAVA a raiz a cada `npm run test:ui`. Esse
+# caso virou preview opt-in em 11/08/2026 (`LOOP_PREVIEW_CURVA=1`) e escreve no temp do
+# sistema, então nada mais cai aqui sozinho — a regra fica pelo resto das bancadas soltas, e
+# o `__curva_preview.html` que ainda estiver na raiz de alguém é resíduo, pode ser apagado.
 /__*.html
 /fita-mock.html
 /.tabela-equipes.txt

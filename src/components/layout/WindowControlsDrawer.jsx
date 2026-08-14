@@ -7,14 +7,14 @@ import useCareerStore from "../../stores/useCareerStore";
 import Tooltip from "../ui/Tooltip";
 
 const buttonClass =
-  "flex h-9 w-9 items-center justify-center rounded-xl text-text-secondary transition-glass hover:bg-white/8 hover:text-text-primary";
+  "flex h-9 w-9 items-center justify-center rounded-xl text-text-secondary transition-glass hover:bg-white/[0.08] hover:text-text-primary";
 
 function SaveConfirmModal({ onSave, onDiscard, onCancel, isSaving }) {
   const { t } = useTranslation();
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
-      <div className="glass-strong relative w-[340px] rounded-2xl border border-white/12 p-6 shadow-2xl">
+      <div className="glass-strong relative w-[340px] rounded-2xl border border-white/[0.12] p-6 shadow-2xl">
         <h3 className="mb-1 text-[15px] font-semibold text-text-primary">{t("closeApp.title")}</h3>
         <p className="mb-5 text-[13px] text-text-secondary">
           {t("closeApp.desc")}
@@ -32,7 +32,7 @@ function SaveConfirmModal({ onSave, onDiscard, onCancel, isSaving }) {
             type="button"
             disabled={isSaving}
             onClick={onDiscard}
-            className="flex h-9 w-full items-center justify-center rounded-xl border border-white/10 bg-white/6 text-[13px] text-text-secondary transition-colors hover:bg-white/10 hover:text-text-primary disabled:opacity-50"
+            className="flex h-9 w-full items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-[13px] text-text-secondary transition-colors hover:bg-white/10 hover:text-text-primary disabled:opacity-50"
           >
             {t("leaveModal.exitNoSave")}
           </button>
@@ -176,7 +176,7 @@ function WindowControlsDrawer() {
       <div
         className={[
           "pointer-events-none fixed inset-0 z-40 bg-black/0 backdrop-blur-[0px] transition-all duration-300 ease-out",
-          isOpen ? "bg-black/18 backdrop-blur-[5px]" : "",
+          isOpen ? "bg-black/[0.18] backdrop-blur-[5px]" : "",
         ].join(" ")}
       />
 
@@ -190,7 +190,7 @@ function WindowControlsDrawer() {
               ].join(" ")}
               style={{ pointerEvents: isOpen ? "auto" : "none" }}
             >
-              <div className="glass-strong flex items-center gap-0.5 rounded-2xl border border-white/12 px-1.5 py-1.5">
+              <div className="glass-strong flex items-center gap-0.5 rounded-2xl border border-white/[0.12] px-1.5 py-1.5">
                 <Tooltip texto={t("windowControls.dragHint")}>
                   <div
                     role="button"
@@ -218,7 +218,7 @@ function WindowControlsDrawer() {
               </div>
 
               <div className="pointer-events-none mt-0 w-full text-center">
-                <p className="text-[13px] font-semibold tracking-[0.12em] text-text-primary/86">
+                <p className="text-[13px] font-semibold tracking-[0.12em] text-text-primary/[0.86]">
                   Loop
                 </p>
                 <p className="mt-0 text-[8px] font-medium tracking-[0.12em] text-text-secondary/75">

@@ -71,11 +71,70 @@ pub const JANELA_DE_ATAQUE_MS: f64 = 800.0;
 
 /// Chance de uma tentativa dar certo quando os dois carros têm exatamente o mesmo ritmo e
 /// habilidades iguais, em pista de dificuldade neutra.
-pub const PROB_BASE_ULTRAPASSAGEM: f64 = 0.35;
+///
+/// **Calibrada em 12/08/2026 (B9): 0,35 → 0,65.** Ver [`DELTA_DE_RITMO_QUE_SATURA`] para a
+/// medição inteira — os dois foram fechados juntos, contra o mesmo alvo.
+pub const PROB_BASE_ULTRAPASSAGEM: f64 = 0.65;
 
 /// Delta de ritmo (pontos) que satura a chance de passar — acima disto o atacante é tão mais
 /// rápido que a diferença de habilidade quase não segura mais.
-pub const DELTA_DE_RITMO_QUE_SATURA: f64 = 6.0;
+///
+/// # B9: a corrida estava presa demais ao grid
+///
+/// Medido com o dado de segmento ligado (`calibracao::atrito::posicoes_por_segmento`, que
+/// devolvia `None` até 12/08/2026), 24 temporadas por ponto:
+///
+/// | | ρ(grid × chegada) | pole → vitória | sucesso das tentativas |
+/// |---|---|---|---|
+/// | rookie, antes (0,35 / 6,0) | 0,920 | 80,9% | 13,2% |
+/// | rookie, depois (0,65 / 3,0) | **0,898** | **70,5%** | **27,5%** |
+/// | gt3, antes | 0,956 | 85,1% | 11,2% |
+/// | gt3, depois | **0,942** | **77,1%** | **25,4%** |
+///
+/// A corrida fechava no primeiro segmento: ρ(Start × chegada) já era 0,950 na rookie e 0,969
+/// na gt3. Com 34 tentativas de ultrapassagem por corrida e 13% de sucesso, a tentativa
+/// existia e não convertia — o pelotão tentava a corrida inteira e chegava na ordem em que
+/// largou.
+///
+/// **O que NÃO foi mexido, e por quê.** A varredura de aproximação (janela de ataque de 800 a
+/// 4.000 ms, ar sujo de 3,0 a 0,5) move o número de TENTATIVAS de 27 para 34 por corrida e
+/// deixa ρ(grid × chegada) parado em 0,94 na gt3. Aproximar mais carros não ajuda quando quem
+/// se aproxima não é mais rápido; o que faltava era a manobra CONVERTER. Por isso a correção
+/// é nos dois números da conversão e em nenhum outro — nada de safety car, nada de incidente,
+/// nada de variância de qualificação.
+///
+/// # A TROCA, e por que o valor parou aqui
+///
+/// O mesmo mecanismo que solta a corrida do grid aperta o CAMPEONATO: com a manobra
+/// convertendo, o carro rápido chega à frente com mais regularidade, e
+/// `spearman_etapas_consecutivas` sobe junto. A varredura não tem um ponto que ganhe de um
+/// lado sem pagar do outro — os dois são a mesma consequência.
+///
+/// | ponto | ρ(grid) rookie / gt3 | ρ(etapas) rookie / gt3 |
+/// |---|---|---|
+/// | 0,35 / 6,0 (antes) | 0,920 / 0,956 | 0,522 / 0,641 |
+/// | **0,65 / 3,0 (hoje)** | **0,898 / 0,942** | **0,578 / 0,682** |
+/// | 0,90 / 2,0 | 0,885 / 0,932 | 0,600 / 0,709 |
+/// | 0,95 / 1,0 (platô) | 0,882 / 0,930 | 0,609 / 0,717 |
+///
+/// 0,65 / 3,0 é o **meio-termo escolhido em 12/08/2026**: melhora real nas duas categorias e
+/// mantém ρ(etapas) da gt3 dentro do alvo de `calibracao::alvos::Alvos::topo()` (0,35–0,70) e
+/// abaixo do teto anti-regressão dela. A rookie passa do teto antigo (0,578 contra 0,56), e
+/// esse teto foi remedido em vez de a correção ser desfeita — está anotado no guard.
+///
+/// **O que subiu junto, e é bom que tenha subido:** o poder explicativo do ritmo
+/// (ρ(skill × chegada) de 0,645 para 0,689 na rookie e de 0,726 para 0,765 na gt3) e a
+/// recuperação máxima (4,93 → 5,40 e 3,69 → 4,20), que [`ARMADILHA_DA_RECUPERACAO`] diz que
+/// não pode cair. A temporada não ficou aleatória — ela ficou um pouco MAIS previsível, que é
+/// a ponta cara desta troca.
+///
+/// **O piso que sobrou, e o que o segura.** Na gt3 o ρ não desce de ~0,93 com nenhum destes
+/// botões, nem no extremo da varredura. O motivo está na sonda de grade sorteada: com a grade
+/// EMBARALHADA, ρ(grid) cai para 0,66 — a corrida embaralha. O que mantém ρ alto na grade real
+/// é que a grade real JÁ está na ordem do ritmo, e na gt3 o carro responde por metade da
+/// variância permanente. Baixar mais exigiria mexer na variância da CLASSIFICAÇÃO, que é outro
+/// pacote e que tornaria a temporada mais aleatória — o oposto do critério.
+pub const DELTA_DE_RITMO_QUE_SATURA: f64 = 3.0;
 
 /// Quanto a diferença `racecraft − defesa` move a chance, no máximo (fração).
 pub const PESO_DA_HABILIDADE_NA_ULTRAPASSAGEM: f64 = 0.60;

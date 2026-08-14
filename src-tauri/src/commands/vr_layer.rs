@@ -176,8 +176,22 @@ mod imp {
 
         // Limpa entradas de instalações passadas ANTES de gravar a nova, pra a chave nunca
         // ter dois manifestos nossos (o loader carregaria a layer duas vezes).
+        //
+        // Falhar aqui não aborta a instalação: sem o valor NOVO o overlay não existe, e com
+        // o órfão ele existe duas vezes — desenhar dois quads sobrepostos é ruim, não ter
+        // overlay nenhum é pior. Mas o retorno não pode ser descartado: um órfão que resiste
+        // é exatamente o estado que produz o sintoma "o painel está borrado/duplicado", e
+        // sem esta linha no log ninguém liga uma coisa à outra.
         for velho in orfaos(&chave, &atual) {
-            unsafe { RegDeleteValueW(chave.0, velho.as_ptr()) };
+            let rc = unsafe { RegDeleteValueW(chave.0, velho.as_ptr()) };
+            if rc != 0 {
+                // `velho` é UTF-16 terminado em zero; tira o terminador antes de imprimir.
+                let nome = String::from_utf16_lossy(&velho[..velho.len().saturating_sub(1)]);
+                eprintln!(
+                    "[vr-layer] AVISO: RegDeleteValueW falhou ({rc}) no valor órfão {nome} — \
+                     a layer pode carregar duas vezes"
+                );
+            }
         }
 
         let nome = wide(&atual);

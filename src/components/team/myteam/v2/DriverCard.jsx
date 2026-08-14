@@ -89,7 +89,7 @@ function DriverCard({ driver, averages, hasGrid, poolSize, payroll = 0, teammate
       </div>
 
       {!driver.hasDetail ? (
-        <p className="mt-5 rounded-2xl border border-white/8 bg-black/10 px-4 py-5 text-center text-xs leading-5 text-text-secondary">
+        <p className="mt-5 rounded-2xl border border-white/[0.08] bg-black/10 px-4 py-5 text-center text-xs leading-5 text-text-secondary">
           {t("myTeamTabV2.lineup.noDetail")}
         </p>
       ) : (
@@ -117,7 +117,7 @@ function DriverCard({ driver, averages, hasGrid, poolSize, payroll = 0, teammate
             />
           </div>
 
-          <div className="mt-5 grid grid-cols-3 gap-2 border-t border-white/8 pt-4">
+          <div className="mt-5 grid grid-cols-3 gap-2 border-t border-white/[0.08] pt-4">
             <Stat label={t("myTeamTabV2.lineup.points")} value={driver.pontos} Icon={Star} tone="text-accent-primary" />
             <Stat label={t("myTeamTabV2.lineup.wins")} value={driver.vitorias} Icon={Trophy} tone="text-podium-gold" />
             <Stat label={t("myTeamTabV2.lineup.podiums")} value={driver.podios} Icon={Medal} tone="text-podium-silver" />
@@ -125,7 +125,7 @@ function DriverCard({ driver, averages, hasGrid, poolSize, payroll = 0, teammate
 
           {/* A leitura de gestão: quanto custa cada ponto que ele traz. Sem pontos
               ainda, a conta não existe — e mostrar um número aqui seria inventar. */}
-          <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/8 pt-3">
+          <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/[0.08] pt-3">
             <span className="flex items-center gap-3.5 text-sm text-text-secondary">
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] text-text-secondary">
                 <Banknote size={24} strokeWidth={1.6} aria-hidden="true" />
@@ -153,7 +153,7 @@ function Badge({ children, tone, Icon }) {
 
 function Stat({ label, value, Icon, tone = "text-text-muted" }) {
   return (
-    <div className="rounded-2xl border border-white/8 bg-black/10 p-3 text-center">
+    <div className="rounded-2xl border border-white/[0.08] bg-black/10 p-3 text-center">
       {Icon ? <Icon size={20} strokeWidth={1.6} aria-hidden="true" className={`mx-auto ${tone}`} /> : null}
       <p className="mt-2 font-mono text-lg font-semibold text-text-primary">{value}</p>
       <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-text-muted">

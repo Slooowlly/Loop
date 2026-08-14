@@ -1,4 +1,9 @@
-//! Enums da temporada: status, fase (modelo 9D + legado) e dificuldade da carreira.
+//! Enums da temporada: status e fase (modelo 9D + legado).
+//!
+//! Dificuldade NÃO mora aqui. Havia um `enum Difficulty` neste arquivo que nunca teve
+//! consumidor: o crate inteiro trafega dificuldade como texto, normalizado em
+//! [`crate::models::driver_generation`], que é quem aceita as grafias com e sem acento e
+//! o alias `Elite`. O enum saiu em 12/08/2026.
 
 use serde::{Deserialize, Serialize};
 
@@ -13,14 +18,6 @@ impl SeasonStatus {
         match self {
             SeasonStatus::EmAndamento => "EmAndamento",
             SeasonStatus::Finalizada => "Finalizada",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Finalizada" => SeasonStatus::Finalizada,
-            "Ativa" | "EmAndamento" => SeasonStatus::EmAndamento,
-            _ => SeasonStatus::EmAndamento,
         }
     }
 
@@ -117,36 +114,6 @@ impl SeasonPhase {
 impl std::fmt::Display for SeasonPhase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-// ── Dificuldade ───────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Difficulty {
-    Facil,
-    Medio,
-    Dificil,
-    Lendario,
-}
-
-impl Difficulty {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Difficulty::Facil => "Facil",
-            Difficulty::Medio => "Medio",
-            Difficulty::Dificil => "Dificil",
-            Difficulty::Lendario => "Lendario",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Facil" => Difficulty::Facil,
-            "Dificil" => Difficulty::Dificil,
-            "Lendario" => Difficulty::Lendario,
-            _ => Difficulty::Medio,
-        }
     }
 }
 

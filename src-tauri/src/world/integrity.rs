@@ -4,7 +4,7 @@ use crate::constants::categories::{
     get_all_categories, is_valid_competitive_division, uses_regular_contracts,
 };
 use crate::constants::historical_timeline::is_category_active_in_year;
-use crate::models::license::driver_has_required_license_for_division;
+use crate::licensing::driver_has_required_license_for_division;
 
 pub const MIN_HISTORICAL_RESULT_SEASONS: i64 = 1;
 pub const MIN_HISTORICAL_RESULTS_PER_EXISTING_CATEGORY: i64 = 1;

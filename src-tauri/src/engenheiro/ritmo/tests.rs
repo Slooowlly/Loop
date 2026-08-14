@@ -143,7 +143,10 @@ fn melhor_volta_parada_nao_e_noticia() {
     o.observar(passagem(1, 99.0, 94.0, 7, false));
     for volta in 2..=12 {
         assert!(
-            !matches!(o.observar(passagem(volta, 99.0, 94.0, 7, false)), Some(Fala::DeOutro { .. })),
+            !matches!(
+                o.observar(passagem(volta, 99.0, 94.0, 7, false)),
+                Some(Fala::DeOutro { .. })
+            ),
             "volta {volta} anunciou uma melhor que não mudou",
         );
     }
@@ -153,7 +156,7 @@ fn melhor_volta_parada_nao_e_noticia() {
 fn a_aproximacao_sai_quando_estamos_a_menos_de_um_segundo() {
     let mut o = Observador::novo();
     o.observar(passagem(1, 95.0, 94.0, 7, false)); // ancora
-    // 94,5 contra 94,0 = 5 décimos.
+                                                   // 94,5 contra 94,0 = 5 décimos.
     assert_eq!(
         o.observar(passagem(2, 94.5, 94.0, 7, false)),
         Some(Fala::Aproximando("tv_faltam_5".into())),
@@ -188,10 +191,16 @@ fn nao_comenta_aproximacao_da_propria_melhor_volta() {
 fn a_aproximacao_tambem_respeita_o_intervalo() {
     let mut o = Observador::novo();
     o.observar(passagem(1, 99.0, 94.0, 7, false));
-    assert!(matches!(o.observar(passagem(2, 94.3, 94.0, 7, false)), Some(Fala::Aproximando(_))));
+    assert!(matches!(
+        o.observar(passagem(2, 94.3, 94.0, 7, false)),
+        Some(Fala::Aproximando(_))
+    ));
     assert_eq!(o.observar(passagem(3, 94.2, 94.0, 7, false)), None);
     assert_eq!(o.observar(passagem(4, 94.2, 94.0, 7, false)), None);
-    assert!(matches!(o.observar(passagem(5, 94.2, 94.0, 7, false)), Some(Fala::Aproximando(_))));
+    assert!(matches!(
+        o.observar(passagem(5, 94.2, 94.0, 7, false)),
+        Some(Fala::Aproximando(_))
+    ));
 }
 
 #[test]
@@ -231,7 +240,11 @@ fn o_anuncio_de_outro_carrega_o_dono_para_quem_souber_o_nome() {
     let mut o = Observador::novo();
     o.observar(passagem(1, 95.0, 94.0, 7, false));
     match o.observar(passagem(2, 95.0, 93.0, 42, false)) {
-        Some(Fala::DeOutro { dono_idx, lead, tempo }) => {
+        Some(Fala::DeOutro {
+            dono_idx,
+            lead,
+            tempo,
+        }) => {
             assert_eq!(dono_idx, 42);
             assert_eq!(lead, "tv_melhor_e_do");
             assert_eq!(tempo, "t_930");

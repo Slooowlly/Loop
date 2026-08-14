@@ -616,7 +616,13 @@ async function tocarSequencia(chaves, pausasMs, minhaVez, meta = null) {
       for (;;) {
         await esperarSpotter();
         if (sequencia !== minhaVez) return false;
-        if (i === 0 && cessoes === 0) {
+        // A abertura sai na PRIMEIRA peça que de fato começa a tocar, e não no índice 0.
+        // Enquanto a condição era `i === 0`, uma sequência cuja primeira peça não existisse
+        // no disco (o `continue` acima) passava a tocar da segunda em diante sem abertura —
+        // e, sem `comecouEm`, também sem a linha de fim. Uma fala que o jogador ouviu
+        // inteira não deixava rastro nenhum no registro, que é o mesmo arquivo em branco de
+        // uma fala que nunca saiu.
+        if (!comecou) {
           comecou = true;
           comecouEm = performance.now();
           registrarRadio(canal, {

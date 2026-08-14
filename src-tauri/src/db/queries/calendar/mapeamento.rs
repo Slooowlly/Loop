@@ -71,11 +71,11 @@ pub(crate) fn calendar_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Cal
                 .flatten()
                 .or_else(|| optional_string(row, "pista").ok().flatten())
                 .unwrap_or_default();
-            format!(
-                "Rodada {} - {}",
-                row.get::<_, i32>("rodada").unwrap_or(0),
-                pista
-            )
+            // Mesma chave i18n da montagem, e não um `format!("Rodada {}")` cru: a
+            // linha legada sem `nome` é justamente a que ninguém traduziu, e montar
+            // o rótulo aqui em português colocava "Rodada 3" na tela em en-US toda
+            // vez que o save era antigo.
+            crate::calendar::nome_da_etapa(row.get::<_, i32>("rodada").unwrap_or(0), &pista)
         }),
         track_id: parse_non_negative_u32(row, "track_id", 0)?,
         track_name: optional_string(row, "track_name")?

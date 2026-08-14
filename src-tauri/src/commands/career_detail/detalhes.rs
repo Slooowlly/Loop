@@ -466,8 +466,8 @@ fn grid_por_divisao(
         .map(|fatia| DriverCareerDetailEntry {
             contagem: Some(fatia.largadas),
             resumo: Some(format!(
-                "P{:.1}",
-                fatia.soma_grid as f64 / fatia.largadas as f64
+                "P{}",
+                formatar_decimal(fatia.soma_grid as f64 / fatia.largadas as f64, 1)
             )),
             ..linha_de_fatia(fatia, equipes)
         })
@@ -486,10 +486,10 @@ fn abandono_por_divisao(
         .map(|fatia| DriverCareerDetailEntry {
             contagem: Some(fatia.corridas),
             resumo: Some(format!(
-                "{}/{} · {:.1}%",
+                "{}/{} · {}%",
                 fatia.abandonos,
                 fatia.corridas,
-                fatia.abandonos as f64 * 100.0 / fatia.corridas as f64
+                formatar_decimal(fatia.abandonos as f64 * 100.0 / fatia.corridas as f64, 1)
             )),
             ..linha_de_fatia(fatia, equipes)
         })
@@ -942,7 +942,10 @@ fn load_driver_identity(
     driver_id: &str,
 ) -> Result<Option<IdentidadeAtual>, String> {
     conn.query_row(
-        "SELECT d.nome, d.idade, d.nacionalidade, t.nome, t.cor_primaria, t.id
+        // `d.genero` entra na consulta so por causa do rotulo de nacionalidade: o
+        // gentilico flexiona em PT, e o valor gravado nao e fonte confiavel de
+        // genero (em ingles as duas formas sao a mesma palavra).
+        "SELECT d.nome, d.idade, d.nacionalidade, t.nome, t.cor_primaria, t.id, d.genero
          FROM drivers d
          LEFT JOIN teams t ON t.id = (
             SELECT id FROM teams WHERE piloto_1_id = d.id OR piloto_2_id = d.id LIMIT 1
@@ -950,10 +953,12 @@ fn load_driver_identity(
          WHERE d.id = ?1",
         rusqlite::params![driver_id],
         |row| {
+            let nacionalidade: String = row.get(2)?;
+            let genero: String = row.get(6)?;
             Ok(IdentidadeAtual {
                 nome: row.get(0)?,
                 idade: row.get(1)?,
-                nacionalidade: row.get(2)?,
+                nacionalidade: nationality_display_label(&nacionalidade, &genero),
                 equipe: row.get(3)?,
                 equipe_cor: row.get(4)?,
                 equipe_id: row.get(5)?,

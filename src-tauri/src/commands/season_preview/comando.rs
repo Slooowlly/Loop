@@ -201,10 +201,16 @@ fn gerar_preview(
                     if let Err(e) =
                         ai_story::store_race_facts(&db.conn, &cache_key, &data.facts, &teams_json)
                     {
-                        eprintln!("[season-preview] Falha ao guardar fatos: {e:?}");
+                        crate::diagnostico::linha(
+                            "narrative",
+                            &format!("prévia de temporada: falha ao guardar fatos: {e:?}"),
+                        );
                     }
                     if let Err(e) = ai_story::set_story(&db.conn, &cache_key, &json) {
-                        eprintln!("[season-preview] Falha ao cachear matéria: {e:?}");
+                        crate::diagnostico::linha(
+                            "narrative",
+                            &format!("prévia de temporada: falha ao cachear a matéria: {e:?}"),
+                        );
                     }
                 }
                 Ok(SeasonPreviewResult {
@@ -223,10 +229,15 @@ fn gerar_preview(
                 if let Err(e) =
                     ai_story::store_race_facts(&db.conn, &cache_key, &data.facts, &teams_json)
                 {
-                    eprintln!("[season-preview] Falha ao marcar tentativa: {e:?}");
+                    crate::diagnostico::linha(
+                        "narrative",
+                        &format!("prévia de temporada: falha ao marcar tentativa: {e:?}"),
+                    );
                 }
+                // O `RateLimited` é filtrado aqui e não dentro de `registrar_falha` porque
+                // é o único callsite que NÃO trata o 429 num braço próprio do `match`.
                 if !matches!(err, StoryError::RateLimited) {
-                    eprintln!("[season-preview] Prévia de temporada falhou: {err:?}");
+                    client::registrar_falha("prévia de temporada", &err);
                 }
                 let fb = deterministic_article(&data);
                 Ok(SeasonPreviewResult {

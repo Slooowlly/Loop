@@ -54,11 +54,20 @@ pub struct Fala {
 /// poupar. O gerador tem isenção para texto de mais de uma frase.
 pub fn despedida(variante: usize) -> (&'static str, &'static str) {
     [
-        ("cl_despedida_0", "Vamos lá. Sei que você consegue um bom tempo pra nós."),
-        ("cl_despedida_1", "A equipe espera muito de você. Essa é a sua hora."),
+        (
+            "cl_despedida_0",
+            "Vamos lá. Sei que você consegue um bom tempo pra nós.",
+        ),
+        (
+            "cl_despedida_1",
+            "A equipe espera muito de você. Essa é a sua hora.",
+        ),
         ("cl_despedida_2", "É agora. Capricha nessa."),
         ("cl_despedida_3", "Confio em você. Traz um tempo bom."),
-        ("cl_despedida_4", "A equipe inteira está olhando. Manda ver."),
+        (
+            "cl_despedida_4",
+            "A equipe inteira está olhando. Manda ver.",
+        ),
         ("cl_despedida_5", "Essa é a volta. Faz valer."),
     ][variante % 6]
 }
@@ -94,7 +103,10 @@ pub fn restam(tentativas: u32) -> (&'static str, &'static str) {
 pub fn acabou(variante: usize) -> (&'static str, &'static str) {
     [
         ("cl_acabou_0", "Era essa. Volta pro box."),
-        ("cl_acabou_1", "Acabou o nosso tempo aqui. Traz ele de volta."),
+        (
+            "cl_acabou_1",
+            "Acabou o nosso tempo aqui. Traz ele de volta.",
+        ),
         ("cl_acabou_2", "Não dá pra outra. Pode encerrar."),
     ][variante % 3]
 }

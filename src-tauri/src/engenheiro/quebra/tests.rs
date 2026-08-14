@@ -81,7 +81,11 @@ fn nunca_sai_abertura_e_aposto_na_mesma_fala() {
         let f = montar(&c);
         let tem_ab = f.pecas.iter().any(|p| aberturas.contains(p.as_str()));
         let tem_ap = f.pecas.iter().any(|p| apostos.contains(p.as_str()));
-        assert!(!(tem_ab && tem_ap), "abertura e aposto juntos em {:?}", f.pecas);
+        assert!(
+            !(tem_ab && tem_ap),
+            "abertura e aposto juntos em {:?}",
+            f.pecas
+        );
     }
 }
 
@@ -101,7 +105,10 @@ fn sem_vinculo_a_fala_e_pela_equipe_e_o_nome_nao_entra() {
     c.severidade = "dnf".into();
     let f = montar(&c);
     assert_eq!(f.pecas, vec!["ab_piloto2", "eq_kitsune", "qb_dnf_engine_0"]);
-    assert_eq!(f.texto, "O piloto dois da Kitsune abandona a corrida com problemas no motor.");
+    assert_eq!(
+        f.texto,
+        "O piloto dois da Kitsune abandona a corrida com problemas no motor."
+    );
 }
 
 #[test]
@@ -150,7 +157,11 @@ fn a_coda_nao_sai_por_quem_estava_atras() {
     c.delta_pontos = Some(-5);
     let f = montar(&c);
     assert_eq!(Vinculo::escolher(&c), Vinculo::PontosAtras);
-    assert!(!f.pecas.iter().any(|p| p.starts_with("co_")), "{:?}", f.pecas);
+    assert!(
+        !f.pecas.iter().any(|p| p.starts_with("co_")),
+        "{:?}",
+        f.pecas
+    );
 
     c.delta_pontos = Some(5);
     assert!(montar(&c).pecas.iter().any(|p| p.starts_with("co_")));
@@ -162,7 +173,10 @@ fn o_companheiro_quebrando_nao_e_boa_noticia() {
     c.e_companheiro = true;
     c.severidade = "dnf".into();
     let f = montar(&c);
-    assert_eq!(f.pecas, vec!["ab_companheiro", "nm_cooper", "qb_dnf_engine_0"]);
+    assert_eq!(
+        f.pecas,
+        vec!["ab_companheiro", "nm_cooper", "qb_dnf_engine_0"]
+    );
 }
 
 // ─── Degradação ──────────────────────────────────────────────────────────────
@@ -172,7 +186,10 @@ fn sobrenome_sem_gravacao_cai_para_a_equipe() {
     let mut c = base();
     c.nome_completo = "Carlos Magnossilva".into();
     let f = montar(&c);
-    assert_eq!(f.pecas, vec!["ab_piloto2", "eq_kitsune", "qb_heavy_engine_0"]);
+    assert_eq!(
+        f.pecas,
+        vec!["ab_piloto2", "eq_kitsune", "qb_heavy_engine_0"]
+    );
     assert!(f.texto.starts_with("O piloto dois da Kitsune"));
 }
 
@@ -220,7 +237,11 @@ fn peca_desconhecida_usa_a_chave_generica_junto_com_a_redacao_generica() {
     c.peca = "turbo".into();
     c.e_rival = true;
     let f = montar(&c);
-    assert!(f.pecas.contains(&"qb_heavy_outra_0".to_string()), "{:?}", f.pecas);
+    assert!(
+        f.pecas.contains(&"qb_heavy_outra_0".to_string()),
+        "{:?}",
+        f.pecas
+    );
     assert!(f.texto.contains("problema grave no carro"));
 }
 
@@ -230,7 +251,11 @@ fn severidade_desconhecida_cai_em_leve() {
     c.severidade = "warn".into();
     c.e_rival = true;
     let f = montar(&c);
-    assert!(f.pecas.contains(&"qb_light_engine_0".to_string()), "{:?}", f.pecas);
+    assert!(
+        f.pecas.contains(&"qb_light_engine_0".to_string()),
+        "{:?}",
+        f.pecas
+    );
 }
 
 // ─── Duas quebras de uma vez ─────────────────────────────────────────────────
@@ -248,8 +273,14 @@ fn duas_quebras_simultaneas_viram_uma_fala_com_os_dois_nomes() {
     let mut b = outro("Marco Bianchi");
     b.severidade = "dnf".into();
     let f = montar_duplo(&a, &b).expect("devia juntar");
-    assert_eq!(f.pecas, vec!["nm_cooper", "conj_e", "nm_bianchi", "qb_dupla_dnf_0"]);
-    assert_eq!(f.texto, "Cooper e Bianchi abandonaram a corrida com problemas no carro.");
+    assert_eq!(
+        f.pecas,
+        vec!["nm_cooper", "conj_e", "nm_bianchi", "qb_dupla_dnf_0"]
+    );
+    assert_eq!(
+        f.texto,
+        "Cooper e Bianchi abandonaram a corrida com problemas no carro."
+    );
 }
 
 #[test]
@@ -261,7 +292,11 @@ fn a_peca_some_na_fusao_e_isso_e_de_proposito() {
     let mut b = outro("Marco Bianchi");
     b.peca = "gearbox".into();
     let f = montar_duplo(&a, &b).expect("devia juntar");
-    assert!(!f.texto.contains("motor") && !f.texto.contains("câmbio"), "{}", f.texto);
+    assert!(
+        !f.texto.contains("motor") && !f.texto.contains("câmbio"),
+        "{}",
+        f.texto
+    );
     assert!(f.texto.contains("no carro"));
 }
 
@@ -284,7 +319,10 @@ fn quem_tem_vinculo_nao_entra_em_fala_coletiva() {
         a.e_rival = rival_a;
         let mut b = outro("Marco Bianchi");
         b.e_rival = rival_b;
-        assert!(montar_duplo(&a, &b).is_none(), "juntou com rival ({rival_a}, {rival_b})");
+        assert!(
+            montar_duplo(&a, &b).is_none(),
+            "juntou com rival ({rival_a}, {rival_b})"
+        );
     }
     // E o líder do campeonato também não.
     let mut a = base();
@@ -338,7 +376,10 @@ fn todo_trecho_plural_existe_no_catalogo() {
 fn o_trecho_plural_nao_tem_pausa_interna() {
     for sev in ["light", "heavy", "dnf"] {
         for t in dupla_frases(sev) {
-            assert!(!t.contains(',') && !t.contains('—') && !t.contains(';'), "{sev}: {t:?}");
+            assert!(
+                !t.contains(',') && !t.contains('—') && !t.contains(';'),
+                "{sev}: {t:?}"
+            );
         }
     }
 }
@@ -414,10 +455,14 @@ fn todo_texto_do_catalogo_termina_em_pontuacao() {
 
 #[test]
 fn a_abertura_de_assento_emenda_no_nome_da_equipe_sem_pontuacao() {
-    let catalogo: std::collections::HashMap<String, String> = familia_quebra().into_iter().collect();
+    let catalogo: std::collections::HashMap<String, String> =
+        familia_quebra().into_iter().collect();
     for chave in ["ab_piloto1", "ab_piloto2"] {
         let t = &catalogo[chave];
-        assert!(t.ends_with(" da"), "{chave}: \"{t}\" devia terminar no artigo");
+        assert!(
+            t.ends_with(" da"),
+            "{chave}: \"{t}\" devia terminar no artigo"
+        );
     }
 }
 
@@ -479,7 +524,9 @@ fn a_dupla_tambem_comenta_o_atrito_quando_o_limiar_cruza_nela() {
         f.pecas
     );
     assert!(
-        f.texto.contains("devorando") || f.texto.contains("abandonos") || f.texto.contains("caindo"),
+        f.texto.contains("devorando")
+            || f.texto.contains("abandonos")
+            || f.texto.contains("caindo"),
         "o texto do card não recebeu a coda: {}",
         f.texto
     );

@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn equipe_sem_excedente_nao_investe() {
         let p = ParametrosDeDesenvolvimento::default();
-        // Caixa abaixo da reserva de 12 meses.
+        // Caixa abaixo da reserva de 9 meses (`meses_de_reserva` do Default).
         let plano = planejar_desenvolvimento(&equipe(400_000.0), &p);
         assert_eq!(plano.investimento, 0.0);
         assert_eq!(plano.pontos_comprados, 0.0);

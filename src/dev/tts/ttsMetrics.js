@@ -1,3 +1,4 @@
+// i18n-ignore-file — relatório da bancada da POC de TTS, lido só no painel de laboratório.
 // Etapa 7 — estatística da bateria, e Etapa 8 — o veredito.
 //
 // A média sozinha mente aqui: uma chamada de 4 segundos no meio de vinte de 700 ms

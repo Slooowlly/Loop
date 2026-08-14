@@ -152,7 +152,7 @@ pub async fn enrich_world_footer_ai(
                 status: "rate_limited".to_string(),
             }),
             Err(err) => {
-                eprintln!("[narrative] Rodapé do mundo falhou: {err:?}");
+                crate::narrative::client::registrar_falha("rodapé do mundo", &err);
                 Ok(WorldFooterAiResult {
                     notes: None,
                     source: "template".to_string(),

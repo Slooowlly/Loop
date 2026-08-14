@@ -73,7 +73,7 @@ function HistoriaSection({ detail }) {
             tem um buraco na linha do tempo, e esconder isso apagaria metade da
             história de um piloto que caiu e voltou. */}
         {(presenca.anos_desempregado ?? 0) > 0 ? (
-          <p className="mt-3.5 border-t border-white/8 pt-3 text-sm text-text-secondary">
+          <p className="mt-3.5 border-t border-white/[0.08] pt-3 text-sm text-text-secondary">
             {t("carreiraTab.historia.idleYears")}
             {": "}
             {formatUnemploymentYears(presenca)}
@@ -91,7 +91,7 @@ function HistoriaSection({ detail }) {
               return (
                 <li
                   key={`${etapa.categoria}-${etapa.ano_inicio}-${indice}`}
-                  className="flex items-center gap-3 rounded-lg border border-white/6 bg-black/10 px-3 py-2"
+                  className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-black/10 px-3 py-2"
                 >
                   <span
                     aria-hidden="true"
@@ -171,7 +171,7 @@ function HistoriaSection({ detail }) {
                   <tr
                     key={`${ponto.season_number}-${ponto.ano}`}
                     data-atual={ponto.atual ? "true" : undefined}
-                    className="border-t border-white/6"
+                    className="border-t border-white/[0.06]"
                   >
                     <td className="py-2 pr-3">
                       <span

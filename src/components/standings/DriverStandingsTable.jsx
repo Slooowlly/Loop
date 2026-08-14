@@ -246,7 +246,7 @@ function DriverStandingsTable({
                     className={[
                       "cursor-pointer border-b border-white/5 transition-glass",
                       !isInSelectedTeam && driver.is_jogador
-                        ? "bg-accent-primary/8 hover:bg-accent-primary/15"
+                        ? "bg-accent-primary/[0.08] hover:bg-accent-primary/15"
                         : !isInSelectedTeam
                           ? "hover:bg-white/5 focus-visible:bg-white/5"
                           : "",

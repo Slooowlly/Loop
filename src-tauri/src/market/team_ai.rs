@@ -195,7 +195,12 @@ pub(crate) fn calculate_offer_salary(
     (calculate_offer_salary_from_money(&team, driver.atributos.skill) * variance).max(5_000.0)
 }
 
-fn vacancy_as_finance_team(vacancy: &Vacancy) -> crate::models::team::Team {
+/// A vaga vista como equipe para as contas de finanças. FONTE ÚNICA da situação
+/// financeira de um assento no mercado: a proposta formal da IA
+/// (`calculate_offer_salary`) e o teto das ofertas ao jogador
+/// (`pipeline::player_offer_salary_with_interest`) leem daqui, então a mesma equipe
+/// não pode ter caixa diferente conforme quem está do outro lado da mesa.
+pub(crate) fn vacancy_as_finance_team(vacancy: &Vacancy) -> crate::models::team::Team {
     let mut team = placeholder_team_from_db(
         vacancy.team_id.clone(),
         vacancy.team_name.clone(),

@@ -1260,9 +1260,124 @@ Três testes `#[ignore]` **falham hoje de propósito** — são o critério de a
 - `gt3_distribui_como_corrida_de_verdade`
 - `rookie_e_mais_caotica_que_o_topo`
 
+Os dois primeiros rodam com o **catálogo real de incidentes ligado** desde 11/08/2026, e conferem
+`dnfs_por_etapa > 0` antes de julgar a faixa. Até essa data eles rodavam com o catálogo vazio, numa
+corrida em que ninguém abandona — ou seja, o teste que se chama "como corrida de verdade" media
+outra corrida. Ligar o catálogo não mexeu em nenhuma probabilidade de incidente.
+
+O cenário sem incidentes continua disponível, com nome que diz o que ele é:
+`rookie_distribui_com_incidentes_isolados` e `gt3_distribui_com_incidentes_isolados`. Eles servem de
+contrafactual: se a medição com e sem abandono der praticamente igual, o abandono não é a alavanca e
+o problema está antes dele.
+
+## O contrafactual já respondeu: o abandono não é a alavanca
+
+Medido em 11/08/2026, 1008 corridas por linha, mesma semente dos dois lados:
+
+| Métrica | rookie com | rookie sem | gt3 com | gt3 sem |
+|---|---|---|---|---|
+| `spearman_grid_chegada` | 0,914 | 0,918 | 0,953 | 0,957 |
+| `pct_vitorias_do_pole` | 0,764 | 0,789 | 0,851 | 0,854 |
+| `vencedores_distintos` | 4,548 | 4,476 | — | — |
+| `margem_do_campeao` | 0,157 | 0,170 | — | — |
+
+Com 0,65 abandono por etapa na rookie, ligar o catálogo real de incidentes move `pct_vitorias_do_pole`
+em 0,025 e `spearman_grid_chegada` em 0,004. No topo o efeito é menor ainda. **O abandono acontece e
+quase não muda quem ganha** — quem larga na frente termina na frente do mesmo jeito.
+
+A única métrica que o abandono mexe de verdade é `p_melhor_fora_top5`, que sai de 0,146 (BAIXO) para
+dentro da faixa na rookie. Faz sentido: essa é a métrica de azar, e o abandono é azar. As métricas de
+ORDEM não se movem.
+
+Consequência para a V3.1: mexer em taxa de incidente é o caminho errado. O que carimba o resultado
+está antes do abandono, na conversão de qualificação em ritmo de corrida.
+
+## A árvore andou desde o congelamento, e andou para os dois lados
+
+`compara_com_congelado` em 11/08/2026 acusa asterisco em quase toda linha dos quatro cenários.
+**Nada foi recongelado** — o registro fica aqui porque os tetos da seção seguinte foram medidos na
+árvore de hoje, e sem esta nota alguém compara as duas tabelas e conclui a coisa errada.
+
+O movimento tem uma forma clara, na rookie com incidentes:
+
+| Métrica | congelado | hoje | Δ | direção |
+|---|---|---|---|---|
+| `spearman_etapas_consecutivas` | 0,773 | 0,536 | −0,237 | entrou na faixa do alvo |
+| `vencedores_distintos` | 2,774 | 4,548 | +1,774 | quase na faixa |
+| `desvio_posicao` | 2,557 | 3,744 | +1,187 | entrou na faixa |
+| `p_melhor_fora_top5` | 0,059 | 0,157 | +0,098 | entrou na faixa |
+| `trocas_de_lideranca` | 1,095 | 1,845 | +0,750 | quase na faixa |
+| `spearman_grid_chegada` | 0,890 | 0,914 | +0,024 | **piorou** |
+| `pct_vitorias_do_pole` | 0,704 | 0,764 | +0,059 | **piorou** |
+
+Ou seja: a variação **entre** fins de semana melhorou muito (a esteira de forma fazendo efeito — quem
+está forte muda de etapa para etapa), e a variação **dentro** da corrida piorou. Dado o grid, a
+chegada ficou mais previsível do que era.
+
+É o mesmo achado do contrafactual visto por outro ângulo, e os dois apontam para o mesmo lugar: o
+sábado decide a etapa e o domingo confirma.
+
 Um teste leve (`nao_regride_para_determinismo_absoluto`) roda sempre e garante só que a coisa não
 piora enquanto o conserto acontece. Os outros 26 testes leves cobrem o harness: a estatística, o
 gerador, o congelamento seletivo, o embaralhamento de grid, a chegada dos knobs ao contexto.
+
+## O teto de não-regressão — e por que ele não é alvo
+
+`rookie_nao_piora_alem_do_teto_atual` e `gt3_nao_piora_alem_do_teto_atual` rodam **sempre**, sem
+`#[ignore]`, em 576 corridas por categoria: 20 pilotos × 12 etapas × 16 temporadas, incidentes
+ligados, promediado sobre três sementes fixas. Custam 3,3 s para os dois.
+
+A forma (20 pilotos, 12 etapas) é a mesma da campanha congelada de propósito, porque
+`vencedores_distintos` e `spearman_etapas_consecutivas` dependem do tamanho da temporada: medir com
+8 etapas produziria números que não conversam com `snapshot::CONGELADO`.
+
+As três sementes existem porque o ruído entre sementes aqui é grande — a mesma configuração mediu
+`vencedores_distintos` 2,77 na semente do congelado e 3,96 na 3101. Com uma medição só, uma
+regressão que calhasse de cair para o lado bom naquela semente passaria batido.
+
+**O baseline que eles congelam é o estado ruim conhecido, não o objetivo.** Com as vitórias da pole
+em torno de 0,70 na rookie contra um alvo de 0,15–0,35, aprovar nesses tetos não diz nada sobre
+qualidade. O alvo continua sendo `Alvos::entrada()` e `Alvos::topo()`, cobrados pelos testes pesados.
+
+O que os tetos fazem é uma coisa só: impedir que a distribuição fique **pior** do que já está
+enquanto a calibração (V3.1) não acontece, e pegar isso no mesmo dia em vez de na próxima campanha
+pesada. Cinco métricas, cada uma num lado só — o lado por onde a simulação ficaria mais previsível:
+
+| Métrica | Sentido | Por que esse lado |
+|---|---|---|
+| `pct_vitorias_do_pole` | teto | mais pole virando vitória é mais carimbo |
+| `spearman_grid_chegada` | teto | grid explicando a chegada é mais carimbo |
+| `spearman_etapas_consecutivas` | teto | etapa N explicando N+1 é campeonato congelado |
+| `desvio_posicao` | piso | cair é achatar a chegada |
+| `vencedores_distintos` | piso | cair é concentrar a vitória |
+
+Os limites saem de `imprime_medicao_do_guard`, com folga deliberada sobre o medido: fração e
+correlação ganham **+0,03**, contagem e dispersão perdem **10%**. A medição é determinística, então
+a folga não cobre ruído de medição — ela cobre mudança de mecanismo que mexe no agregado de raspão.
+
+Medido em 11/08/2026, com a distância que ainda falta até o alvo:
+
+| Métrica | rookie medido | teto | alvo entrada | gt3 medido | teto | alvo topo |
+|---|---|---|---|---|---|---|
+| `pct_vitorias_do_pole` | 0,773 | ≤ 0,80 | 0,15–0,35 | 0,830 | ≤ 0,86 | 0,30–0,55 |
+| `spearman_grid_chegada` | 0,919 | ≤ 0,95 | 0,40–0,75 | 0,952 | ≤ 0,98 | 0,60–0,88 |
+| `spearman_etapas_consecutivas` | 0,527 | ≤ 0,56 | 0,20–0,55 | 0,660 | ≤ 0,69 | 0,35–0,70 |
+| `desvio_posicao` | 3,763 | ≥ 3,38 | 3,50–6,50 | 3,216 | ≥ 2,89 | 2,50–5,00 |
+| `vencedores_distintos` | 4,375 | ≥ 3,93 | 5,00–10,00 | 4,271 | ≥ 3,84 | 3,00–8,00 |
+
+Abandono medido junto, para provar que o catálogo carregou: 0,65 DNF por etapa na rookie e 0,31 na
+gt3. Os dois guards falham se esse número zerar.
+
+A tabela mostra o tamanho do buraco sem rodeio: `pct_vitorias_do_pole` está a mais de duas vezes o
+teto do alvo nas duas categorias, e é ela que o V3.1 tem que mover.
+
+**Regras de uso**, para o guard não virar o contrário do que é:
+
+- passar aqui significa que não regrediu, e nada além disso;
+- o teto nunca é afrouxado para acomodar uma mudança que piorou o agregado — se piorou, ou a
+  mudança sai, ou a piora é decidida conscientemente e a linha do diff é a evidência;
+- quando a calibração fechar, estes tetos descem junto ou saem, porque a partir dali quem manda são
+  os alvos.
 
 ```bash
 cargo test --release --manifest-path src-tauri/Cargo.toml calibracao -- --ignored --nocapture

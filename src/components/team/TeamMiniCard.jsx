@@ -108,7 +108,7 @@ function Corpo({ team }) {
           tier={tierPitCrew}
           label={t(`myTeamTab.ranking.tiers.pitCrew.${tierPitCrew}`)}
         />
-        <div className="mt-1 flex items-center gap-2 border-t border-white/8 pt-1.5">
+        <div className="mt-1 flex items-center gap-2 border-t border-white/[0.08] pt-1.5">
           <span className="min-w-0 flex-1 truncate text-[10.5px] text-[color:var(--text-muted)]">
             {t("teamMiniCard.cash")}
           </span>

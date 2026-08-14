@@ -1209,8 +1209,21 @@ describe("DriverDetailModalV2 — mercado", () => {
     expect(balao).not.toHaveTextContent(/de diferença/);
   });
 
-  it("DUMP", async () => {
+  // Preview da curva, e não um teste: não afirma nada — despeja o SVG num HTML
+  // com o CSS mínimo para olhar o gráfico fora do jsdom.
+  //
+  // Fica FORA da suíte normal e escreve no temp do sistema. Ele nasceu como um
+  // `it("DUMP")` que rodava sempre e gravava um arquivo na raiz do repositório a
+  // cada `npm run test:ui` — sujeira na árvore de trabalho, com caminho absoluto
+  // cravado, produzida por quem só queria rodar os testes.
+  //
+  //   LOOP_PREVIEW_CURVA=1 npx vitest run src/components/driver/v2/DriverDetailModalV2.mercado.test.jsx
+  //
+  // O caminho do arquivo sai no console ao fim da execução.
+  it.runIf(process.env.LOOP_PREVIEW_CURVA)("gera o preview da curva de mercado", async () => {
     const { writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
     const anos = [];
     const equipePorAno = (ano) => {
       if (ano <= 2016) return "Sunday Speed Club";
@@ -1249,8 +1262,9 @@ describe("DriverDetailModalV2 — mercado", () => {
     await abrirMercado();
     const grafico = await screen.findByTestId("driver-detail-market-curve");
     fireEvent.mouseEnter(grafico.querySelectorAll("[data-alvo='troca']")[2]);
+    const destino = join(tmpdir(), "loop-curva-mercado-preview.html");
     writeFileSync(
-      "C:/dev/Loop/__curva_preview.html",
+      destino,
       `<style>
         body{background:#0a1420;margin:0;padding:28px;font-family:system-ui,sans-serif;color:#c9d1d9}
         .wrap{max-width:1000px;margin:0 auto}
@@ -1287,6 +1301,7 @@ describe("DriverDetailModalV2 — mercado", () => {
       </style><div class="wrap">${grafico.outerHTML}</div>`,
       "utf8",
     );
+    console.log(`preview da curva de mercado: ${destino}`);
   });
 
   it("segura a ficha atras do aviso de lesao ate a confirmacao", async () => {
@@ -1294,12 +1309,18 @@ describe("DriverDetailModalV2 — mercado", () => {
       {},
       detail({
         saude: {
-          lesao_ativa: { nome: "Fratura no pulso", tipo: "moderada", corrida_ocorrida_id: "R1", corridas_total: 3, corridas_restantes: 2 },
+          // `tipo` é a CHAVE do fio que o Rust manda (`InjuryType::chave`), não a
+          // grafia do banco: era "moderada" aqui e "Moderada" no backend.
+          lesao_ativa: { nome: "Fratura no pulso", tipo: "moderate", corrida_ocorrida_id: "R1", corridas_total: 3, corridas_restantes: 2 },
         },
       }),
     );
 
-    expect(await screen.findByTestId("driver-detail-injury")).toBeInTheDocument();
+    const aviso = await screen.findByTestId("driver-detail-injury");
+    expect(aviso).toBeInTheDocument();
+    // A gravidade sai TRADUZIDA, e não como a chave crua do fio.
+    expect(aviso).toHaveTextContent("Moderada");
+    expect(aviso).not.toHaveTextContent("moderate");
     fireEvent.click(screen.getByRole("button", { name: "OK" }));
     expect(screen.queryByTestId("driver-detail-injury")).not.toBeInTheDocument();
   });

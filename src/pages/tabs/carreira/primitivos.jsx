@@ -13,7 +13,7 @@ export function Bloco({ titulo, acao = null, children, testId = undefined }) {
   return (
     <section
       data-testid={testId}
-      className="rounded-2xl border border-white/8 bg-black/15 px-4 py-3.5"
+      className="rounded-2xl border border-white/[0.08] bg-black/15 px-4 py-3.5"
     >
       <div className="mb-3 flex items-baseline justify-between gap-4">
         <h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">

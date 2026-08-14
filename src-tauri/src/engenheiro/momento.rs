@@ -69,6 +69,19 @@ pub enum Ocasiao {
     DepoisDaBandeirada,
 }
 
+impl Ocasiao {
+    /// O nome ESTÁVEL da ocasião. Ele viaja em três direções — o `desfecho` do registro do
+    /// rádio, o campo que sobe ao servidor e escolhe o tom, e o cutucão que avisa o front de
+    /// que a janela abriu —, e nas três ele é comparado como texto. Renomear um é quebrar a
+    /// leitura de todos os registros antigos, então a tradução mora num lugar só.
+    pub fn chave(self) -> &'static str {
+        match self {
+            Ocasiao::AntesDaLargada => "antes_da_largada",
+            Ocasiao::DepoisDaBandeirada => "depois_da_bandeirada",
+        }
+    }
+}
+
 /// A ocasião AGORA, se houver uma.
 ///
 /// Pura e sem memória: dizer que a volta de formação está acontecendo é diferente de
@@ -180,10 +193,7 @@ pub fn estado_do_portao(e: &EstadoAgora) -> (&'static str, Option<&'static str>)
         Some(Motivo::Duelo) => "duelo",
         Some(Motivo::UltimaVolta) => "ultima_volta",
     };
-    let ocasiao = ocasiao(e).map(|o| match o {
-        Ocasiao::AntesDaLargada => "antes_da_largada",
-        Ocasiao::DepoisDaBandeirada => "depois_da_bandeirada",
-    });
+    let ocasiao = ocasiao(e).map(Ocasiao::chave);
     (portao, ocasiao)
 }
 

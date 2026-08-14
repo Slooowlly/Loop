@@ -52,7 +52,7 @@ function RoundMoneyFlow({ latest, teamColor }) {
         </div>
 
         {!flow.hasData ? (
-          <div className="mt-4 rounded-2xl border border-white/8 bg-black/10 px-4 py-6 text-center">
+          <div className="mt-4 rounded-2xl border border-white/[0.08] bg-black/10 px-4 py-6 text-center">
             <Waypoints size={26} strokeWidth={1.5} aria-hidden="true" className="mx-auto text-text-muted" />
             <p className="mt-2.5 text-xs leading-5 text-text-secondary">{t("myTeamTabV2.flow.empty")}</p>
           </div>

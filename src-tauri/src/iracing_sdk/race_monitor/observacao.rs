@@ -68,9 +68,9 @@ impl RaceMonitor {
         if jumped {
             self.car_monitors = [CarMonitor::DEFAULT; 64];
             self.race_green_time = None; // novo cooldown após o salto
-            // A tendência de gap é a diferença entre duas amostras no tempo; atravessar um
-            // salto de replay com o histórico intacto produziria "ele ganhou quarenta
-            // segundos numa volta" a partir de dois instantes que nunca foram vizinhos.
+                                         // A tendência de gap é a diferença entre duas amostras no tempo; atravessar um
+                                         // salto de replay com o histórico intacto produziria "ele ganhou quarenta
+                                         // segundos numa volta" a partir de dois instantes que nunca foram vizinhos.
             self.gap_hist.clear();
             self.estado_ultimo_refresh = f64::NEG_INFINITY;
         }
@@ -179,7 +179,8 @@ impl RaceMonitor {
     /// jogador pode ligar a chave com o app aberto, e um cache aqui só faria a mudança
     /// valer no reinício seguinte.
     fn quali_wreck_armado(&mut self) -> bool {
-        self.quali_wreck_on.unwrap_or_else(quali_wreck_penalty_ligada)
+        self.quali_wreck_on
+            .unwrap_or_else(quali_wreck_penalty_ligada)
     }
 
     /// O POSTO efetivo do estrago da quali, juntando os três sinais na ordem de autoridade:
@@ -245,8 +246,8 @@ impl RaceMonitor {
         // pontuar), e numa quali destruída ela pode nunca fechar antes de o jogador sair da
         // sessão — foi exatamente o que aconteceu no teste de 2026-08-10: o log da fronteira
         // dizia "grave" e o castigo ao vivo nunca saiu.
-        let tier = Self::tier_do_estrago(attempt)
-            .max(severity_label(self.score_da_batida_em_curso()));
+        let tier =
+            Self::tier_do_estrago(attempt).max(severity_label(self.score_da_batida_em_curso()));
         let Some(acao) = Self::acao_na_corrida(tier) else {
             return;
         };
@@ -332,7 +333,11 @@ impl RaceMonitor {
             "iracing",
             &format!(
                 "carro da quali: meatball {}, batida {}, reparo obrigatório {:.0}s → corrida {}",
-                if quali.evidence.meatball { "sim" } else { "não" },
+                if quali.evidence.meatball {
+                    "sim"
+                } else {
+                    "não"
+                },
                 worst_raw_severity(quali).as_str(),
                 quali.sim_repair_required_s,
                 acao.map_or("nenhum", CastigoDaQuali::as_str)
@@ -389,7 +394,10 @@ impl RaceMonitor {
         self.quali_wreck_pending = None;
         crate::diagnostico::linha(
             "iracing",
-            &format!("castigo da quali enviado: {comando} (estado {})", t.session_state),
+            &format!(
+                "castigo da quali enviado: {comando} (estado {})",
+                t.session_state
+            ),
         );
         // Arma a conferência do EFEITO. Ver [`ProvaDoCastigo`]: do lado do envio o furo do
         // fullscreen exclusivo é indetectável, então a pergunta passa a ser se a bandeira
@@ -511,9 +519,13 @@ impl RaceMonitor {
                 attempt.peak_crash_score = peak;
                 if com_direcao {
                     attempt.peak_impact_dir = Some(
-                        crate::car::crash::impact_direction(t.lat_accel, t.long_accel, t.vert_accel)
-                            .as_str()
-                            .to_string(),
+                        crate::car::crash::impact_direction(
+                            t.lat_accel,
+                            t.long_accel,
+                            t.vert_accel,
+                        )
+                        .as_str()
+                        .to_string(),
                     );
                 }
             }
@@ -674,7 +686,11 @@ impl RaceMonitor {
         self.prev_repair_needed_s = reparo_s;
         if dano_novo && self.in_crash && !self.crash_had_impact {
             self.crash_had_impact = true;
-            self.merge_crash_factors(vec![format!("reparo do sim: {reparo_s:.0}s")]);
+            self.merge_crash_factors(vec![rust_i18n::t!(
+                "race_monitor.factor.sim_repair",
+                secs = format!("{reparo_s:.0}")
+            )
+            .to_string()]);
             // A direção fica com a que o G registrou (ou o padrão frontal): um tick sem
             // aceleração nenhuma apontaria "vertical" por empate em zero.
             self.registrar_pico_de_batida(t, false);
@@ -685,7 +701,7 @@ impl RaceMonitor {
         let (mut components, mut factors) = Self::score_tick(t, prev_incident);
         if self.live_tow <= 0.0 && t.tow_time > 0.0 {
             components.tow = TOW_PTS;
-            factors.push("reboque acionado".to_string());
+            factors.push(rust_i18n::t!("race_monitor.factor.tow").to_string());
         }
         let tick_score = components.total();
 

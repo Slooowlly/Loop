@@ -245,8 +245,9 @@ pub fn silenciar() -> Result<SpotterStatus, String> {
     let conteudo =
         fs::read_to_string(&app_ini).map_err(|e| format!("Falha ao ler o app.ini: {e}"))?;
 
-    let atual = originais_do_arquivo(&conteudo)
-        .ok_or("Seção [SPCC] sem as chaves 'voice'/'text'. Abra as opções de som do iRacing uma vez.")?;
+    let atual = originais_do_arquivo(&conteudo).ok_or(
+        "Seção [SPCC] sem as chaves 'voice'/'text'. Abra as opções de som do iRacing uma vez.",
+    )?;
 
     // Backup completo, uma vez. É também a rede da recuperação em `decidir_originais`.
     let bak = caminho_backup(&app_ini);
@@ -330,7 +331,10 @@ mod tests {
         assert_eq!(ler_chave(AMOSTRA, "SPCC", "voice").as_deref(), Some("1"));
         assert_eq!(ler_chave(AMOSTRA, "SPCC", "text").as_deref(), Some("1"));
         // `text` também existe em [spectator]; a busca não pode vazar para lá.
-        assert_eq!(ler_chave(AMOSTRA, "spectator", "text").as_deref(), Some("9"));
+        assert_eq!(
+            ler_chave(AMOSTRA, "spectator", "text").as_deref(),
+            Some("9")
+        );
         assert_eq!(ler_chave(AMOSTRA, "SPCC", "inexistente"), None);
     }
 
@@ -356,7 +360,9 @@ mod tests {
         ));
         // Nenhuma outra linha muda.
         assert_eq!(novo.lines().count(), AMOSTRA.lines().count());
-        assert!(novo.contains("verbosity=2                             \t; How chatty is the spotter?"));
+        assert!(
+            novo.contains("verbosity=2                             \t; How chatty is the spotter?")
+        );
     }
 
     #[test]
@@ -453,14 +459,21 @@ mod tests {
         let calado = escrever_chave(&real, SECAO, CHAVE_VOZ, CALADO)
             .and_then(|c| escrever_chave(&c, SECAO, CHAVE_TEXTO, CALADO))
             .expect("[SPCC] com voice/text deveria ser reescrevível");
-        assert_eq!(ler_chave(&calado, SECAO, CHAVE_VOZ).as_deref(), Some(CALADO));
-        assert_eq!(ler_chave(&calado, SECAO, CHAVE_TEXTO).as_deref(), Some(CALADO));
+        assert_eq!(
+            ler_chave(&calado, SECAO, CHAVE_VOZ).as_deref(),
+            Some(CALADO)
+        );
+        assert_eq!(
+            ler_chave(&calado, SECAO, CHAVE_TEXTO).as_deref(),
+            Some(CALADO)
+        );
 
         let voltou = escrever_chave(&calado, SECAO, CHAVE_VOZ, &antes.voice)
             .and_then(|c| escrever_chave(&c, SECAO, CHAVE_TEXTO, &antes.text))
             .expect("a devolução deveria achar as mesmas chaves");
         assert_eq!(
-            voltou, real,
+            voltou,
+            real,
             "a ida e volta mexeu em algo além de [SPCC] voice/text em {}",
             caminho.display()
         );

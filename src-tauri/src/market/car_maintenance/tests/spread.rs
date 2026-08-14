@@ -268,4 +268,3 @@ fn time_rico_atinge_o_teto_e_pobre_sangra() {
 }
 
 // -------- Recorrência da quebra ENTRE corridas (Pergunta 2) --------
-

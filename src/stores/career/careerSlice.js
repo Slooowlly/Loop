@@ -8,6 +8,7 @@ import {
   buildPreseasonUiState,
   buildResumeUiState,
   buildTemporalUiState,
+  cacheDoSaveLimpo,
   contextoDeTelaLimpo,
   deriveAcceptedSpecialOffer,
   deriveAcceptedSpecialOfferFromWindow,
@@ -19,9 +20,17 @@ import {
 // jogador e consolidação do save em disco.
 export const createCareerSlice = (set, get) => ({
   loadCareer: async (careerId) => {
-    const isSwitchingCareer = Boolean(get().careerId && get().careerId !== careerId);
+    const trocouDeCarreira = get().careerId !== careerId;
+    // A geração sobe SEMPRE, inclusive no recarregamento da mesma carreira: o que estava em
+    // voo foi disparado contra uma foto do save que acabou de mudar.
+    const geracao = get().careerGeneration + 1;
     set({
       ...contextoDeTelaLimpo(),
+      // Trocar de save mata os caches locais dele. Recarregar a mesma carreira não: o
+      // pós-corrida e o pop-up de Campeão chamam `loadCareer` no meio do próprio fluxo e
+      // contam com a tela que já está aberta.
+      ...(trocouDeCarreira ? cacheDoSaveLimpo() : {}),
+      careerGeneration: geracao,
       isLoading: true,
       isSimulating: false,
       isCalendarAdvancing: false,
@@ -31,9 +40,6 @@ export const createCareerSlice = (set, get) => ({
       showRaceBriefing: false,
       lastRaceResult: null,
       otherCategoriesResult: null,
-      ...(isSwitchingCareer
-        ? { championOverlay: null }
-        : {}),
     });
 
     try {
@@ -79,6 +85,11 @@ export const createCareerSlice = (set, get) => ({
         };
       }
 
+      // Outra carga assumiu enquanto esta buscava (dois cliques na lista de saves, ou o
+      // pós-corrida recarregando por cima). A última a começar é a que vale: esta devolve o
+      // dado a quem pediu e não escreve nada.
+      if (get().careerGeneration !== geracao) return data;
+
       set({
         ...applyCareerData(data),
         ...buildTemporalUiState(temporalSummary),
@@ -93,6 +104,8 @@ export const createCareerSlice = (set, get) => ({
       void get().loadLanguage();
       return data;
     } catch (error) {
+      // Falha de uma carga já superada não pinta erro na carreira que está na tela.
+      if (get().careerGeneration !== geracao) throw error;
       const message = getErrorMessage(error, i18n.t("storeErrors.loadCareer"));
       set({ isLoading: false, error: message });
       throw error;
@@ -101,14 +114,21 @@ export const createCareerSlice = (set, get) => ({
 
   // Carrega os pilotos de interesse (Nemesis + Rivais) do backend. Best-effort:
   // qualquer falha deixa o marcador ausente, sem quebrar a tela.
+  //
+  // "Ausente" é literal: a falha grava `null` em vez de deixar o valor anterior de pé. Os
+  // IDs de piloto se repetem entre saves (P001 é o primeiro piloto de qualquer carreira),
+  // então conservar o nemesis da carreira antiga não some da tela — ele acende o marcador
+  // 💥 no piloto homônimo da carreira nova, que o jogador nunca viu.
   loadPlayerInterests: async () => {
-    const { careerId } = get();
+    const { careerId, careerGeneration: geracao } = get();
     if (!careerId) return;
     try {
       const interests = await invoke("get_player_interests", { careerId });
+      if (get().careerGeneration !== geracao) return;
       set({ playerInterests: interests });
     } catch {
-      /* sem rivalidades / falha — marcador simplesmente não aparece */
+      if (get().careerGeneration !== geracao) return;
+      set({ playerInterests: null });
     }
   },
 
@@ -140,8 +160,11 @@ export const createCareerSlice = (set, get) => ({
     });
   },
 
+  // Sair para o menu descarta a carreira INTEIRA. A geração é a única chave que não volta
+  // ao valor do boot: zerá-la faria toda operação em voo achar que nada mudou e voltar a
+  // escrever no store vazio (ou na próxima carreira aberta).
   clearCareer: () => {
-    set({ ...initialState });
+    set({ ...initialState, careerGeneration: get().careerGeneration + 1 });
   },
 
   flushSave: async () => {

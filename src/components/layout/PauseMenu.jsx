@@ -57,7 +57,7 @@ export default function PauseMenu() {
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/55 backdrop-blur-md" onClick={() => setOpen(false)} />
 
-      <div className="glass-strong relative w-[320px] rounded-2xl border border-white/12 p-6 shadow-2xl">
+      <div className="glass-strong relative w-[320px] rounded-2xl border border-white/[0.12] p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-accent-primary">
             {t("pause.title")}
@@ -76,7 +76,7 @@ export default function PauseMenu() {
           <button
             type="button"
             onClick={handleSave}
-            className={`${btnBase} border border-white/10 bg-white/6 text-text-secondary hover:bg-white/10 hover:text-text-primary`}
+            className={`${btnBase} border border-white/10 bg-white/[0.06] text-text-secondary hover:bg-white/10 hover:text-text-primary`}
           >
             {savedFlash ? t("pause.saved") : t("pause.save")}
           </button>
@@ -86,7 +86,7 @@ export default function PauseMenu() {
               setOpen(false);
               navigate("/settings", { state: { from: "/dashboard" } });
             }}
-            className={`${btnBase} border border-white/10 bg-white/6 text-text-secondary hover:bg-white/10 hover:text-text-primary`}
+            className={`${btnBase} border border-white/10 bg-white/[0.06] text-text-secondary hover:bg-white/10 hover:text-text-primary`}
           >
             {t("pause.settings")}
           </button>

@@ -47,6 +47,7 @@ fn make_driver(
         corridas_na_categoria: 10,
         pressure_error_mult: 1.0,
         duelo_de_pista: None,
+        vehicle_class: None,
     }
 }
 
@@ -63,6 +64,7 @@ fn make_state(id: &str, position: i32) -> RaceState {
         current_position: position,
         incidents: Vec::new(),
         dnf_reason: None,
+        dnf_reason_key: None,
         dnf_segment: None,
         pending_damage: Vec::new(),
     }
@@ -879,4 +881,134 @@ fn abandono_por_erro_de_pilotagem_nunca_nasce_com_severidade_minor() {
         "a colisão Minor com abandono existe hoje; se ela sumir, foi mudança de modelo e o \
          comentário deste teste (e a lacuna da bandeira amarela) precisa ser revisto"
     );
+}
+
+/// **Os textos que o motor gera saem no locale ativo, nos dois idiomas.**
+///
+/// Estas frases só aparecem quando o catálogo não tem entrada elegível — aqui forçado com
+/// `IncidentCatalog::empty()` — e é justamente aí que elas eram `format!` em português cru
+/// dentro do Rust. O jogador em inglês lia "abandona com problema mecanico".
+///
+/// `#[serial]` porque o locale é global do processo.
+#[test]
+#[serial_test::serial]
+fn texto_generico_do_segmento_respeita_o_locale() {
+    let anterior = rust_i18n::locale().to_string();
+
+    // Grid grande, carro frágil e piloto ruim: o segmento produz pane, erro e colisão.
+    let drivers: Vec<SimDriver> = (1..=12)
+        .map(|i| make_driver(&format!("P{i}"), 25, 90, 30, 10.0))
+        .collect();
+    let states: Vec<RaceState> = (1..=12)
+        .map(|i| make_state(&format!("P{i}"), i as i32))
+        .collect();
+
+    let descricoes = |locale: &str| {
+        rust_i18n::set_locale(locale);
+        let mut rng = StdRng::seed_from_u64(4242);
+        let mut textos = Vec::new();
+        for _ in 0..40 {
+            let out = process_segment_incidents_cfg(
+                &drivers,
+                &states,
+                RaceSegment::Start,
+                WeatherCondition::Wet,
+                true,
+                3.0,
+                2.0,
+                1.0,
+                &IncidentCatalog::empty(),
+                VehicleClass::StreetBased,
+                false,
+                true,
+                &mut rng,
+            );
+            textos.extend(out.incidents.into_iter().map(|i| i.description));
+        }
+        textos
+    };
+
+    let pt = descricoes("pt-BR");
+    let en = descricoes("en-US");
+    rust_i18n::set_locale(&anterior);
+
+    assert!(!pt.is_empty(), "o cenário precisa gerar incidentes");
+    assert_eq!(
+        pt.len(),
+        en.len(),
+        "trocar o locale mudou o número de incidentes: o texto virou comportamento"
+    );
+    assert_ne!(pt, en, "o texto não mudou com o locale");
+
+    // Nenhum placeholder por substituir, nos dois idiomas.
+    for texto in pt.iter().chain(en.iter()) {
+        assert!(
+            !texto.contains("%{") && !texto.contains("{driver}"),
+            "placeholder não substituído: {texto}"
+        );
+    }
+
+    // Nenhuma chave crua vazando, e nenhum resto de português no idioma inglês.
+    for texto in &en {
+        assert!(
+            !texto.contains("race.incident."),
+            "chave crua na tela: {texto}"
+        );
+        for palavra in ["abandona", "posicoes", "posições", "colisao", "colisão"] {
+            assert!(
+                !texto.contains(palavra),
+                "português vazou para o en-US: {texto}"
+            );
+        }
+    }
+}
+
+/// **A classe do carro do PILOTO vence a da corrida.** É o que faz o grid multiclasse do
+/// Endurance resolver carro por carro: o LMP2 é `Prototype` e não tem entrada no catálogo,
+/// então ele cai no texto genérico enquanto o GT3 do mesmo grid recebe flavor text de
+/// `RaceSpec`.
+#[test]
+fn classe_do_piloto_vence_a_classe_da_corrida() {
+    let mut piloto = make_driver("P1", 70, 50, 70, 50.0);
+    piloto.vehicle_class = Some(VehicleClass::Prototype);
+    let states = vec![make_state("P1", 1)];
+
+    // Catálogo só de StreetBased: se a classe da CORRIDA valesse, este piloto casaria com ele.
+    let conn = rusqlite::Connection::open_in_memory().expect("banco em memória");
+    crate::db::migrations::run_all(&conn).expect("migrações");
+    conn.execute(
+        "DELETE FROM incident_catalog WHERE vehicle_class <> 'StreetBased'",
+        [],
+    )
+    .expect("reduzir catálogo");
+    let catalog = IncidentCatalog::load(&conn).expect("catálogo");
+
+    let mut rng = StdRng::seed_from_u64(77);
+    let mut vistos = 0;
+    for _ in 0..300 {
+        let out = process_segment_incidents_cfg(
+            &[piloto.clone()],
+            &states,
+            RaceSegment::Mid,
+            WeatherCondition::Dry,
+            false,
+            2.0,
+            1.0,
+            1.0,
+            &catalog,
+            VehicleClass::StreetBased,
+            false,
+            true,
+            &mut rng,
+        );
+        for inc in out.incidents {
+            vistos += 1;
+            assert!(
+                inc.catalog_id.is_none(),
+                "piloto Prototype recebeu flavor text de StreetBased: {:?}",
+                inc.catalog_id
+            );
+        }
+    }
+    assert!(vistos > 0, "o cenário precisa gerar incidentes");
 }

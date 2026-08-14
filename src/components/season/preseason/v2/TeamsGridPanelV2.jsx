@@ -55,7 +55,7 @@ export default function TeamsGridPanelV2({
           própria linha) e aposentadoria (ícone com tooltip). Nenhum dos dois precisa
           de legenda; ter uma fileira de chips explicando chips era o retrato do
           problema. */}
-      <div className="flex items-baseline gap-3 border-b border-white/7 px-4 py-2.5 lg:px-5">
+      <div className="flex items-baseline gap-3 border-b border-white/[0.07] px-4 py-2.5 lg:px-5">
         <p className="text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--text-secondary)]">
           {t("preSeason.grid.title")}
         </p>

@@ -9,7 +9,7 @@ use crate::models::rivalry::{normalize_pair, RivalryType};
 
 use super::eventos::{apply_rivalry_event, RivalryEvent};
 use super::intensidade::crossed_threshold;
-use super::noticias::{load_rivalry_driver_midia, persist_rivalry_news};
+use super::noticias::persist_rivalry_news;
 
 // ── Passo 6: Rivalidade por hierarquia interna ────────────────────────────────
 
@@ -91,7 +91,6 @@ pub fn process_hierarchy_rivalry(
         let nome_b = get_driver(conn, n2_id)
             .map(|d| d.nome)
             .unwrap_or_else(|_| n2_id.to_string());
-        let driver_midia = load_rivalry_driver_midia(conn, n1_id, n2_id);
 
         persist_rivalry_news(
             conn,
@@ -105,7 +104,6 @@ pub fn process_hierarchy_rivalry(
             n1_id,
             n2_id,
             Some(team_id),
-            &driver_midia,
         )?;
     }
 
@@ -203,7 +201,6 @@ pub fn process_teammate_season_rivalry(conn: &Connection, temporada: i32) -> Res
             let nome_b = get_driver(conn, &n2_id)
                 .map(|d| d.nome)
                 .unwrap_or_else(|_| n2_id.clone());
-            let driver_midia = load_rivalry_driver_midia(conn, &n1_id, &n2_id);
 
             persist_rivalry_news(
                 conn,
@@ -217,7 +214,6 @@ pub fn process_teammate_season_rivalry(conn: &Connection, temporada: i32) -> Res
                 &n1_id,
                 &n2_id,
                 Some(&team_id),
-                &driver_midia,
             )?;
         }
     }
@@ -332,7 +328,6 @@ pub fn process_track_season_rivalry(conn: &Connection, temporada: i32) -> Result
             let nome_b = get_driver(conn, &p2)
                 .map(|d| d.nome)
                 .unwrap_or_else(|_| p2.clone());
-            let driver_midia = load_rivalry_driver_midia(conn, &p1, &p2);
 
             persist_rivalry_news(
                 conn,
@@ -346,7 +341,6 @@ pub fn process_track_season_rivalry(conn: &Connection, temporada: i32) -> Result
                 &p1,
                 &p2,
                 None,
-                &driver_midia,
             )?;
         }
     }
@@ -442,7 +436,6 @@ pub fn process_championship_rivalry(
             )?;
 
             if crossed_threshold(applied.old_perceived, applied.new_perceived).is_some() {
-                let driver_midia = load_rivalry_driver_midia(conn, &drivers[i].id, &drivers[j].id);
                 persist_rivalry_news(
                     conn,
                     &applied,
@@ -455,7 +448,6 @@ pub fn process_championship_rivalry(
                     &drivers[i].id,
                     &drivers[j].id,
                     None,
-                    &driver_midia,
                 )?;
             }
         }
@@ -548,6 +540,44 @@ pub fn peso_do_contexto(
     peso.min(PESO_MAX)
 }
 
+/// Entre dois incidentes do MESMO par na mesma corrida, o novo fica no lugar do
+/// que já estava guardado? Cada lado entra como `(base de severidade, peso do
+/// contexto)`.
+///
+/// A regra, explícita e nesta ordem:
+///
+/// 1. **Severidade maior manda sempre.** Um toque leve não desloca um toque grave,
+///    por maior que seja o peso do contexto. Esta precedência é absoluta.
+/// 2. **Severidade empatada, decide o contexto:** fica o de maior peso. Dois toques
+///    iguais entre a mesma dupla não são o mesmo evento, e o que aconteceu com o
+///    título em jogo é o que conta — na faixa leve essa diferença é a diferença
+///    entre abrir ficha e não abrir (ver `COLISAO_LEVE_PESO_MINIMO`).
+/// 3. **Empate nos dois:** fica o primeiro, na ordem em que os incidentes chegaram.
+///
+/// O critério era só o item 1, e o item 2 caía no item 3 em silêncio: o primeiro
+/// toque leve do dia travava a entrada e o contexto mais relevante nunca entrava.
+///
+/// # O item 2 continua sem decidir nada, e não é por falta de desempate
+///
+/// Medido em 12/08/2026: dentro de UMA corrida e de UM par, [`peso_do_contexto`] é
+/// constante — os quatro insumos dele (o pior grid dos dois, a rodada, o total de
+/// rodadas e a briga do título) são fatos do par, não do incidente. Dois incidentes
+/// da mesma faixa de severidade saem, portanto, com peso igual.
+///
+/// E não adianta acrescentar um terceiro critério individual (estágio da corrida,
+/// posições perdidas): o que se guarda é `((h, r), peso)`, e `h` e `r` são a FAIXA
+/// de severidade, não o incidente. Dois incidentes da mesma faixa e do mesmo par
+/// produzem uma carga idêntica, então trocar um pelo outro não muda um número
+/// sequer do evento aplicado. Para "manter o contexto mais relevante" significar
+/// algo, o contexto individual teria de entrar no PESO — e isso é peso novo, ou
+/// seja, decisão de balanceamento. Ver o item B46 do relatório.
+pub(crate) fn incidente_substitui_o_do_par(
+    (h_novo, peso_novo): (f64, f64),
+    (h_atual, peso_atual): (f64, f64),
+) -> bool {
+    h_novo > h_atual || (h_novo == h_atual && peso_novo > peso_atual)
+}
+
 /// Os três primeiros do campeonato da categoria — quem tem o título em jogo.
 fn top3_do_campeonato(
     conn: &Connection,
@@ -632,8 +662,7 @@ pub fn process_collisions_rivalry(
                 );
 
                 let current = collision_pairs.entry((p1, p2)).or_insert(((0.0, 0.0), 1.0));
-                // O par fica com o incidente mais grave do dia, e com o peso dele.
-                if h > current.0 .0 {
+                if incidente_substitui_o_do_par((h, peso), (current.0 .0, current.1)) {
                     *current = ((h, r), peso);
                 }
             }
@@ -674,7 +703,6 @@ pub fn process_collisions_rivalry(
             let nome_b = get_driver(conn, &p2)
                 .map(|d| d.nome)
                 .unwrap_or_else(|_| p2.clone());
-            let driver_midia = load_rivalry_driver_midia(conn, &p1, &p2);
 
             persist_rivalry_news(
                 conn,
@@ -688,7 +716,6 @@ pub fn process_collisions_rivalry(
                 &p1,
                 &p2,
                 None,
-                &driver_midia,
             )?;
         }
     }

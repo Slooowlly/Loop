@@ -94,13 +94,23 @@ pub(super) fn place_player_in_natural_vacancy(
         return Ok(false);
     };
     // Concede a licença da vaga se faltar (ex.: recomeço numa estreia / sua categoria).
-    let _ = crate::models::license::grant_driver_license_for_division_if_needed(
+    let _ = crate::licensing::grant_driver_license_for_division_if_needed(
         conn,
         &player.id,
         &vac.categoria,
         vac.classe.as_deref(),
     );
-    let salary = (12_000.0 + player.atributos.skill * 1_800.0).max(5_000.0);
+    // MESMA fonte salarial da oferta e da assinatura na tela (`player_market_offers` e
+    // `sign_player_to_vacancy`): faixa por tier posicionada pela skill, fator de papel,
+    // variação estável da equipe e o prêmio de interesse ativo. A garantia de porta usava
+    // uma fórmula própria (`12k + skill*1.8k`) que ignorava a categoria e inflava o valor
+    // — o jogador lia um número na Janela e o contrato gravava outro.
+    let is_n1 = matches!(vac.papel_necessario, TeamRole::Numero1);
+    let active_interest = player_active_interest_teams(conn, player)?
+        .iter()
+        .any(|(id, _, _)| id == &vac.team_id);
+    let salary =
+        player_offer_salary_with_interest(&vac, is_n1, player.atributos.skill, active_interest);
     sign_driver_to_team(
         conn,
         player,
@@ -314,7 +324,10 @@ pub(super) fn find_last_player_category(
     player_id: &str,
 ) -> Result<String, String> {
     conn.query_row(
-        "SELECT categoria FROM contracts WHERE piloto_id = ?1 ORDER BY temporada_fim DESC LIMIT 1",
+        // `temporada_fim` é coluna TEXT: sem o CAST a ordenação é lexicográfica e o
+        // "mais recente" vira a temporada 9 em vez da 10.
+        "SELECT categoria FROM contracts WHERE piloto_id = ?1
+         ORDER BY CAST(temporada_fim AS INTEGER) DESC LIMIT 1",
         params![player_id],
         |row| row.get::<_, String>(0),
     )
@@ -330,7 +343,9 @@ pub(super) fn find_previous_team_for_player<'a>(
 ) -> Result<Option<&'a crate::models::team::Team>, String> {
     let prev_team_id: Option<String> = conn
         .query_row(
-            "SELECT equipe_id FROM contracts WHERE piloto_id = ?1 ORDER BY temporada_fim DESC LIMIT 1",
+            // Mesmo motivo do CAST em `find_last_player_category`: coluna TEXT.
+            "SELECT equipe_id FROM contracts WHERE piloto_id = ?1
+             ORDER BY CAST(temporada_fim AS INTEGER) DESC LIMIT 1",
             params![player_id],
             |row| row.get(0),
         )
@@ -752,13 +767,20 @@ pub(super) fn player_effective_license(conn: &Connection, player: &Driver) -> Re
         ))
 }
 
-/// Salário ofertado ao jogador numa vaga. Mesma fórmula usada na garantia de porta.
-/// Salário ofertado ao jogador, na MESMA escala dos contratos da IA: faixa por tier
+/// Salário ofertado ao jogador numa vaga, na MESMA escala dos contratos da IA: faixa por tier
 /// (`salary_range_for_tier`) posicionada pela skill, com fator de papel (N1 titular
 /// ganha mais que N2). Antes usava uma fórmula fixa `12k + skill*1.8k` que ignorava a
 /// categoria e inflava o valor (ex.: ~100k no rookie, que na verdade paga ~5k–21k).
 /// O `team_id` aplica uma variação ESTÁVEL (±7%, determinística) pra cada equipe ter
 /// seu próprio número — sem isso todas ofereciam exatamente o mesmo valor.
+///
+/// FONTE ÚNICA do salário do jogador: a listagem da Janela, a assinatura na tela e a
+/// garantia de porta (`place_player_in_natural_vacancy`) passam todas por aqui, via
+/// `player_offer_salary_with_interest`. Nenhum desses caminhos tem fórmula própria.
+///
+/// Isto aqui é o VALOR DE MERCADO do jogador, sem olhar o bolso de quem paga. O que a
+/// equipe consegue sustentar entra depois, no teto financeiro de
+/// `player_offer_salary_with_interest` — que é por onde todo mundo passa.
 pub(super) fn player_offer_salary(tier: u8, is_n1: bool, skill: f64, team_id: &str) -> f64 {
     let (base_min, base_max) = crate::models::contract::salary_range_for_tier(tier);
     let t = (skill / 100.0).clamp(0.0, 1.0);
@@ -989,13 +1011,8 @@ pub(crate) fn player_market_offers(
         }
         let is_n1 = matches!(vac.papel_necessario, TeamRole::Numero1);
         let active_interest = interest_team_ids.contains(&vac.team_id);
-        let salary = player_offer_salary_with_interest(
-            vac.category_tier,
-            is_n1,
-            player.atributos.skill,
-            &vac.team_id,
-            active_interest,
-        );
+        let salary =
+            player_offer_salary_with_interest(&vac, is_n1, player.atributos.skill, active_interest);
         let offer = crate::market::transfer_window::PlayerOffer {
             seat_id: format!("{}#{}", vac.team_id, vac.papel_necessario.as_str()),
             team_id: vac.team_id.clone(),
@@ -1037,10 +1054,9 @@ pub(crate) fn player_market_offers(
                         category: vac.categoria.clone(),
                         class: vac.classe.clone(),
                         salary: player_offer_salary_with_interest(
-                            vac.category_tier,
+                            vac,
                             is_n1,
                             player.atributos.skill,
-                            &vac.team_id,
                             active_interest,
                         ),
                         is_n1,
@@ -1115,13 +1131,7 @@ pub(crate) fn sign_player_to_vacancy(
         &player,
         &vac,
         season,
-        player_offer_salary_with_interest(
-            vac.category_tier,
-            is_n1,
-            player.atributos.skill,
-            &vac.team_id,
-            active_interest,
-        ),
+        player_offer_salary_with_interest(&vac, is_n1, player.atributos.skill, active_interest),
         duration,
         vac.papel_necessario.clone(),
     )

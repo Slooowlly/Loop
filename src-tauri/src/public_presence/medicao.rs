@@ -48,13 +48,7 @@ const TEMPORADAS: u32 = 30;
 /// Semente fixa: o relatório tem que ser o mesmo entre execuções para servir de régua.
 const SEMENTE: u64 = 0xFA_1E_2026;
 /// Categorias medidas — uma por degrau relevante da escada, da base ao topo.
-const CATEGORIAS: [&str; 5] = [
-    "mazda_rookie",
-    "bmw_m2",
-    "gt4",
-    "gt3",
-    "endurance",
-];
+const CATEGORIAS: [&str; 5] = ["mazda_rookie", "bmw_m2", "gt4", "gt3", "endurance"];
 
 // ── Mundo sorteado ────────────────────────────────────────────────────────────
 
@@ -127,9 +121,7 @@ fn montar_grid(rng: &mut StdRng, categoria: &str) -> Grid {
     let por_equipe = cfg.pilotos_por_equipe.max(1) as usize;
     let n_equipes = (cfg.grid_total as usize / por_equipe).max(2);
 
-    let carros: Vec<f64> = (0..n_equipes)
-        .map(|_| rng.gen_range(40.0..90.0))
-        .collect();
+    let carros: Vec<f64> = (0..n_equipes).map(|_| rng.gen_range(40.0..90.0)).collect();
     let mut pilotos = Vec::new();
     for (equipe, carro) in carros.iter().enumerate() {
         for _slot in 0..por_equipe {
@@ -198,11 +190,7 @@ fn multiplicador_de_interesse(tier: &InterestTier) -> f64 {
 
 /// Ganhos de fama do regime ANTERIOR, refeitos aqui porque o código deles não existe
 /// mais: vencedor +3, pole +1,5 (se ≠ vencedor), P2/P3 +1, sem escala de categoria.
-fn impactos_antes(
-    ordem: &[usize],
-    pole: usize,
-    tier: &InterestTier,
-) -> HashMap<usize, f64> {
+fn impactos_antes(ordem: &[usize], pole: usize, tier: &InterestTier) -> HashMap<usize, f64> {
     let mult = multiplicador_de_interesse(tier);
     let mut out: HashMap<usize, f64> = HashMap::new();
     if let Some(&vencedor) = ordem.first() {
@@ -244,7 +232,10 @@ fn simular(categoria: &str, regime: Regime) -> Grid {
                 .enumerate()
                 .map(|(i, p)| {
                     let carro = grid.carros[p.equipe];
-                    (i, 0.55 * p.skill + 0.45 * carro + normal(&mut rng, 0.0, 6.0))
+                    (
+                        i,
+                        0.55 * p.skill + 0.45 * carro + normal(&mut rng, 0.0, 6.0),
+                    )
                 })
                 .collect();
             ritmo.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
@@ -256,7 +247,10 @@ fn simular(categoria: &str, regime: Regime) -> Grid {
                 .enumerate()
                 .map(|(i, p)| {
                     let carro = grid.carros[p.equipe];
-                    (i, 0.55 * p.skill + 0.45 * carro + normal(&mut rng, 0.0, 7.0))
+                    (
+                        i,
+                        0.55 * p.skill + 0.45 * carro + normal(&mut rng, 0.0, 7.0),
+                    )
                 })
                 .collect();
             quali.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
@@ -266,8 +260,7 @@ fn simular(categoria: &str, regime: Regime) -> Grid {
 
             // Pontos e forma.
             for (pos0, &idx) in ordem.iter().enumerate() {
-                let pontos =
-                    get_points_for_position((pos0 + 1).min(255) as u8, e_endurance) as f64;
+                let pontos = get_points_for_position((pos0 + 1).min(255) as u8, e_endurance) as f64;
                 let equipe = grid.pilotos[idx].equipe;
                 let p = &mut grid.pilotos[idx];
                 p.pontos_temporada += pontos;
@@ -294,8 +287,7 @@ fn simular(categoria: &str, regime: Regime) -> Grid {
                             .map(|&i| id_de(i))
                             .collect()
                     };
-                    let visivel =
-                        fame::fame_visibility_last_position(ordem.len()) as usize;
+                    let visivel = fame::fame_visibility_last_position(ordem.len()) as usize;
                     let podio = faixa(2, 3);
                     let top5 = faixa(4, 5.min(visivel));
                     let top10 = faixa(6, visivel);
@@ -343,12 +335,8 @@ fn simular(categoria: &str, regime: Regime) -> Grid {
                         fame::personal_fame_floor(p.titulos, p.vitorias, p.temporadas_elite)
                     }
                 };
-                p.midia = fame::decay_fame_toward(
-                    p.midia,
-                    piso,
-                    fame::FAME_DECAY_BASE_RATE,
-                    p.carisma,
-                );
+                p.midia =
+                    fame::decay_fame_toward(p.midia, piso, fame::FAME_DECAY_BASE_RATE, p.carisma);
             }
         }
 
@@ -544,11 +532,26 @@ struct Perfil {
 }
 
 const CARREIRA: [DegrauDaCarreira; 5] = [
-    DegrauDaCarreira { categoria: "mazda_rookie", temporadas: 2 },
-    DegrauDaCarreira { categoria: "mazda_amador", temporadas: 3 },
-    DegrauDaCarreira { categoria: "gt4", temporadas: 3 },
-    DegrauDaCarreira { categoria: "gt3", temporadas: 5 },
-    DegrauDaCarreira { categoria: "endurance", temporadas: 7 },
+    DegrauDaCarreira {
+        categoria: "mazda_rookie",
+        temporadas: 2,
+    },
+    DegrauDaCarreira {
+        categoria: "mazda_amador",
+        temporadas: 3,
+    },
+    DegrauDaCarreira {
+        categoria: "gt4",
+        temporadas: 3,
+    },
+    DegrauDaCarreira {
+        categoria: "gt3",
+        temporadas: 5,
+    },
+    DegrauDaCarreira {
+        categoria: "endurance",
+        temporadas: 7,
+    },
 ];
 
 const PERFIS: [Perfil; 3] = [
@@ -666,14 +669,8 @@ fn simular_carreira_com(
                     dnf,
                     j.midia,
                 );
-                let bruto = delta_bruto_do_jogador(
-                    regime,
-                    &realized,
-                    posicao,
-                    dnf,
-                    ultima_visivel,
-                    tier,
-                );
+                let bruto =
+                    delta_bruto_do_jogador(regime, &realized, posicao, dnf, ultima_visivel, tier);
                 let delta = fame::apply_carisma_to_fame_delta(bruto, j.carisma);
                 j.midia = fame::apply_fame_gain_com(j.midia, delta, joelho, expoente);
                 if posicao == 1 && !dnf {
@@ -681,12 +678,8 @@ fn simular_carreira_com(
                 }
                 // Decaimento passivo, com o piso pessoal que a carreira dele construiu.
                 let piso = fame::personal_fame_floor(j.titulos, j.vitorias, j.temporadas_elite);
-                j.midia = fame::decay_fame_toward(
-                    j.midia,
-                    piso,
-                    fame::FAME_DECAY_BASE_RATE,
-                    j.carisma,
-                );
+                j.midia =
+                    fame::decay_fame_toward(j.midia, piso, fame::FAME_DECAY_BASE_RATE, j.carisma);
             }
 
             if perfil.titulo_a_cada > 0 && temporada % perfil.titulo_a_cada == 0 {
@@ -721,7 +714,12 @@ fn medir_simetria_da_escada_de_fama() {
          lados e se cancelam.\n"
     );
 
-    for (categoria, rodada) in [("mazda_rookie", 3), ("gt4", 5), ("gt3", 7), ("endurance", 4)] {
+    for (categoria, rodada) in [
+        ("mazda_rookie", 3),
+        ("gt4", 5),
+        ("gt3", 7),
+        ("endurance", 4),
+    ] {
         let cfg = get_category_config(categoria).expect("categoria");
         let tier = cfg.tier;
         let etapas = cfg.corridas_por_temporada.max(1);
@@ -757,8 +755,14 @@ fn medir_simetria_da_escada_de_fama() {
                 ultima,
                 tier,
             );
-            let agora =
-                delta_bruto_do_jogador(RegimeDoJogador::Simetrica, &realized, posicao, dnf, ultima, tier);
+            let agora = delta_bruto_do_jogador(
+                RegimeDoJogador::Simetrica,
+                &realized,
+                posicao,
+                dnf,
+                ultima,
+                tier,
+            );
             let ia = delta_bruto_da_ia(&realized, posicao, dnf, ultima, tier);
             let razao = if ia.abs() > 1e-9 {
                 format!("{:.2}×", antes / ia)
@@ -809,8 +813,14 @@ fn medir_simetria_da_escada_de_fama() {
             ultima,
             cfg.tier,
         );
-        soma[1] +=
-            delta_bruto_do_jogador(RegimeDoJogador::Simetrica, &realized, posicao, dnf, ultima, cfg.tier);
+        soma[1] += delta_bruto_do_jogador(
+            RegimeDoJogador::Simetrica,
+            &realized,
+            posicao,
+            dnf,
+            ultima,
+            cfg.tier,
+        );
         soma[2] += delta_bruto_da_ia(&realized, posicao, dnf, ultima, cfg.tier);
     }
     println!(
@@ -1008,8 +1018,7 @@ fn atracao_por_equipe(grid: &Grid) -> Vec<f64> {
             let forma = if recentes.is_empty() {
                 0.5
             } else {
-                recentes.iter().sum::<f64>()
-                    / (recentes.len() as f64 * pontos_max_recentes)
+                recentes.iter().sum::<f64>() / (recentes.len() as f64 * pontos_max_recentes)
             };
             compute_team_audience_appeal(&TeamAudienceInput {
                 lineup_medias: &medias,
@@ -1073,8 +1082,15 @@ fn medir_distribuicao_de_fama() {
         }
         println!(
             "{:<16} {:>8.1} {:>8.1} {:>8.1} {:>8.1}   {:>8.1} {:>8.1} {:>8.1} {:>8.1}",
-            categoria, ra.media, ra.desvio, ra.minimo, ra.maximo, rd.media, rd.desvio,
-            rd.minimo, rd.maximo
+            categoria,
+            ra.media,
+            ra.desvio,
+            ra.minimo,
+            ra.maximo,
+            rd.media,
+            rd.desvio,
+            rd.minimo,
+            rd.maximo
         );
         grids_depois.push((categoria, depois));
     }

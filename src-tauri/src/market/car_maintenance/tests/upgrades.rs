@@ -119,4 +119,3 @@ fn a_cadencia_da_tres_a_quatro_janelas_por_temporada() {
 }
 
 // -------- Seed inicial --------
-

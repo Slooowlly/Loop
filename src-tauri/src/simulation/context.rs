@@ -199,6 +199,14 @@ pub struct SimDriver {
     /// rival o piloto ataca sem ter ritmo para tanto e cede menos ao ser atacado. Ver
     /// `race::trafego::fator_de_rivalidade`.
     pub duelo_de_pista: Option<(String, f64)>,
+    /// **Classe do carro DESTE piloto**, quando a equipe a declara. `None` quando não dá para
+    /// saber, e aí vale a classe da corrida (`SimulationContext::vehicle_class`).
+    ///
+    /// Existe por causa do Endurance, que é multiclasse: gt4 e gt3 são `RaceSpec`, lmp2 é
+    /// `Prototype`, e os três correm no MESMO grid. A classe da corrida não tem resposta para
+    /// isso — ela resolve `Unknown` — mas a equipe tem, via `Team::car_category_key`
+    /// (`"endurance:gt3"`). É essa granularidade que chega ao catálogo de incidentes.
+    pub vehicle_class: Option<VehicleClass>,
 }
 
 impl SimDriver {
@@ -240,6 +248,10 @@ impl SimDriver {
             corridas_na_categoria: driver.corridas_na_categoria as i32,
             pressure_error_mult: 1.0,
             duelo_de_pista: None,
+            vehicle_class: match vehicle_class_from_category(&team.car_category_key()) {
+                VehicleClass::Unknown => None,
+                classe => Some(classe),
+            },
         }
     }
 

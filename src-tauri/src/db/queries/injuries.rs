@@ -426,10 +426,13 @@ const RADICAIS_MODERADOS: [&str; 6] = ["colis", "contato", "batid", "rodou", "su
 /// histórico plausível para eles. Lesão de save novo vem da tabela, com severidade
 /// explícita, e nunca passa por aqui.
 ///
-/// O texto casado é sempre PT: `dnf_reason` nasce de `car::breakdown::problem_text` (frases
-/// `&'static str` em português) ou da coluna `description` do `incident_catalog`, semeada
-/// pela baseline também em português. Nenhum dos dois passa por `rust_i18n`, então o idioma
-/// do jogador não muda o que está gravado — e um radical só casa se a frase gravada mudar.
+/// O texto casado é sempre PT, e isto é sobre o PASSADO: `dnf_reason` de save antigo nasceu
+/// de `car::breakdown::problem_text` (frases `&'static str` em português) ou da prosa que o
+/// `incident_catalog` semeava, também em português. Nenhum dos dois passava por `rust_i18n`.
+/// Os dois passam agora — o catálogo desde a migração v65, o `problem_text` desde 12/08/2026 —,
+/// então texto NOVO pode nascer em inglês. Isso não afeta esta inferência: save novo grava
+/// severidade explícita na tabela `injuries` e não chega aqui, e save antigo continua com a
+/// prosa PT que ele já tinha gravada. Nenhuma linha existente foi reescrita.
 /// O teste `os_textos_reais_do_jogo_caem_nas_severidades_esperadas` é quem prende as duas
 /// pontas.
 fn classificar_abandono_legado(motivo_minusculo: &str) -> Option<Severidade> {

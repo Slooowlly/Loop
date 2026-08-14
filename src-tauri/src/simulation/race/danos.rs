@@ -28,11 +28,13 @@ pub(crate) fn process_pending_damage(
         if state.is_dnf || state.pending_damage.is_empty() {
             continue;
         }
-        let driver_name = drivers
-            .iter()
-            .find(|d| d.id == state.driver_id)
-            .map(|d| d.nome.as_str())
-            .unwrap_or("Piloto");
+        let piloto = drivers.iter().find(|d| d.id == state.driver_id);
+        let anonimo = rust_i18n::t!("race.incident.unknown_driver").to_string();
+        let driver_name = piloto.map(|d| d.nome.as_str()).unwrap_or(&anonimo);
+        // A classe do carro DESTE piloto; sem ela, a da corrida. Ver `SimDriver::vehicle_class`.
+        let classe = piloto
+            .and_then(|d| d.vehicle_class)
+            .unwrap_or(vehicle_class);
 
         let mut indices_to_remove: Vec<usize> = Vec::new();
 
@@ -44,7 +46,7 @@ pub(crate) fn process_pending_damage(
                     pd.is_dnf_capable && rng.gen::<f64>() < CHANCE_DE_ABANDONO_NA_MANIFESTACAO;
                 // Re-renderizar o catálogo com o nome correto e severidade correta
                 let (desc, cat_id) = if let Some(sel) = catalog.select_and_render(
-                    vehicle_class,
+                    classe,
                     is_endurance,
                     crate::simulation::catalog::IncidentSource::PostCollision,
                     crate::simulation::catalog::TriggerType::PostCollision,
@@ -102,6 +104,24 @@ pub(crate) fn process_pending_damage(
                 }
                 state.incidents.push(incident);
                 indices_to_remove.push(i);
+
+                if is_dnf {
+                    // ABANDONOU: o carro parou, e um carro parado não manifesta a segunda
+                    // avaria. Sem este corte o laço seguia testando os outros
+                    // `pending_damage` do mesmo piloto no mesmo segmento, e cada um que
+                    // manifestasse como abandono sobrescrevia `dnf_reason`/`dnf_segment` e
+                    // empilhava mais um incidente `is_dnf = true` — o resultado saía com
+                    // dois abandonos para o mesmo carro e o motivo publicado era o do
+                    // último dano, não o que de fato o tirou da corrida.
+                    //
+                    // O corte MUDA o consumo de RNG, e não tem como não mudar: os danos
+                    // restantes deste piloto deixam de sortear a manifestação, e o
+                    // deslocamento se propaga para todos os pilotos seguintes do segmento.
+                    // Só é alcançável no caso que era bugado (piloto com 2+ danos latentes
+                    // que abandona antes do último), e a alternativa — sortear e jogar fora
+                    // — preservaria a sequência ao custo de escrever um sorteio morto.
+                    break;
+                }
             } else {
                 pd.manifest_chance += 0.15;
             }
@@ -113,3 +133,11 @@ pub(crate) fn process_pending_damage(
         }
     }
 }
+
+// `#[path]` explícito: este módulo é carregado por `#[path = "race/danos.rs"]`, então o
+// diretório dos filhos dele é `race/` e não `race/danos/`. Sem esta linha, o `mod tests`
+// daqui resolveria para `race/tests/mod.rs` — o arquivo de testes da CORRIDA — e o
+// sequestraria para dentro deste módulo.
+#[cfg(test)]
+#[path = "danos/tests.rs"]
+mod tests;

@@ -578,13 +578,19 @@ fn test_persistir_grids_rolls_back_all_changes_on_error() {
         },
     ];
 
-    let result = persistir_grids(
+    // Chama o caminho de PRODUÇÃO. Este teste já rodou contra uma cópia
+    // `#[cfg(test)] persistir_grids` que repetia a montagem dos contratos e a ordem das
+    // escritas — duas regras de domínio para o mesmo fato, e a de teste podia divergir
+    // sem ninguém ver. Sem ofertas de jogador o `season_id` não é lido.
+    let result = persistir_grids_e_ofertas(
         &conn,
+        "",
         &[GridClasse {
             class_name: "gt4".to_string(),
             assignments,
         }],
         season_number,
+        None,
     );
     assert!(result.is_err(), "persistência deveria falhar com trigger");
 

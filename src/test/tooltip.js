@@ -1,3 +1,4 @@
+// i18n-ignore-file — helper de teste; a mensagem de erro é para quem escreve o teste.
 // Busca por tooltip do app nos testes.
 //
 // O `title=` nativo tinha `getByTitle` de graça. O balão do app guarda o texto

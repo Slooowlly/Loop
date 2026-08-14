@@ -56,7 +56,7 @@ pub fn run_pos_especial(conn: &Connection) -> Result<PosEspecialResult, DbError>
 
 /// Retorna o campeão de cada classe especial (maior temp_pontos com contrato Especial ativo).
 /// Chamada antes do cleanup para ter acesso aos contratos ainda ativos.
-fn query_campeoes_especiais(
+pub(super) fn query_campeoes_especiais(
     conn: &Connection,
     season_number: i32,
 ) -> Result<Vec<(String, String, Option<String>, Option<String>)>, DbError> {
@@ -68,7 +68,7 @@ fn query_campeoes_especiais(
                 "SELECT d.id, d.nome FROM drivers d
              INNER JOIN contracts c ON c.piloto_id = d.id
              WHERE c.tipo = 'Especial' AND c.status = 'Ativo'
-               AND c.temporada_inicio = ?1
+               AND CAST(c.temporada_inicio AS INTEGER) = ?1
                AND c.categoria = ?2
                AND c.classe = ?3
              ORDER BY d.temp_pontos DESC

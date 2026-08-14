@@ -180,10 +180,8 @@ mod temporal_tests {
     #[test]
     fn a_regua_em_sql_bate_com_a_regua_em_rust() {
         let conn = rusqlite::Connection::open_in_memory().expect("banco em memória");
-        conn.execute_batch(
-            "CREATE TABLE calendar (season_week INTEGER, week_of_year INTEGER);",
-        )
-        .expect("tabela");
+        conn.execute_batch("CREATE TABLE calendar (season_week INTEGER, week_of_year INTEGER);")
+            .expect("tabela");
 
         let sql = format!("SELECT {SQL_SEASON_WEEK_DERIVADA} FROM calendar");
 

@@ -217,7 +217,6 @@ fn test_run_market_classifies_existing_free_agent_as_transfer() {
     );
 }
 
-
 /// O `run_market` acima resolve o mercado num passo só, e NENHUM caminho de produção faz
 /// isso: a pré-temporada parcela o mesmo trabalho em semanas (`run_market_prepasses` →
 /// `run_market_movements` → o preenchimento do fechamento). Sem este teste, a invariante

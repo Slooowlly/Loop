@@ -80,10 +80,9 @@ fn test_run_convocation_does_not_activate_player_special_contract_before_accepta
 
     let player =
         crate::db::queries::drivers::get_driver(&conn, &player_id).expect("player refreshed");
-    let especial = crate::db::queries::contracts::get_active_especial_contract_for_pilot(
-        &conn, &player_id,
-    )
-    .expect("special contract lookup");
+    let especial =
+        crate::db::queries::contracts::get_active_especial_contract_for_pilot(&conn, &player_id)
+            .expect("special contract lookup");
 
     assert!(
         player.categoria_especial_ativa.is_none(),
@@ -210,8 +209,7 @@ fn test_unemployed_player_with_same_car_history_still_receives_matching_offers()
     );
 
     let refreshed = driver_queries::get_driver(&conn, &player_id).expect("refreshed player");
-    let offers =
-        build_player_special_offers(&conn, &season_id, &refreshed).expect("build offers");
+    let offers = build_player_special_offers(&conn, &season_id, &refreshed).expect("build offers");
 
     assert!(offers.is_empty());
 }

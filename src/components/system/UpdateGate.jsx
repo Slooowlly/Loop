@@ -39,7 +39,7 @@ export default function UpdateGate() {
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={busy ? undefined : dismiss}
       />
-      <div className="glass-strong relative w-[340px] rounded-2xl border border-white/12 p-6 shadow-2xl">
+      <div className="glass-strong relative w-[340px] rounded-2xl border border-white/[0.12] p-6 shadow-2xl">
         {status === "uptodate" ? (
           <>
             <h3 className="mb-1 text-[15px] font-semibold text-text-primary">

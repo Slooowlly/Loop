@@ -9,24 +9,6 @@ pub enum RainGroup {
     Rainy,
 }
 
-impl RainGroup {
-    pub fn as_str(&self) -> &str {
-        match self {
-            RainGroup::Dry => "Dry",
-            RainGroup::Normal => "Normal",
-            RainGroup::Rainy => "Rainy",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Dry" => RainGroup::Dry,
-            "Rainy" => RainGroup::Rainy,
-            _ => RainGroup::Normal,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WeatherCondition {
     Dry,
@@ -42,15 +24,6 @@ impl WeatherCondition {
             WeatherCondition::Damp => "Damp",
             WeatherCondition::Wet => "Wet",
             WeatherCondition::HeavyRain => "HeavyRain",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "Damp" => WeatherCondition::Damp,
-            "Wet" => WeatherCondition::Wet,
-            "HeavyRain" => WeatherCondition::HeavyRain,
-            _ => WeatherCondition::Dry,
         }
     }
 

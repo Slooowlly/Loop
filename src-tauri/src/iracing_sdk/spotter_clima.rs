@@ -288,7 +288,11 @@ mod tests {
         let mut c = Cena::nova();
         c.umidade = 6;
         c.rodar(30.0);
-        assert!(c.chaves.is_empty(), "anunciou o estado inicial: {:?}", c.chaves);
+        assert!(
+            c.chaves.is_empty(),
+            "anunciou o estado inicial: {:?}",
+            c.chaves
+        );
     }
 
     #[test]
@@ -335,7 +339,10 @@ mod tests {
         c.rodar(2.0);
         c.umidade = 3;
         c.rodar(CONFIRMA_S + 1.0);
-        assert!(c.conta(CHAVE_MOLHANDO) > 1, "sem confirmação deveria insistir");
+        assert!(
+            c.conta(CHAVE_MOLHANDO) > 1,
+            "sem confirmação deveria insistir"
+        );
     }
 
     #[test]
@@ -348,6 +355,11 @@ mod tests {
         c.t += SALTO_MAX_S + 1.0;
         c.rodar(CONFIRMA_S + 1.0);
         // Zerou: a faixa atual vira o novo ponto de partida e não é anunciada.
-        assert_eq!(c.chaves.len(), antes, "inventou fala após o salto: {:?}", c.chaves);
+        assert_eq!(
+            c.chaves.len(),
+            antes,
+            "inventou fala após o salto: {:?}",
+            c.chaves
+        );
     }
 }

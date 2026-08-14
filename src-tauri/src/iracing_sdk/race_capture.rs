@@ -78,7 +78,7 @@ const FLUSH_EVERY: u64 = 60;
 /// pergunta mudou de "está parado?" para "QUANDO parou, e por quanto tempo ficou fora":
 /// a 4 Hz toda fronteira de estado tem ±250 ms de incerteza, e é justamente uma duração
 /// de fronteira que precisa ser calibrada. A 20 Hz a incerteza cai para ±50 ms, e o
-/// arquivo continua na casa de poucos MB por corrida depois do gzip.
+/// arquivo custa o que está medido em [`MAX_CAPTURAS`].
 const CARS_HZ: f64 = 20.0;
 
 /// Intervalo mínimo de tempo de SESSÃO entre dois `cars[]` gravados.
@@ -92,9 +92,14 @@ const CASAS_PADRAO: i32 = 4;
 /// valem 3 mm e 4 casas já valeriam 30 cm — perto do que o carro anda entre dois frames.
 const CASAS_POSICAO: i32 = 6;
 
-/// Quantas capturas ficam no disco. A partir da 11ª, a mais antiga é apagada. A ~0,8 MB
-/// por corrida, o teto é da ordem de 10 MB — o bastante pra cobrir a semana de quem corre
-/// todo dia sem virar um depósito.
+/// Quantas capturas ficam no disco. A partir da 11ª, a mais antiga é apagada.
+///
+/// MEDIDO em Lime Rock com 40 carros de IA (`race_1785885657.jsonl.gz`, ver
+/// `docs/spotter-obstaculo.md`): **19 MB para 17,1 min ≈ 1,1 MB/min** já comprimido. Uma
+/// corrida de 40 min dá ~45 MB, então este teto é da ordem de MEIO GIGA, e não dos 10 MB
+/// que o número velho de 0,8 MB por corrida prometia — ele é anterior ao `cars[]` a 20 Hz.
+/// O tamanho é o preço de gravar o campo inteiro; se a pasta incomodar, o botão é este
+/// teto, e não a taxa.
 pub const MAX_CAPTURAS: usize = 10;
 
 /// Pasta das capturas, resolvida uma vez no boot. `None` até o [`init`] — o amostrador roda

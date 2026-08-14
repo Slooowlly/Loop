@@ -67,7 +67,14 @@ pub(crate) fn respond_player_special_offer_in_base_dir(
     let response = if accept {
         let team_name = offer.team_name.clone();
 
-        let tx = db.conn.transaction().map_err(|e| e.to_string())?;
+        // BEGIN IMMEDIATE: `accept_player_special_offer_tx` LÊ (contrato especial ativo,
+        // equipe, contrato do substituído) antes de escrever. Em DEFERRED essa sequência
+        // morre com SQLITE_BUSY_SNAPSHOT — sem retry — se outra conexão comitar entre a
+        // leitura e a escrita. Mesmo motivo do helper `Database::transaction`.
+        let tx = db
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| e.to_string())?;
         accept_player_special_offer_tx(&tx, &player, &season, &offer)?;
         tx.commit()
             .map_err(|e| format!("Falha ao confirmar aceite da oferta especial: {e}"))?;

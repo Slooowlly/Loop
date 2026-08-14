@@ -69,7 +69,11 @@ pub fn aviso_frase(part_key: &str, variante: usize) -> String {
 
 /// A chave do aviso no catálogo: `meu_engine_0`.
 pub fn chave_aviso(part_key: &str, variante: usize) -> String {
-    let peca = if PECAS.contains(&part_key) { part_key } else { "outra" };
+    let peca = if PECAS.contains(&part_key) {
+        part_key
+    } else {
+        "outra"
+    };
     format!("{PREFIXO}{peca}_{}", variante % 3)
 }
 
@@ -120,8 +124,16 @@ pub fn desfecho_frase(part_key: &str, severidade: &str, variante: usize) -> Stri
 /// [`quebra::chave_trecho`](super::quebra::chave_trecho) de propósito — são as duas caras da
 /// mesma quebra, e ler as duas listas lado a lado tem que ser fácil.
 pub fn chave_desfecho(part_key: &str, severidade: &str, variante: usize) -> String {
-    let peca = if PECAS.contains(&part_key) { part_key } else { "outra" };
-    let sev = if SEVERIDADES.contains(&severidade) { severidade } else { "dnf" };
+    let peca = if PECAS.contains(&part_key) {
+        part_key
+    } else {
+        "outra"
+    };
+    let sev = if SEVERIDADES.contains(&severidade) {
+        severidade
+    } else {
+        "dnf"
+    };
     format!("{PREFIXO}{sev}_{peca}_{}", variante % 3)
 }
 

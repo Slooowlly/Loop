@@ -78,7 +78,10 @@ fn posicao_acima_do_teto_cai_no_modelo() {
     // Não há `camp_pos_41`. O `None` é o que manda a pergunta ao modelo, que tem as mesmas
     // informações em prosa — em vez de pedir um arquivo que nunca foi gerado.
     assert_eq!(pecas(&ctx(41, Some(3.0))), None);
-    assert!(!linhas(&ctx(41, Some(3.0))).is_empty(), "o modelo fica sem nada");
+    assert!(
+        !linhas(&ctx(41, Some(3.0))).is_empty(),
+        "o modelo fica sem nada"
+    );
 }
 
 #[test]
@@ -89,7 +92,10 @@ fn o_apendice_so_cita_a_margem_quando_ela_cabe_numa_corrida() {
         apendice(&ctx(3, Some(25.0))),
         vec!["camp_pos_3".to_string(), "camp_para_25".to_string()]
     );
-    assert_eq!(apendice(&ctx(3, Some(26.0))), vec!["camp_pos_3".to_string()]);
+    assert_eq!(
+        apendice(&ctx(3, Some(26.0))),
+        vec!["camp_pos_3".to_string()]
+    );
     // Mas a pergunta DIRETA continua dando o número, porque foi ele que se pediu.
     assert_eq!(pecas(&ctx(3, Some(26.0))).unwrap().len(), 2);
 }
@@ -174,9 +180,21 @@ fn um_ponto_e_singular() {
             .map(|(_, t)| t.clone())
             .unwrap()
     };
-    assert!(um("camp_para_1").contains("um ponto d"), "{}", um("camp_para_1"));
-    assert!(um("camp_para_2").contains("dois pontos"), "{}", um("camp_para_2"));
-    assert!(um("camp_folga_1").contains("um ponto de"), "{}", um("camp_folga_1"));
+    assert!(
+        um("camp_para_1").contains("um ponto d"),
+        "{}",
+        um("camp_para_1")
+    );
+    assert!(
+        um("camp_para_2").contains("dois pontos"),
+        "{}",
+        um("camp_para_2")
+    );
+    assert!(
+        um("camp_folga_1").contains("um ponto de"),
+        "{}",
+        um("camp_folga_1")
+    );
 }
 
 // ─── A conta ─────────────────────────────────────────────────────────────────
@@ -190,12 +208,18 @@ use std::collections::HashMap;
 
 /// Tabela da temporada: `(piloto, pontos)`.
 fn tabela(pares: &[(&str, f64)]) -> Vec<(String, f64)> {
-    pares.iter().map(|(id, p)| ((*id).to_string(), *p)).collect()
+    pares
+        .iter()
+        .map(|(id, p)| ((*id).to_string(), *p))
+        .collect()
 }
 
 /// Mapa número do carro → piloto, como o `iracing_numbers/<carreira>.json`.
 fn numeros(pares: &[(i64, &str)]) -> HashMap<i64, String> {
-    pares.iter().map(|(n, id)| (*n, (*id).to_string())).collect()
+    pares
+        .iter()
+        .map(|(n, id)| (*n, (*id).to_string()))
+        .collect()
 }
 
 #[test]
@@ -254,7 +278,10 @@ fn sem_ordem_nao_ha_projecao() {
     let t = tabela(&[("jogador", 10.0)]);
     assert_eq!(projetar(&t, &[], &numeros(&[]), "jogador", 1, false), None);
     let ordem = [(1, 99)];
-    assert_eq!(projetar(&t, &ordem, &numeros(&[]), "jogador", 0, false), None);
+    assert_eq!(
+        projetar(&t, &ordem, &numeros(&[]), "jogador", 0, false),
+        None
+    );
 }
 
 #[test]
@@ -337,7 +364,10 @@ fn a_projecao_vai_ao_modelo_como_conta_FECHADA() {
     let mut c = ctx(3, Some(8.0));
     c.projecao = Some(2);
     let l = linhas(&c);
-    assert!(l.iter().any(|x| x.contains("terminando esta corrida")), "{l:?}");
+    assert!(
+        l.iter().any(|x| x.contains("terminando esta corrida")),
+        "{l:?}"
+    );
     assert!(l.iter().any(|x| x.contains("2º")), "{l:?}");
 }
 

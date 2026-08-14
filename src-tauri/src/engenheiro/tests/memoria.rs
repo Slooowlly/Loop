@@ -73,10 +73,15 @@ fn memoria_velha_nao_e_a_ULTIMA_vez() {
     // parada, tráfego, talvez amarela. "Desde a última vez" implica recente.
     let mut m = Memoria::default();
     m.registrar(&com_frente(7, 3.0, 1), SESSAO, Intencao::Frente);
-    assert!(m.consultar(&com_frente(7, 1.0, 6), SESSAO, Intencao::Frente).is_some());
+    assert!(m
+        .consultar(&com_frente(7, 1.0, 6), SESSAO, Intencao::Frente)
+        .is_some());
     let mut m = Memoria::default();
     m.registrar(&com_frente(7, 3.0, 1), SESSAO, Intencao::Frente);
-    assert_eq!(m.consultar(&com_frente(7, 1.0, 7), SESSAO, Intencao::Frente), None);
+    assert_eq!(
+        m.consultar(&com_frente(7, 1.0, 7), SESSAO, Intencao::Frente),
+        None
+    );
 }
 
 #[test]
@@ -85,10 +90,15 @@ fn variacao_dentro_do_RUIDO_nao_vira_fala() {
     // narrar o próprio erro de leitura.
     let mut m = Memoria::default();
     m.registrar(&com_frente(7, 1.2, 3), SESSAO, Intencao::Frente);
-    assert_eq!(m.consultar(&com_frente(7, 1.1, 4), SESSAO, Intencao::Frente), None);
+    assert_eq!(
+        m.consultar(&com_frente(7, 1.1, 4), SESSAO, Intencao::Frente),
+        None
+    );
     let mut m = Memoria::default();
     m.registrar(&com_frente(7, 1.2, 3), SESSAO, Intencao::Frente);
-    assert!(m.consultar(&com_frente(7, 1.0, 4), SESSAO, Intencao::Frente).is_some());
+    assert!(m
+        .consultar(&com_frente(7, 1.0, 4), SESSAO, Intencao::Frente)
+        .is_some());
 }
 
 #[test]
@@ -96,7 +106,10 @@ fn corrida_NOVA_apaga_a_conversa() {
     // Cada corrida é uma conversa. Carregar o gap da anterior compararia dois eventos.
     let mut m = Memoria::default();
     m.registrar(&com_frente(7, 3.0, 3), SESSAO, Intencao::Frente);
-    assert_eq!(m.consultar(&com_frente(7, 1.0, 4), SESSAO + 1, Intencao::Frente), None);
+    assert_eq!(
+        m.consultar(&com_frente(7, 1.0, 4), SESSAO + 1, Intencao::Frente),
+        None
+    );
 }
 
 #[test]
@@ -151,8 +164,14 @@ fn so_registra_o_que_foi_DITO() {
 fn intencao_que_nao_diz_gap_nao_mexe_na_memoria() {
     let mut m = Memoria::default();
     m.registrar(&com_frente(7, 3.0, 3), SESSAO, Intencao::Pneu);
-    assert_eq!(m.consultar(&com_frente(7, 1.0, 4), SESSAO, Intencao::Frente), None);
-    assert_eq!(m.consultar(&com_frente(7, 1.0, 4), SESSAO, Intencao::Pneu), None);
+    assert_eq!(
+        m.consultar(&com_frente(7, 1.0, 4), SESSAO, Intencao::Frente),
+        None
+    );
+    assert_eq!(
+        m.consultar(&com_frente(7, 1.0, 4), SESSAO, Intencao::Pneu),
+        None
+    );
 }
 
 #[test]
@@ -180,7 +199,10 @@ fn sem_resposta_a_memoria_nao_fala_sozinha() {
         memoria: Some(0.4),
         ..Extras::default()
     };
-    assert_eq!(responder::renderizar_com(&e, &extras, Intencao::Frente), None);
+    assert_eq!(
+        responder::renderizar_com(&e, &extras, Intencao::Frente),
+        None
+    );
 }
 
 #[test]

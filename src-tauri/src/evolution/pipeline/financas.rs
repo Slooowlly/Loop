@@ -84,18 +84,30 @@ fn corta_a_folha(
         return Ok(None);
     }
 
-    let mut candidatos: Vec<_> = contratos
-        .into_iter()
+    let mut candidatos = Vec::new();
+    for contrato in contratos {
         // Contrato que já termina nesta temporada não é corte nenhum: o mercado já
         // ia decidir sobre ele. Cortar aí seria anunciar uma consequência que não
         // existe.
-        .filter(|c| c.temporada_fim > season.numero)
-        .filter(|c| {
-            driver_queries::get_driver(conn, &c.piloto_id)
-                .map(|d| !d.is_jogador)
-                .unwrap_or(true)
-        })
-        .collect();
+        if contrato.temporada_fim <= season.numero {
+            continue;
+        }
+        match driver_queries::get_driver(conn, &contrato.piloto_id) {
+            Ok(piloto) if piloto.is_jogador => continue,
+            Ok(_) => candidatos.push(contrato),
+            // FALHA DE LEITURA NÃO É "É IA, PODE CORTAR". O `unwrap_or(true)` que
+            // morava aqui dizia exatamente isso, e o único piloto que a regra
+            // promete blindar é o jogador: bastava a query falhar na linha dele
+            // para o corte cair no assento do jogador. Quem não se consegue
+            // identificar sai da operação, e o erro fica escrito.
+            Err(e) => {
+                eprintln!(
+                    "[falencia] Corte de folha ignorou o contrato '{}': falha ao ler o piloto '{}': {e:?}",
+                    contrato.id, contrato.piloto_id
+                );
+            }
+        }
+    }
     if candidatos.is_empty() {
         return Ok(None);
     }
@@ -130,13 +142,20 @@ fn e_a_equipe_do_jogador(conn: &Connection, team_id: &str) -> bool {
 /// Credita o prêmio de fim de temporada do campeonato de construtores no caixa
 /// de cada equipe, a partir das posições recém-arquivadas em
 /// `team_season_archive`, e atualiza o estado financeiro resultante.
+///
+/// **A CLASSE acompanha a categoria em toda a cadeia.** O grid já era contado por grupo
+/// `(categoria, classe)` — como o arquivo numera as posições —, mas o valor do prêmio era
+/// pedido só com a categoria, e a escala caía na divisão de referência. No Endurance isso
+/// pagava a campeã GT4, a campeã GT3 e a campeã LMP2 com o mesmo cheque, dentro de três
+/// campeonatos cujos custos de operar não se parecem. A posição vinha por classe e o dinheiro
+/// vinha por categoria, e as duas metades discordavam em silêncio.
 pub(super) fn award_constructor_prizes(conn: &Connection, season: &Season) -> Result<(), String> {
-    // (team_id, categoria, posição final, nº de equipes no grupo de campeonato).
+    // (team_id, categoria, classe, posição final, nº de equipes no grupo de campeonato).
     // O tamanho do grid é por grupo (categoria + classe), batendo com o
     // agrupamento usado em archive_team_season para categorias multi-classe.
     let mut stmt = conn
         .prepare(
-            "SELECT team_id, categoria, posicao_campeonato,
+            "SELECT team_id, categoria, classe, posicao_campeonato,
                     COUNT(*) OVER (PARTITION BY categoria, COALESCE(classe, '')) AS grid_size
              FROM team_season_archive
              WHERE season_number = ?1 AND posicao_campeonato IS NOT NULL",
@@ -146,17 +165,19 @@ pub(super) fn award_constructor_prizes(conn: &Connection, season: &Season) -> Re
         .query_map([season.numero], |row| {
             let team_id: String = row.get(0)?;
             let categoria: String = row.get(1)?;
-            let position: i32 = row.get(2)?;
-            let grid_size: i32 = row.get(3)?;
-            Ok((team_id, categoria, position, grid_size))
+            let classe: Option<String> = row.get(2)?;
+            let position: i32 = row.get(3)?;
+            let grid_size: i32 = row.get(4)?;
+            Ok((team_id, categoria, classe, position, grid_size))
         })
         .map_err(|e| format!("Falha ao consultar prêmios de construtores: {e}"))?;
 
     let mut awards: Vec<(String, f64)> = Vec::new();
     for row in rows {
-        let (team_id, categoria, position, grid_size) =
+        let (team_id, categoria, classe, position, grid_size) =
             row.map_err(|e| format!("Falha ao mapear prêmio de construtores: {e}"))?;
-        let prize = constructor_prize(&categoria, position, grid_size);
+        let classe = classe.filter(|c| !c.trim().is_empty());
+        let prize = constructor_prize(&categoria, classe.as_deref(), position, grid_size);
         if prize > 0.0 {
             awards.push((team_id, prize));
         }
@@ -182,11 +203,141 @@ pub(super) fn award_constructor_prizes(conn: &Connection, season: &Season) -> Re
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::migrations;
+    use crate::models::team::placeholder_team_from_db;
+
+    /// Uma equipe da classe `classe` já arquivada em `posicao` no Endurance.
+    fn semeia_equipe_no_endurance(
+        conn: &Connection,
+        id: &str,
+        classe: &str,
+        posicao: i32,
+        season_number: i32,
+    ) {
+        let mut team = placeholder_team_from_db(
+            id.to_string(),
+            format!("Equipe {id}"),
+            "endurance".to_string(),
+            "2026-01-01".to_string(),
+        );
+        team.classe = Some(classe.to_string());
+        team.cash_balance = 0.0;
+        team_queries::insert_team(conn, &team).expect("insere equipe");
+
+        conn.execute(
+            "INSERT INTO team_season_archive (
+                team_id, season_number, ano, categoria, classe, posicao_campeonato, pontos
+             ) VALUES (?1, ?2, 2026, 'endurance', ?3, ?4, 0.0)",
+            rusqlite::params![id, season_number, classe, posicao],
+        )
+        .expect("arquiva temporada da equipe");
+    }
+
+    /// **O prêmio pago segue a classe, não a âncora da categoria.**
+    ///
+    /// As três campeãs do Endurance — GT4, GT3 e LMP2 — recebiam o mesmo cheque, porque o
+    /// grid já era contado por classe e o VALOR não. Aqui as três terminam em 1º de um grid
+    /// de 3, e o caixa de cada uma tem que mostrar a escala da própria classe.
+    #[test]
+    fn o_endurance_paga_o_premio_por_classe() {
+        let conn = Connection::open_in_memory().expect("db");
+        migrations::run_all(&conn).expect("schema");
+        let season = Season::new("S_END".to_string(), 4, 2026);
+
+        for classe in ["gt4", "gt3", "lmp2"] {
+            for posicao in 1..=3 {
+                semeia_equipe_no_endurance(
+                    &conn,
+                    &format!("T_{classe}_{posicao}"),
+                    classe,
+                    posicao,
+                    season.numero,
+                );
+            }
+        }
+
+        award_constructor_prizes(&conn, &season).expect("paga prêmios");
+
+        let caixa = |id: &str| -> f64 {
+            team_queries::get_team_by_id(&conn, id)
+                .expect("lê equipe")
+                .expect("equipe existe")
+                .cash_balance
+        };
+
+        for classe in ["gt4", "gt3", "lmp2"] {
+            for posicao in 1..=3 {
+                let esperado = constructor_prize("endurance", Some(classe), posicao, 3);
+                let pago = caixa(&format!("T_{classe}_{posicao}"));
+                assert!(
+                    (pago - esperado).abs() < 1e-6,
+                    "{classe} em {posicao}º recebeu {pago:.0} e a âncora da classe dá \
+                     {esperado:.0}"
+                );
+            }
+        }
+
+        let campea_gt4 = caixa("T_gt4_1");
+        let campea_gt3 = caixa("T_gt3_1");
+        let campea_lmp2 = caixa("T_lmp2_1");
+        assert!(
+            campea_gt4 < campea_gt3 && campea_gt3 < campea_lmp2,
+            "as três campeãs receberam gt4 {campea_gt4:.0}, gt3 {campea_gt3:.0}, \
+             lmp2 {campea_lmp2:.0} — o prêmio voltou a ser um só para a categoria"
+        );
+    }
+
+    /// Numa categoria de classe única nada muda: o grid é o campeonato inteiro e a classe
+    /// nula resolve para a própria âncora.
+    #[test]
+    fn categoria_monoclasse_paga_pelo_grid_inteiro() {
+        let conn = Connection::open_in_memory().expect("db");
+        migrations::run_all(&conn).expect("schema");
+        let season = Season::new("S_GT3".to_string(), 2, 2026);
+
+        for posicao in 1..=4 {
+            let id = format!("T_M{posicao}");
+            let team = placeholder_team_from_db(
+                id.clone(),
+                format!("Equipe {id}"),
+                "gt3".to_string(),
+                "2026-01-01".to_string(),
+            );
+            team_queries::insert_team(&conn, &team).expect("insere equipe");
+            conn.execute(
+                "INSERT INTO team_season_archive (
+                    team_id, season_number, ano, categoria, classe, posicao_campeonato, pontos
+                 ) VALUES (?1, ?2, 2026, 'gt3', NULL, ?3, 0.0)",
+                rusqlite::params![id, season.numero, posicao],
+            )
+            .expect("arquiva");
+        }
+
+        award_constructor_prizes(&conn, &season).expect("paga prêmios");
+
+        for posicao in 1..=4 {
+            let pago = team_queries::get_team_by_id(&conn, &format!("T_M{posicao}"))
+                .expect("lê equipe")
+                .expect("equipe existe")
+                .cash_balance;
+            let esperado = constructor_prize("gt3", None, posicao, 4);
+            assert!(
+                (pago - esperado).abs() < 1e-6,
+                "gt3 em {posicao}º de 4 recebeu {pago:.0} contra {esperado:.0}"
+            );
+        }
+    }
+}
+
 /// Processa o ciclo de colapso financeiro das equipes no fim da temporada:
 ///   • Em colapso pela 1ª vez (streak 0→1): apenas registra (aviso). A próxima
 ///     temporada será forçada a all-in (ver preseason::choose).
 ///   • Em colapso pela 2ª vez seguida (streak →2): a equipe é VENDIDA — nova
-///     diretoria quita a dívida, injeta caixa e re-sorteia atributos. Identidade
+///     diretoria quita a dívida, injeta caixa e REGRIDE os atributos rumo a um piso
+///     (`finance::rescue::apply_team_sale` — nenhum eixo pode melhorar). Identidade
 ///     e histórico preservados. Contador zerado.
 ///   • Fora do colapso: contador zerado (recuperou-se).
 pub(super) fn process_collapse_lifecycle(

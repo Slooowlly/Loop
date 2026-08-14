@@ -2,6 +2,8 @@
 
 use super::*;
 
+use crate::iracing_sdk::roster_gen;
+
 // ─── Geração de AI roster (carreira → iRacing) ───────────────────────────────
 
 /// Resultado da geração de roster (para a UI).
@@ -79,9 +81,12 @@ pub(crate) fn ensure_driver_numbers(
 // ─── Partes puras do contexto comportamental ─────────────────────────────────
 // Saíram de dentro de `iracing_generate_roster` (uma função de ~620 linhas que lia o
 // banco, montava o contexto por piloto, resolvia clima, calculava dificuldade, gravava
-// três arquivos e instalava o diretor de quebra). Estas duas decidem ATITUDE da IA na
-// pista — vingança, desconfiança no carro, nêmesis — a partir de listas simples, e por
-// isso podem ser conferidas sem banco, sem Tauri e sem o sim aberto.
+// três arquivos e instalava o diretor de quebra). Todas decidem ATITUDE da IA na
+// pista — vingança, desconfiança no carro, nêmesis, moral, lesão — a partir de listas e
+// números simples, e por isso podem ser conferidas sem banco, sem Tauri e sem o sim aberto.
+//
+// A divisão é sempre a mesma: o comando LÊ (precisa de `Connection`) e estas funções
+// DECIDEM. Nenhuma delas abre conexão, toca disco ou conhece `AppHandle`.
 
 /// O que os abandonos das últimas rodadas dizem sobre o estado de espírito de cada piloto.
 #[derive(Default, Debug, PartialEq, Eq)]
@@ -214,6 +219,197 @@ pub(crate) fn trocou_de_equipe(
             .any(|(inicio, equipe)| *inicio < temporada_do_contrato_atual && equipe != equipe_atual)
 }
 
+/// Para onde o piloto se moveu na escada de categorias ao chegar na equipe atual: `+1`
+/// promovido (a equipe subiu), `-1` rebaixado, `0` nada.
+///
+/// `tier_anterior` é `None` quando a equipe não tem categoria anterior registrada — time que
+/// nunca se mexeu, ou piloto sem equipe. Nos dois casos a resposta é `0`, e não um palpite.
+pub(crate) fn movimento_de_categoria(tier_atual: i32, tier_anterior: Option<i32>) -> i32 {
+    match tier_anterior {
+        Some(anterior) => (tier_atual - anterior).signum(),
+        None => 0,
+    }
+}
+
+/// Fração do pace perdida por uma lesão AINDA EM RECUPERAÇÃO (0–1).
+///
+/// É a MESMA rampa da simulação offline: a penalidade cheia decai junto com as corridas que
+/// faltam para sarar, então o piloto volta forte aos poucos em vez de num degrau. Sem lesão
+/// ativa o comando nem chega aqui.
+///
+/// `races_total` zerado (dado corrompido) vira 1 pelo `max`, o que é o mesmo que dizer "a
+/// lesão dura uma corrida" — nunca uma divisão por zero.
+pub(crate) fn penalidade_de_lesao_ativa(
+    skill_penalty: f64,
+    races_remaining: i32,
+    races_total: i32,
+) -> f64 {
+    let recuperacao = (races_remaining as f64 / races_total.max(1) as f64).clamp(0.0, 1.0);
+    (skill_penalty * recuperacao).clamp(0.0, 1.0)
+}
+
+/// Quantas rodadas depois da alta o piloto ainda corre com CAUTELA. 0 = a própria corrida em
+/// que ele voltou; 2 = duas rodadas depois. Acima disso a batida já saiu da cabeça dele.
+const RODADAS_DE_CAUTELA_POS_LESAO: std::ops::RangeInclusive<i32> = 0..=2;
+
+/// O piloto sarou HÁ POUCO de uma lesão? Cautela na corrida da rodada `rodada_alvo`.
+///
+/// A alta cai na rodada do acidente mais a duração da lesão. A janela é
+/// [`RODADAS_DE_CAUTELA_POS_LESAO`] rodadas a partir daí: antes da alta ele ainda está
+/// lesionado (quem cuida disso é [`penalidade_de_lesao_ativa`]), e muito depois ele já
+/// esqueceu.
+pub(crate) fn e_retorno_recente_de_lesao(
+    rodada_alvo: i32,
+    rodada_do_acidente: i32,
+    races_total: i32,
+) -> bool {
+    RODADAS_DE_CAUTELA_POS_LESAO.contains(&(rodada_alvo - (rodada_do_acidente + races_total)))
+}
+
+/// A corrida-alvo é a de ESTREIA do save? Roteiro fixo de clima (o mesmo do export da
+/// temporada): nenhuma etapa concluída no calendário da categoria **e** esta é a da primeira
+/// semana.
+///
+/// `etapas` são os pares `(semana, concluída)` do calendário inteiro da categoria. As duas
+/// condições precisam andar juntas: só "nada concluído" acenderia a estreia numa temporada
+/// nova retomada no meio, e só "primeira semana" acenderia de novo num save já rodado.
+///
+/// Isto já esteve fixo em `false`, e o efeito foi silencioso: na estreia o aiseason escrevia
+/// o roteiro SECO enquanto o roster montava a história aleatória, que podia sair molhada — a
+/// penalidade da banda e o re-rank por piloto saíam de climas diferentes.
+pub(crate) fn e_corrida_de_estreia(etapas: &[(i32, bool)], semana_da_alvo: i32) -> bool {
+    let primeira_semana = etapas
+        .iter()
+        .map(|(semana, _)| *semana)
+        .min()
+        .unwrap_or(i32::MAX);
+    etapas.iter().all(|(_, concluida)| !concluida) && semana_da_alvo == primeira_semana
+}
+
+/// A chuva do roteiro do clima como número (0–1), que é a forma que a camada de comportamento
+/// consome. Escada fixa, sem interpolação: o enum é discreto e cada degrau foi escolhido.
+pub(crate) fn intensidade_de_chuva(nivel: crate::iracing_sdk::weather::RainIntensity) -> f64 {
+    use crate::iracing_sdk::weather::RainIntensity;
+    match nivel {
+        RainIntensity::None => 0.0,
+        RainIntensity::Light => 0.35,
+        RainIntensity::Decent => 0.55,
+        RainIntensity::Heavy => 0.8,
+        RainIntensity::VeryHeavy => 1.0,
+    }
+}
+
+/// Sweet spot da IA já corrigido pela BANDA de carro e preso na faixa que o iRacing aceita.
+///
+/// O clamp não é decorativo: `driver skill` fora de 0–125 o sim recusa ou satura, e a banda é
+/// um delta com sinal que pode empurrar o sweet para qualquer um dos lados.
+pub(crate) fn sweet_spot_com_banda(base_sweet: f64, delta_da_banda: f64) -> f64 {
+    (base_sweet + delta_da_banda).clamp(0.0, 125.0)
+}
+
+/// Vantagem de carro por NÚMERO de corrida, que é a chave que o pós-corrida enxerga.
+///
+/// O bilhete gravado no export precisa falar a língua do resultado do iRacing, e lá não
+/// existe id de piloto — existe o número pintado no carro. Piloto sem número atribuído fica
+/// de fora: um número inventado faria o pós-corrida descontar a vantagem do carro errado.
+pub(crate) fn vantagens_por_numero(
+    vantagem_por_piloto: &std::collections::HashMap<String, f64>,
+    numeros: &std::collections::HashMap<String, i64>,
+) -> std::collections::HashMap<String, f64> {
+    vantagem_por_piloto
+        .iter()
+        .filter_map(|(id, adv)| numeros.get(id).map(|n| (n.to_string(), *adv)))
+        .collect()
+}
+
+/// Gruda em cada piloto o que as últimas rodadas disseram sobre ele: desforra, azar,
+/// desconfiança no carro, trauma da pista-alvo e nêmesis.
+///
+/// Existe para o comando não repetir cinco `get`/`contains` no meio da leitura de banco. É a
+/// transformação inteira, e ela é total: piloto que não aparece em sinal nenhum é ZERADO, não
+/// deixado como estava. Sem isso um `driver_ctx` reaproveitado carregaria a raiva da rodada
+/// passada para a próxima.
+pub(crate) fn aplicar_sinais_de_corrida(
+    driver_ctx: &mut std::collections::HashMap<String, roster_gen::DriverCtx>,
+    sinais: &SinaisDeAbandono,
+    nemeses: &std::collections::HashSet<String>,
+    trauma_de_pista: &std::collections::HashSet<String>,
+) {
+    for (id, ctx) in driver_ctx.iter_mut() {
+        ctx.crashed_out_last_race = sinais.tirado_na_ultima.contains(id);
+        ctx.not_at_fault_dnfs = sinais.azar.get(id).copied().unwrap_or(0);
+        ctx.mechanical_dnfs = sinais.mecanico.get(id).copied().unwrap_or(0);
+        ctx.track_crash = trauma_de_pista.contains(id);
+        ctx.nemesis = nemeses.contains(id);
+    }
+}
+
+/// Os campos CRUS que o banco entrega sobre o vínculo de um piloto na hora do export. É a
+/// fronteira entre a leitura e a decisão: o comando enche isto com `Connection` na mão e
+/// [`monta_driver_ctx`] o transforma em contexto de comportamento sem tocar em banco nenhum.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct VinculoDoPiloto {
+    /// `(temporada de início, temporada de fim)` do contrato ATIVO. `None` = sem contrato.
+    pub contrato: Option<(i32, i32)>,
+    /// Vínculo bruto com a equipe atual, que vira o selo de 6 níveis.
+    pub bond: f64,
+    /// Tier da categoria ANTERIOR da equipe. `None` = equipe sem passado (ou sem equipe).
+    pub tier_anterior_da_equipe: Option<i32>,
+    /// Moral da equipe. `None` (piloto sem equipe no export) → 1.0, o neutro.
+    pub moral_da_equipe: Option<f64>,
+    /// Já resolvido por [`trocou_de_equipe`], que precisa do histórico inteiro de contratos.
+    pub trocou_de_equipe: bool,
+    /// Corridas na carreira do piloto — 0 é a estreia.
+    pub corridas_na_carreira: u32,
+    /// Venceu a categoria na temporada passada.
+    pub campeao_reinante: bool,
+}
+
+/// Monta o contexto de comportamento de UM piloto a partir do vínculo dele.
+///
+/// Os campos que dependem da corrida-alvo (lesão, vingança, nêmesis, trauma de pista, duelo
+/// interno) saem daqui ZERADOS de propósito: eles só existem depois de o comando resolver
+/// qual é a próxima etapa, e quem os preenche são [`aplicar_sinais_de_corrida`],
+/// [`penalidade_de_lesao_ativa`], [`e_retorno_recente_de_lesao`] e
+/// [`pontos_do_melhor_companheiro`]. Zerar aqui é o que garante que um piloto sem sinal
+/// nenhum chegue neutro ao roster, em vez de herdar o padrão de outro campo.
+pub(crate) fn monta_driver_ctx(
+    vinculo: &VinculoDoPiloto,
+    temporada_corrente: i32,
+    tier_atual: i32,
+) -> roster_gen::DriverCtx {
+    roster_gen::DriverCtx {
+        // Contrato no ÚLTIMO ano: fim menor ou igual à temporada corrente. Sem contrato o
+        // piloto não está sob pressão de renovação — está fora do vínculo.
+        contract_last_year: vinculo
+            .contrato
+            .is_some_and(|(_, fim)| fim <= temporada_corrente),
+        // Lua de mel: assinou NESTA temporada.
+        honeymoon: vinculo
+            .contrato
+            .is_some_and(|(inicio, _)| inicio == temporada_corrente),
+        // Sem contrato → recém-chegado (nível 1 do selo).
+        bond_level: match vinculo.contrato {
+            Some(_) => crate::market::bond::bond_level(vinculo.bond),
+            None => 1,
+        },
+        category_move: movimento_de_categoria(tier_atual, vinculo.tier_anterior_da_equipe),
+        team_morale: vinculo.moral_da_equipe.unwrap_or(1.0),
+        switched_teams: vinculo.trocou_de_equipe,
+        reigning_champion: vinculo.campeao_reinante,
+        career_debut: vinculo.corridas_na_carreira == 0,
+        // Dependem da corrida-alvo — preenchidos pelo comando depois de resolvê-la.
+        teammate_points: None,
+        injury_return: false,
+        injury_active_penalty: 0.0,
+        crashed_out_last_race: false,
+        not_at_fault_dnfs: 0,
+        track_crash: false,
+        nemesis: false,
+        mechanical_dnfs: 0,
+    }
+}
+
 /// Nome de pasta seguro para o roster: tira o que o Windows recusa e recorta o vazio.
 /// `None` quando não sobra nada — aí o export falha com mensagem, em vez de criar uma
 /// pasta sem nome dentro do `airosters` do jogador.
@@ -228,13 +424,17 @@ pub(crate) fn nome_seguro_de_roster(bruto: &str) -> Option<String> {
 
 /// Gera o `roster.json` da IA a partir do grid de uma categoria da carreira e o
 /// grava em `Documentos/iRacing/airosters/<roster_name>/roster.json`.
+///
+/// **Não recebe `car_key`.** Quem decide o carro é [`super::exportavel`], a partir da
+/// identidade da categoria. Antes a chave vinha pronta do frontend, que a adivinhava por
+/// substring e caía em `mx5` para tudo que não reconhecia — GT3 exportava num MX-5 sem
+/// nada acusar. Categoria que o export não sabe fazer é recusada aqui, com motivo.
 #[tauri::command]
 pub fn iracing_generate_roster(
     app: tauri::AppHandle,
     career_id: String,
     categoria: String,
     roster_name: String,
-    car_key: String,
     // TESTE: força a PRÓXIMA corrida como molhada (chuva forte), pra ver o re-rank de
     // chuva por piloto refletido nos atributos da IA. None/false = clima normal.
     force_wet: Option<bool>,
@@ -248,14 +448,18 @@ pub fn iracing_generate_roster(
         calendar as calq, contracts as cq, drivers as dq, injuries as injq, race_history as rhq,
         seasons as sq, teams as tq,
     };
-    use crate::iracing_sdk::{paths, roster_gen, weather};
+    // `roster_gen` já entra pelo topo do módulo — as funções puras acima também o usam.
+    use crate::iracing_sdk::{paths, weather};
     use std::collections::HashMap;
     use tauri::Manager;
 
     // Exportar é o passo pré-corrida: já liga o monitoramento (custid, etc.).
     race_monitor::start_watching();
 
-    let car = roster_gen::car_spec(&car_key)
+    // Carro da categoria pela fonte única. Recusa aqui é fail-closed de propósito: sem
+    // carro decidido não existe roster honesto para exportar.
+    let car_key = super::exportavel::car_key_da_categoria(&categoria)?;
+    let car = roster_gen::car_spec(car_key)
         .ok_or_else(|| format!("Carro desconhecido: {car_key} (use mx5, gr86 ou bmwm2)"))?;
 
     // Abre o banco da carreira.
@@ -326,66 +530,49 @@ pub fn iracing_generate_roster(
         if driver.is_jogador {
             continue;
         }
-        let category_move = team
-            .as_ref()
-            .and_then(|t| t.categoria_anterior.as_deref())
-            .and_then(get_category_config)
-            .map(|prev| (current_tier - prev.tier as i32).signum())
-            .unwrap_or(0);
-        // Contra a ex-equipe: chegou ao time atual NESTA temporada E já teve OUTRO time
-        // antes (não é rookie no 1º time nem re-assinatura). Rivalidade com o passado.
-        let switched_teams = contract
-            .as_ref()
-            .map(|cur| {
-                let anteriores: Vec<(i32, String)> =
-                    cq::get_contracts_for_pilot(&db.conn, &driver.id)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|p| (p.temporada_inicio, p.equipe_id))
-                        .collect();
-                trocou_de_equipe(
-                    cur.temporada_inicio,
-                    &cur.equipe_id,
-                    season_num,
-                    &anteriores,
-                )
-            })
-            .unwrap_or(false);
+        // Só LEITURA aqui: o vínculo cru do banco. Quem decide o que ele significa é
+        // `monta_driver_ctx`, que é pura e vive testada logo acima.
+        let vinculo = VinculoDoPiloto {
+            contrato: contract
+                .as_ref()
+                .map(|c| (c.temporada_inicio, c.temporada_fim)),
+            bond: contract
+                .as_ref()
+                .map(|c| {
+                    crate::market::bond::get_bond(&db.conn, &driver.id, &c.equipe_id).unwrap_or(0.0)
+                })
+                .unwrap_or(0.0),
+            tier_anterior_da_equipe: team
+                .as_ref()
+                .and_then(|t| t.categoria_anterior.as_deref())
+                .and_then(get_category_config)
+                .map(|prev| prev.tier as i32),
+            moral_da_equipe: team.as_ref().map(|t| t.morale),
+            // Contra a ex-equipe: chegou ao time atual NESTA temporada E já teve OUTRO time
+            // antes (não é rookie no 1º time nem re-assinatura). Rivalidade com o passado.
+            trocou_de_equipe: contract
+                .as_ref()
+                .map(|cur| {
+                    let anteriores: Vec<(i32, String)> =
+                        cq::get_contracts_for_pilot(&db.conn, &driver.id)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|p| (p.temporada_inicio, p.equipe_id))
+                            .collect();
+                    trocou_de_equipe(
+                        cur.temporada_inicio,
+                        &cur.equipe_id,
+                        season_num,
+                        &anteriores,
+                    )
+                })
+                .unwrap_or(false),
+            corridas_na_carreira: driver.stats_carreira.corridas,
+            campeao_reinante: prev_champion_id.as_deref() == Some(driver.id.as_str()),
+        };
         driver_ctx.insert(
             driver.id.clone(),
-            roster_gen::DriverCtx {
-                contract_last_year: contract
-                    .as_ref()
-                    .map(|c| c.temporada_fim <= season_num)
-                    .unwrap_or(false),
-                teammate_points: None, // preenchido após o loop
-                injury_return: false,  // preenchidos após resolver a próxima corrida
-                crashed_out_last_race: false,
-                not_at_fault_dnfs: 0,
-                track_crash: false,
-                nemesis: false,     // preenchido após resolver a próxima corrida
-                mechanical_dnfs: 0, // idem
-                switched_teams,
-                reigning_champion: prev_champion_id.as_deref() == Some(driver.id.as_str()),
-                career_debut: driver.stats_carreira.corridas == 0,
-                honeymoon: contract
-                    .as_ref()
-                    .map(|c| c.temporada_inicio == season_num)
-                    .unwrap_or(false),
-                category_move,
-                team_morale: team.as_ref().map(|t| t.morale).unwrap_or(1.0),
-                // Vínculo com a equipe atual (selo de 6 níveis). Sem contrato → recém-chegado (1).
-                bond_level: contract
-                    .as_ref()
-                    .map(|c| {
-                        crate::market::bond::bond_level(
-                            crate::market::bond::get_bond(&db.conn, &driver.id, &c.equipe_id)
-                                .unwrap_or(0.0),
-                        )
-                    })
-                    .unwrap_or(1),
-                injury_active_penalty: 0.0, // preenchido após resolver a próxima corrida
-            },
+            monta_driver_ctx(&vinculo, season_num, current_tier),
         );
         let team_info = team.map(|team| roster_gen::TeamInfo {
             is_player_team: player_team_id.as_deref() == Some(team.id.as_str()),
@@ -459,11 +646,12 @@ pub fn iracing_generate_roster(
             // etapa). Antes só o bool `injury_return` (já sarado) cruzava — a penalidade em si
             // não tinha equivalente no roster. Exporta a fração perdida (0–1).
             if inj.active {
-                let recovery =
-                    (inj.races_remaining as f64 / inj.races_total.max(1) as f64).clamp(0.0, 1.0);
-                let frac = (inj.skill_penalty * recovery).clamp(0.0, 1.0);
                 if let Some(ctx) = driver_ctx.get_mut(&pilot_id) {
-                    ctx.injury_active_penalty = frac;
+                    ctx.injury_active_penalty = penalidade_de_lesao_ativa(
+                        inj.skill_penalty,
+                        inj.races_remaining,
+                        inj.races_total,
+                    );
                 }
                 continue;
             }
@@ -471,8 +659,7 @@ pub fn iracing_generate_roster(
                 continue;
             }
             if let Ok(Some(entry)) = calq::get_calendar_entry_by_id(&db.conn, &inj.race_occurred) {
-                let since = race.rodada - (entry.rodada + inj.races_total);
-                if (0..=2).contains(&since) {
+                if e_retorno_recente_de_lesao(race.rodada, entry.rodada, inj.races_total) {
                     if let Some(ctx) = driver_ctx.get_mut(&pilot_id) {
                         ctx.injury_return = true;
                     }
@@ -519,33 +706,25 @@ pub fn iracing_generate_roster(
         // Trauma de pista: já bateu (DriverError/PostCollision) na pista alvo.
         let track_crash_set =
             rhq::get_track_crash_pilots(&db.conn, race.track_id).unwrap_or_default();
-        for (id, ctx) in driver_ctx.iter_mut() {
-            ctx.crashed_out_last_race = sinais.tirado_na_ultima.contains(id);
-            ctx.not_at_fault_dnfs = sinais.azar.get(id).copied().unwrap_or(0);
-            ctx.mechanical_dnfs = sinais.mecanico.get(id).copied().unwrap_or(0);
-            ctx.track_crash = track_crash_set.contains(id);
-            ctx.nemesis = nemeses.contains(id);
-        }
+        aplicar_sinais_de_corrida(&mut driver_ctx, &sinais, &nemeses, &track_crash_set);
     }
 
     let behavior_ctx = next.as_ref().and_then(|(season, race)| {
         let track = get_track(race.track_id)?;
-        // Corrida de ESTREIA do save (roteiro fixo do clima). MESMA definição do export
-        // da temporada: nenhuma etapa concluída no calendário da categoria e esta é a da
-        // primeira semana. Estava fixo em `false` — na estreia o aiseason escrevia o
-        // roteiro SECO e o roster montava a história aleatória, que podia sair molhada.
-        // A penalidade da banda e o re-rank por piloto saíam de climas diferentes.
+        // Corrida de ESTREIA do save (roteiro fixo do clima). MESMA definição do export da
+        // temporada — a regra em si vive em `e_corrida_de_estreia`, que é pura e testada.
         let is_first_race = calq::get_calendar(&db.conn, &season.id, &categoria)
             .map(|entries| {
-                let first_week = entries
+                let etapas: Vec<(i32, bool)> = entries
                     .iter()
-                    .map(|e| e.week_of_year)
-                    .min()
-                    .unwrap_or(i32::MAX);
-                entries
-                    .iter()
-                    .all(|e| !matches!(e.status, crate::models::enums::RaceStatus::Concluida))
-                    && race.week_of_year == first_week
+                    .map(|e| {
+                        (
+                            e.week_of_year,
+                            matches!(e.status, crate::models::enums::RaceStatus::Concluida),
+                        )
+                    })
+                    .collect();
+                e_corrida_de_estreia(&etapas, race.week_of_year)
             })
             .unwrap_or(false);
         // Clima da próxima corrida (mesma geração determinística da season).
@@ -562,13 +741,7 @@ pub fn iracing_generate_roster(
             story.race_intensity = weather::RainIntensity::Heavy;
             story.scenario = weather::WeatherScenario::SteadyRain;
         }
-        let rain_intensity = match story.race_intensity {
-            weather::RainIntensity::None => 0.0,
-            weather::RainIntensity::Light => 0.35,
-            weather::RainIntensity::Decent => 0.55,
-            weather::RainIntensity::Heavy => 0.8,
-            weather::RainIntensity::VeryHeavy => 1.0,
-        };
+        let rain_intensity = intensidade_de_chuva(story.race_intensity);
         // Forma: posições finais das até 3 rodadas concluídas anteriores.
         let mut recent_positions: HashMap<String, Vec<u32>> = HashMap::new();
         for back in 1..=3 {
@@ -626,9 +799,10 @@ pub fn iracing_generate_roster(
             player_team_id.as_deref(),
             race.track_id as i64,
         );
-        let ai_sweet = (base_sweet
-            + crate::iracing_sdk::car_difficulty::band_skill_delta(player_adv, &ai_advs))
-        .clamp(0.0, 125.0);
+        let ai_sweet = sweet_spot_com_banda(
+            base_sweet,
+            crate::iracing_sdk::car_difficulty::band_skill_delta(player_adv, &ai_advs),
+        );
         let field_mean = crate::iracing_sdk::car_difficulty::field_mean(&ai_advs);
         let car_spread_nudge: std::collections::HashMap<String, f64> = per_ai_adv
             .iter()
@@ -642,10 +816,7 @@ pub fn iracing_generate_roster(
         // Persiste o contexto de carro (número do carro → vantagem) + a vantagem do jogador,
         // pro pós-corrida descontar a FRENTE (mecanismo 2, cego ao carro). Best-effort.
         {
-            let by_number: std::collections::HashMap<String, f64> = per_ai_adv
-                .iter()
-                .filter_map(|(id, adv)| numbers.get(id).map(|n| (n.to_string(), *adv)))
-                .collect();
+            let by_number = vantagens_por_numero(&per_ai_adv, &numbers);
             // A falha vai pro log: sem este bilhete o pós-corrida não desconta a
             // vantagem de carro e a dificuldade adaptativa aprende errado, em silêncio.
             if let Err(e) = save_car_difficulty_context(
@@ -783,10 +954,10 @@ pub fn iracing_generate_roster(
 
         // Enduro (corrida longa): o disparo ao vivo abranda o DNF (grid não esvazia) e agrava o
         // desgaste da metade pro fim da corrida. A duração vem da ETAPA
-        // (`CalendarEntry::duracao_efetiva_min`), nunca da constante da categoria: no Endurance
+        // (`CalendarEntry::duracao_efetiva`), nunca da constante da categoria: no Endurance
         // ela é a sentinela 0 e o gate dava falso — o disparo ao vivo tratava uma prova de 6
         // horas como sprint, com DNF cheio e sem a rampa de fim.
-        let is_enduro = crate::car::breakdown::is_enduro_duration(race.duracao_efetiva_min());
+        let is_enduro = race.duracao_efetiva().e_enduro();
         // Tenda de durabilidade por nível (§4.8) só em categoria GERIDA (teto ≥ 3); spec fica de fora.
         let apply_tent = crate::car::cost::category_ceiling(&categoria) > 2;
 

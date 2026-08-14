@@ -1,3 +1,5 @@
+// i18n-ignore-file — telemetria de mentira, atrás de um flag de dev. É dado de exemplo, e
+// dado de exemplo não se traduz.
 // Telemetria FAKE para conferir o frontend do cockpit sem precisar correr no iRacing.
 // Só usada atrás de um flag de dev no RaceResultViewV2. Determinística (sem random),
 // então a tela fica estável entre renders. Inclui `__mockWeather` para a faixa de clima.

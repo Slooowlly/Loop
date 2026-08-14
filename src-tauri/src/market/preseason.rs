@@ -22,6 +22,7 @@ use crate::finance::state::refresh_team_financial_state;
 use crate::finance::strategy::{
     advance_strategic_plan, apply_elite_resource_floor, designate_elite_teams,
 };
+use crate::licensing::repair_missing_licenses_for_current_categories;
 use crate::market::pit_strategy::{
     recalculate_pit_crew_quality, recalculate_pit_strategy_risk, PreviousTeamStanding,
 };
@@ -29,7 +30,6 @@ use crate::market::proposals::MarketProposal;
 use crate::market::sync::sync_team_slots_from_active_regular_contracts;
 use crate::models::contract::Contract;
 use crate::models::driver::Driver;
-use crate::models::license::repair_missing_licenses_for_current_categories;
 // Cada etapa da pré-temporada mora no seu módulo e enxerga os imports acima via
 // `use super::*`.
 #[cfg(test)]

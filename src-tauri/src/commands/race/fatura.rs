@@ -81,8 +81,7 @@ pub(crate) fn fatura_da_rodada(
     // O rodapé entra junto, ancorado em `custo_estrutura + salary_expense` — ver a nota
     // sobre a dupla contagem em [`custo_fixo_por_rodada_no_ledger`].
     if let Some(rodape) = visivel.custo_fixo_do_ano.as_mut() {
-        let alvo_anual =
-            custo_fixo_por_rodada_no_ledger(&ledger) * rounds_in_season.max(1.0);
+        let alvo_anual = custo_fixo_por_rodada_no_ledger(&ledger) * rounds_in_season.max(1.0);
         let atual = rodape.total_do_detalhe();
         if atual > 0.0 && alvo_anual > 0.0 {
             let fator = alvo_anual / atual;
@@ -200,7 +199,6 @@ pub fn fatura_da_rodada_in_base_dir(
         return Ok(None);
     };
 
-
     // O `RaceResult` mora na tela salva do pós-corrida — é o mesmo payload que a Home
     // reabre. Sem ele não dá para saber quantas voltas os carros da equipe fizeram.
     let tela = career_dir
@@ -277,9 +275,10 @@ pub fn fatura_da_rodada_in_base_dir(
 /// apurá-la — aí a fatura cai na referência de dupla mediana, que é o que o modelo puro
 /// já faz e declara.
 fn folha_anual_da_equipe(conn: &rusqlite::Connection, team_id: &str) -> Option<f64> {
-    let contratos = crate::db::queries::contracts::get_active_regular_contracts_by_team(conn, team_id)
-        .ok()
-        .filter(|c| !c.is_empty())?;
+    let contratos =
+        crate::db::queries::contracts::get_active_regular_contracts_by_team(conn, team_id)
+            .ok()
+            .filter(|c| !c.is_empty())?;
     Some(contratos.iter().map(|c| c.salario_anual.max(0.0)).sum())
 }
 
@@ -516,7 +515,10 @@ mod tests {
             .expect("linha da peça");
         assert!((peca.total - PECA_COMPRADA).abs() < 0.01);
         assert_eq!(peca.block, "corrida");
-        assert!(!peca.expandable, "a compra não tem grandeza física para expandir");
+        assert!(
+            !peca.expandable,
+            "a compra não tem grandeza física para expandir"
+        );
         assert!(
             (f.expense_total - (DESPESA.iter().sum::<f64>() + PECA_COMPRADA)).abs() < 0.01,
             "despesa {} ≠ etapa + peça",
@@ -639,13 +641,14 @@ mod tests {
                 match fatura_da_rodada_in_base_dir(&base, &career_id, race_id) {
                     Err(e) => println!("  {career_id}/{race_id}: ERRO — {e}"),
                     Ok(None) => {
-                        println!("  {career_id}/{race_id}: SEM FATURA — {}", por_que_nao(&base, &career_id));
+                        println!(
+                            "  {career_id}/{race_id}: SEM FATURA — {}",
+                            por_que_nao(&base, &career_id)
+                        );
                     }
                     Ok(Some(f)) => {
                         com_fatura += 1;
-                        println!(
-                            "\n── {career_id} · {race_id} ─────────────────────────────"
-                        );
+                        println!("\n── {career_id} · {race_id} ─────────────────────────────");
                         for l in &f.lines {
                             println!("  [{:<9}] {:<20} ${:>12.0}", l.block, l.key, l.total);
                             for d in &l.detail {
@@ -696,7 +699,10 @@ mod tests {
         let f = monta(&conn, 4, &reparo).expect("fatura existe");
 
         assert!((f.repair_total - 11_000.0).abs() < 0.01);
-        assert!((f.expense_total - (DESPESA.iter().sum::<f64>() + PECA_COMPRADA + 11_000.0)).abs() < 0.01);
+        assert!(
+            (f.expense_total - (DESPESA.iter().sum::<f64>() + PECA_COMPRADA + 11_000.0)).abs()
+                < 0.01
+        );
         let linhas_de_reparo: Vec<_> = f.lines.iter().filter(|l| l.block == "reparo").collect();
         assert_eq!(linhas_de_reparo.len(), 2);
         for l in linhas_de_reparo {

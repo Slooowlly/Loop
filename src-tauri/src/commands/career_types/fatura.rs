@@ -115,8 +115,11 @@ impl StageInvoiceDto {
         rounds_in_season: f64,
         reparo: &[(String, f64)],
     ) -> Self {
-        let mut lines: Vec<InvoiceLineDto> =
-            fatura.linhas.iter().map(InvoiceLineDto::from_linha).collect();
+        let mut lines: Vec<InvoiceLineDto> = fatura
+            .linhas
+            .iter()
+            .map(InvoiceLineDto::from_linha)
+            .collect();
 
         let repair_total: f64 = reparo.iter().map(|(_, v)| *v).filter(|v| *v > 0.0).sum();
         for (key, valor) in reparo.iter().filter(|(_, v)| *v > 0.0) {

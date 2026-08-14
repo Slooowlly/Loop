@@ -303,7 +303,7 @@ function normalizeTeamHistoryPayload(payload) {
       podiums: item.podiums ?? 0,
       points: String(item.points ?? "0"),
       // Denominador das taxas por temporada e os degraus do pódio — só o v2
-      // desenha (ver a faixa de pódios por corrida em v2/TeamHistoryDrawerV2.jsx).
+      // desenha (ver a faixa de top 5 em v2/TeamHistoryTrajectory.jsx).
       races: Number(item.races ?? 0),
       seconds: Number(item.seconds ?? 0),
       thirds: Number(item.thirds ?? 0),
@@ -314,7 +314,7 @@ function normalizeTeamHistoryPayload(payload) {
       dnfs: Number(item.dnfs ?? 0),
     })),
     // Fita de forma recente e distribuição por faixa de colocação — só o v2
-    // desenha (ver a aba Esportivo em v2/TeamHistoryDrawerV2.jsx).
+    // desenha (ver v2/TeamHistoryTrajectory.jsx e v2/TeamHistoryResults.jsx).
     recentForm: (payload.recent_form ?? payload.recentForm ?? []).map((item) => ({
       year: String(item.year ?? ""),
       round: Number(item.round ?? 0),

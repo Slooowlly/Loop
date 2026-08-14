@@ -6,7 +6,9 @@ use rusqlite::OptionalExtension;
 use crate::db::connection::DbError;
 
 mod baseline;
-mod seed_incidentes;
+mod incident_catalog_chaves;
+mod normaliza_meta_linguagem;
+pub(crate) mod seed_incidentes;
 
 /// Trava do schema-ouro (só em teste): descreve o schema de forma normalizada e
 /// compara com um fixture versionado.
@@ -18,13 +20,13 @@ use seed_incidentes::seed_incident_catalog;
 
 // ── Versão atual do schema ────────────────────────────────────────────────────
 
-const CURRENT_VERSION: u32 = 63;
+pub(crate) const CURRENT_VERSION: u32 = 69;
 
 /// Versão da BASELINE — o piso a partir do qual um save ainda tem caminho de
 /// atualização. Save carimbado abaixo disto veio das migrações incrementais que
 /// foram colapsadas e não pode ser migrado; save em v53 ou acima sobe normalmente
 /// pelas migrações incrementais registradas depois dela.
-const BASELINE_VERSION: u32 = 53;
+pub(crate) const BASELINE_VERSION: u32 = 53;
 
 // ── API pública ───────────────────────────────────────────────────────────────
 
@@ -48,6 +50,12 @@ const MIGRATIONS: &[(u32, fn(&Connection) -> Result<(), DbError>)] = &[
     (61, migrate_v61_ledger_com_linhas_fisicas),
     (62, migrate_v62_tabelas_de_query_sob_as_migracoes),
     (63, migrate_v63_indice_de_resultados_por_equipe),
+    (64, migrate_v64_normaliza_meta_linguagem_dos_textos_de_ia),
+    (65, migrate_v65_catalogo_de_incidentes_guarda_chave),
+    (66, migrate_v66_ano_do_mundo_na_meta),
+    (67, migrate_v67_catalogo_ganha_o_prototipo),
+    (68, migrate_v68_motivo_de_abandono_por_quebra_guarda_chave),
+    (69, migrate_v69_socorro_conta_por_temporada),
 ];
 
 /// Aplica todas as migrações num banco novo (versão 0 → CURRENT_VERSION).
@@ -59,16 +67,22 @@ pub fn run_all(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
-/// Aplica apenas as migrações pendentes num banco existente.
+/// Veredito de compatibilidade de um schema já carimbado, nos DOIS sentidos.
 ///
-/// Um banco vazio (versão 0) nasce da baseline normalmente. Já um save carimbado
-/// entre 1 e 52 veio das migrações incrementais que foram colapsadas: a baseline
-/// é DDL `IF NOT EXISTS` e não faz backfill de dado, então aplicá-la ali só
-/// carimbaria a versão 53 num banco que continua na forma velha. Recusamos em vez
-/// de mentir sobre a versão — o arquivo do jogador fica intocado.
-pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
-    let version = get_schema_version(conn)?;
-
+/// É a régua única: `run_pending` a consulta ao abrir o save e o restore a consulta
+/// ao inspecionar um backup antes de encostar no banco vivo. Nenhum dos dois altera
+/// o arquivo quando ela recusa.
+///
+/// Abaixo da baseline: save carimbado entre 1 e 52 veio das migrações incrementais
+/// que foram colapsadas. A baseline é DDL `IF NOT EXISTS` e não faz backfill de dado,
+/// então aplicá-la ali só carimbaria a versão 53 num banco que continua na forma
+/// velha. Recusamos em vez de mentir sobre a versão.
+///
+/// Acima da versão atual: o save foi gravado por um Loop mais novo que este binário.
+/// As migrações só sabem SUBIR, então não existe caminho de volta — e seguir em frente
+/// leria colunas e tabelas que esta versão não conhece. Recusar aqui é o que impede o
+/// binário velho de gravar por cima de um save que ele não entende.
+pub fn verificar_compatibilidade_do_schema(version: u32) -> Result<(), DbError> {
     if version > 0 && version < BASELINE_VERSION {
         return Err(DbError::InvalidData(format!(
             "este save está no schema v{version}, anterior à baseline v{BASELINE_VERSION}. \
@@ -77,6 +91,28 @@ pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
              backup mais recente ou comece uma carreira nova."
         )));
     }
+
+    if version > CURRENT_VERSION {
+        return Err(DbError::InvalidData(format!(
+            "este save está no schema v{version} e veio de uma versão MAIS NOVA do Loop \
+             (esta entende até a v{CURRENT_VERSION}). Uma versão antiga do jogo não sabe ler \
+             o formato novo e não tem como rebaixá-lo. O arquivo não foi alterado: atualize o \
+             Loop para a versão mais recente ou restaure um backup compatível com esta versão."
+        )));
+    }
+
+    Ok(())
+}
+
+/// Aplica apenas as migrações pendentes num banco existente.
+///
+/// Um banco vazio (versão 0) nasce da baseline normalmente. Fora disso, o carimbo
+/// passa antes por [`verificar_compatibilidade_do_schema`], que recusa tanto o save
+/// velho demais quanto o mais novo que este binário — nos dois casos sem tocar no
+/// arquivo do jogador.
+pub fn run_pending(conn: &Connection) -> Result<(), DbError> {
+    let version = get_schema_version(conn)?;
+    verificar_compatibilidade_do_schema(version)?;
 
     for (target, migrate) in MIGRATIONS {
         if version < *target {
@@ -598,6 +634,136 @@ fn migrate_v63_indice_de_resultados_por_equipe(conn: &Connection) -> Result<(), 
     Ok(())
 }
 
+/// v64 — tira a meta-linguagem de quarta parede dos textos de IA já gravados no save.
+///
+/// Não muda schema: é normalização de DADO, e é o que permite `narrative::client` parar de
+/// filtrar o texto que volta do servidor a cada chamada. O motivo de o filtro existir era
+/// `ai_race_story.facts`: um save antigo continuava MANDANDO a redação velha ao servidor,
+/// então a origem do vazamento voltava a cada boletim novo. Os caches de saída entram na
+/// mesma passada porque foram redigidos antes de existir filtro nenhum.
+///
+/// A transformação é a que o filtro aplicava, byte por byte, e é idempotente — detalhe e
+/// prova em [`normaliza_meta_linguagem`].
+fn migrate_v64_normaliza_meta_linguagem_dos_textos_de_ia(conn: &Connection) -> Result<(), DbError> {
+    normaliza_meta_linguagem::normaliza_textos_de_ia(conn)?;
+    Ok(())
+}
+
+/// v65 — o catálogo de incidentes guarda CHAVE de i18n, não frase em português.
+///
+/// As três colunas de prosa (`dnf_template`, `non_dnf_template`, `description_short`) viram
+/// `dnf_key`, `non_dnf_key` e `description_key`, e o texto passa a ser resolvido no locale
+/// ativo na hora de apresentar. Identidade, peso e incidência dos 54 eventos não mudam. O
+/// porquê e o tratamento de id desconhecido estão em [`incident_catalog_chaves`].
+fn migrate_v65_catalogo_de_incidentes_guarda_chave(conn: &Connection) -> Result<(), DbError> {
+    incident_catalog_chaves::catalogo_guarda_chave(conn)?;
+    Ok(())
+}
+
+/// O ano do mundo na `meta` dos saves que já existem.
+///
+/// `seed_meta` semeia `current_year` e `career_start_year` com o literal de 2024, e a
+/// criação da carreira regular não os reescrevia: `current_year` só era corrigido pela
+/// primeira virada de temporada, e `career_start_year` ficava no seed para sempre. A
+/// criação passou a gravar os dois (`career/lifecycle.rs`); aqui os saves antigos
+/// convergem lendo o ano das PRÓPRIAS temporadas, sem literal novo.
+///
+/// Banco recém-criado roda esta migração logo depois da baseline, com a tabela
+/// `seasons` ainda vazia: os dois `UPDATE` não encontram de onde derivar e não fazem
+/// nada, deixando a escrita para a criação da carreira.
+fn migrate_v66_ano_do_mundo_na_meta(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "
+        -- A temporada em andamento é a fonte de verdade do ano corrente: é ela que a
+        -- virada de temporada usa para escrever esta mesma chave.
+        UPDATE meta
+           SET value = CAST((SELECT ano FROM seasons WHERE status = 'EmAndamento'
+                              ORDER BY numero DESC LIMIT 1) AS TEXT)
+         WHERE key = 'current_year'
+           AND EXISTS (SELECT 1 FROM seasons WHERE status = 'EmAndamento');
+
+        -- `career_start_year` é o 1º ano JOGÁVEL e é escrito uma única vez. Só o valor
+        -- do seed é tocado, e só num banco sem backstory: o draft histórico já grava o
+        -- dele na criação, e o mundo dele começa décadas antes do ano jogável, então
+        -- derivar do MIN() ali devolveria o ano do backstory.
+        UPDATE meta
+           SET value = CAST((SELECT MIN(ano) FROM seasons) AS TEXT)
+         WHERE key = 'career_start_year'
+           AND value = '2024'
+           AND (SELECT MIN(ano) FROM seasons) >= 2024;
+        ",
+    )?;
+    Ok(())
+}
+
+/// **v67 — o catálogo de incidentes ganha a classe PROTÓTIPO.**
+///
+/// O catálogo nasceu com `StreetBased` e `RaceSpec`. A terceira classe, `Prototype`, existia no
+/// enum desde sempre e nenhuma linha a usava — o LMP2 caía num braço `_ => StreetBased` e recebia
+/// flavor text de carro de rua. Em 12/08/2026 esse braço virou recusa (`Unknown`), o LMP2 passou
+/// a resolver corretamente como `Prototype`, e aí o sintoma trocou de mentira por silêncio: sem
+/// candidato no catálogo, o incidente saía com o texto genérico do motor.
+///
+/// Só dado, nenhum DDL: as 16 linhas entram com `INSERT OR IGNORE`, então rodar de novo é no-op e
+/// um save que já as tenha (banco criado depois desta data, pela baseline) não é tocado.
+fn migrate_v67_catalogo_ganha_o_prototipo(conn: &Connection) -> Result<(), DbError> {
+    seed_incidentes::seed_prototipos(conn)
+}
+
+/// **v68 — o motivo do abandono POR QUEBRA guarda a chave de i18n, não só a frase.**
+///
+/// `race_results.dnf_reason` sempre foi a prosa já renderizada no idioma ativo na hora da
+/// corrida, e ficava assim para sempre. O histórico estruturado da quebra (`race_breakdowns`,
+/// v52) já guardava a trinca `(part, problem, severity)` e re-renderizava na leitura, então
+/// quem jogava em pt-BR e trocava para en-US via as duas metades da mesma quebra em idiomas
+/// diferentes: o desfecho em inglês, o motivo do resultado ao lado congelado em português.
+///
+/// A coluna nova guarda a CHAVE (`car::breakdown::problem_key`) e a leitura resolve no locale de
+/// agora. Só isso: nenhum dado existente é tocado.
+///
+/// **Nada de retroceder para preencher a coluna nas linhas antigas.** A prosa histórica não é
+/// reversível para chave sem casar frase por frase contra os 99 textos de dois locales, e um
+/// palpite errado trocaria o motivo de um abandono que o jogador viu acontecer. Linha antiga
+/// fica com `NULL` e continua exibindo o `dnf_reason` que tem — que é exatamente o que ela já
+/// mostrava.
+///
+/// A coluna é NULL também para todo abandono que NÃO é quebra (batida, erro de pilotagem, pane
+/// do catálogo de incidentes): esses continuam inteiramente pelo `dnf_reason`, sem mudança.
+fn migrate_v68_motivo_de_abandono_por_quebra_guarda_chave(
+    conn: &Connection,
+) -> Result<(), DbError> {
+    add_column_if_missing(conn, "race_results", "dnf_reason_key", "TEXT")
+}
+
+/// v69 — o socorro de emergência passa a contar quantos já saíram NESTA temporada.
+///
+/// O empréstimo não tinha memória nenhuma: o gatilho olhava só a foto do caixa e da dívida, e
+/// uma equipe em colapso podia ser socorrida rodada após rodada. Medido no harness de economia,
+/// ~98% dos tomadores voltavam a tomar, e o socorro era o que produzia a dívida que mantinha a
+/// equipe elegível.
+///
+/// Duas colunas em vez de uma: a contagem e a TEMPORADA a que ela se refere. Quando a temporada
+/// muda, a contagem é lida como zero sem precisar de um passo de virada de ano — que seria mais
+/// um lugar de onde o reset poderia sumir num refactor.
+///
+/// Save antigo entra com `0/0`, ou seja, com o orçamento de socorros da temporada corrente
+/// inteiro. Isso é deliberado: a alternativa seria adivinhar quantos empréstimos a equipe já
+/// tomou lendo a dívida, e o teto de dívida do gate novo já barra quem tomou demais.
+fn migrate_v69_socorro_conta_por_temporada(conn: &Connection) -> Result<(), DbError> {
+    add_column_if_missing(
+        conn,
+        "teams",
+        "socorros_na_temporada",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    add_column_if_missing(
+        conn,
+        "teams",
+        "socorros_temporada_ref",
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+}
+
 // ── Helpers de schema ─────────────────────────────────────────────────────────
 
 /// `ALTER TABLE ... ADD COLUMN` guardado por `PRAGMA table_info`.
@@ -766,6 +932,92 @@ mod tests {
         assert_eq!(get_schema_version(&conn).expect("versão"), CURRENT_VERSION);
     }
 
+    /// Save gravado por um Loop mais novo que este binário. `run_pending` recusa, e
+    /// recusa SEM encostar no arquivo: schema, carimbo de versão e dado seguem iguais.
+    #[test]
+    fn run_pending_recusa_save_mais_novo_que_o_binario_sem_tocar_no_arquivo() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("relógio")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("iracer_schema_futuro_{nanos}"));
+        std::fs::create_dir_all(&dir).expect("dir temporário");
+        let db_path = dir.join("career.db");
+
+        let futura = CURRENT_VERSION + 1;
+        let (schema_antes, dado_antes) = {
+            let conn = Connection::open(&db_path).expect("abrir banco temporário");
+            run_all(&conn).expect("schema");
+            conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('marcador_do_teste', 'intacto')",
+                [],
+            )
+            .expect("semear marcador");
+            // Carimba um schema do futuro, como se o save tivesse vindo de um Loop novo.
+            set_schema_version(&conn, futura).expect("carimbo do futuro");
+            (dump_do_schema(&conn), marcador(&conn))
+        };
+
+        let conn = Connection::open(&db_path).expect("reabrir banco temporário");
+        let err = run_pending(&conn).expect_err("save do futuro tem que ser recusado");
+
+        assert!(
+            matches!(err, DbError::InvalidData(_)),
+            "esperava InvalidData, veio {err:?}"
+        );
+        let texto = err.to_string();
+        assert!(
+            texto.contains("MAIS NOVA"),
+            "a mensagem precisa dizer que o save veio de versão mais nova: {texto}"
+        );
+        assert!(
+            texto.contains("atualize o Loop") && texto.contains("backup"),
+            "a mensagem precisa mandar atualizar o app ou restaurar backup: {texto}"
+        );
+
+        assert_eq!(
+            get_schema_version(&conn).expect("versão"),
+            futura,
+            "o carimbo de versão não pode ser mexido pela recusa"
+        );
+        assert_eq!(
+            dump_do_schema(&conn),
+            schema_antes,
+            "nenhuma migração pode ter rodado no save recusado"
+        );
+        assert_eq!(
+            marcador(&conn),
+            dado_antes,
+            "o dado do save tem que sobreviver"
+        );
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Retrato normalizado do schema, para comparar antes e depois de uma recusa.
+    #[cfg(test)]
+    fn dump_do_schema(conn: &Connection) -> String {
+        conn.query_row(
+            "SELECT COALESCE(group_concat(sql, '§'), '') FROM
+               (SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name)",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("dump do schema")
+    }
+
+    #[cfg(test)]
+    fn marcador(conn: &Connection) -> Option<String> {
+        conn.query_row(
+            "SELECT value FROM meta WHERE key = 'marcador_do_teste'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .expect("consulta do marcador")
+    }
+
     /// As seeds da baseline precisam sobreviver ao colapso: sem elas o jogo
     /// abre sem contadores e sem catálogo de incidentes.
     #[test]
@@ -778,7 +1030,9 @@ mod tests {
                 row.get(0)
             })
             .expect("contagem do catálogo");
-        assert_eq!(incidentes, 54);
+        // 54 da baseline + as 16 de PROTÓTIPO que a v67 acrescenta. Banco novo e save antigo
+        // recebem as de protótipo pelo MESMO caminho — ver `migrate_v67_catalogo_ganha_o_prototipo`.
+        assert_eq!(incidentes, 70);
 
         for chave in ["next_driver_id", "current_year", "difficulty"] {
             let existe: Option<String> = conn
@@ -1493,6 +1747,83 @@ mod tests {
         linhas
     }
 
+    /// Save regular carimbado antes da v66: a `meta` carrega o ano do seed enquanto as
+    /// temporadas já contam outra história. A v66 faz os dois convergirem para o que o
+    /// próprio banco diz — sem tocar em migração lançada e sem literal novo.
+    #[test]
+    fn v66_puxa_o_ano_do_mundo_das_temporadas_do_proprio_save() {
+        let conn = save_parado_antes_da_v66(&[(1, 2026, "Encerrada"), (2, 2027, "EmAndamento")]);
+
+        assert_eq!(valor_de_meta(&conn, "current_year"), "2024");
+        assert_eq!(valor_de_meta(&conn, "career_start_year"), "2024");
+
+        run_pending(&conn).expect("upgrade → v66");
+        assert_eq!(get_schema_version(&conn).expect("versão"), CURRENT_VERSION);
+
+        assert_eq!(valor_de_meta(&conn, "current_year"), "2027");
+        assert_eq!(valor_de_meta(&conn, "career_start_year"), "2026");
+    }
+
+    /// O save do draft histórico tem backstory: as temporadas começam décadas antes do
+    /// ano jogável, e o `career_start_year` dele já foi escrito na criação. Derivar do
+    /// MIN() ali devolveria o ano do backstory e faria a carreira nascer com 26 anos
+    /// rodados — o mesmo estrago que a v66 existe para não repetir.
+    #[test]
+    fn v66_nao_reescreve_o_ano_base_de_um_save_com_backstory() {
+        let conn = save_parado_antes_da_v66(&[(1, 2000, "Encerrada"), (27, 2026, "EmAndamento")]);
+        conn.execute(
+            "UPDATE meta SET value = '2026' WHERE key = 'career_start_year'",
+            [],
+        )
+        .expect("ano base do draft");
+
+        run_pending(&conn).expect("upgrade → v66");
+
+        assert_eq!(valor_de_meta(&conn, "career_start_year"), "2026");
+        assert_eq!(valor_de_meta(&conn, "current_year"), "2026");
+    }
+
+    /// Banco novo roda a v66 logo depois da baseline, com `seasons` vazia: não há de
+    /// onde derivar, e quem grava os dois é a criação da carreira.
+    #[test]
+    fn v66_deixa_o_seed_intacto_num_banco_sem_temporada() {
+        let conn = Connection::open_in_memory().expect("db");
+        run_all(&conn).expect("banco novo");
+
+        assert_eq!(valor_de_meta(&conn, "current_year"), "2024");
+        assert_eq!(valor_de_meta(&conn, "career_start_year"), "2024");
+    }
+
+    /// Save carimbado na v65 com as temporadas informadas. Só a baseline roda: a v66
+    /// mexe em dado de `meta` e `seasons`, duas tabelas que nascem ali.
+    fn save_parado_antes_da_v66(temporadas: &[(i32, i32, &str)]) -> Connection {
+        let conn = Connection::open_in_memory().expect("db");
+        migrate_baseline(&conn).expect("baseline");
+        // A v65 roda de verdade, e não só o carimbo dela: ela RENOMEIA as colunas de texto do
+        // `incident_catalog`, e um banco carimbado como v65 sem o rename é uma ficção que a
+        // primeira migração seguinte a mexer no catálogo (a v67) descobre da pior forma.
+        migrate_v65_catalogo_de_incidentes_guarda_chave(&conn).expect("v65");
+        set_schema_version(&conn, 65).expect("carimbo v65");
+
+        for (numero, ano, status) in temporadas {
+            conn.execute(
+                "INSERT INTO seasons (id, numero, ano, status) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![format!("S{numero:03}"), numero, ano, status],
+            )
+            .expect("temporada");
+        }
+        conn
+    }
+
+    fn valor_de_meta(conn: &Connection, chave: &str) -> String {
+        conn.query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            rusqlite::params![chave],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("chave de meta")
+    }
+
     fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
         let mut stmt = conn
             .prepare(&format!("PRAGMA table_info({table})"))
@@ -1505,5 +1836,125 @@ mod tests {
             }
         }
         false
+    }
+
+    /// **v68 — o save antigo sobe com o motivo de abandono intacto e a coluna nova vazia.**
+    ///
+    /// O ponto do teste é o que a migração NÃO faz: nenhuma linha existente é tocada. O texto
+    /// que o jogador viu na corrida continua ali, a chave nasce `NULL`, e só o registro gravado
+    /// depois usa o formato novo.
+    #[test]
+    fn v68_acrescenta_a_chave_sem_mexer_no_motivo_ja_gravado() {
+        let conn = banco_na_v61();
+        run_pending(&conn).expect("upgrade v61 → atual");
+        assert_eq!(get_schema_version(&conn).expect("versão"), CURRENT_VERSION);
+
+        // Volta ao estado pré-v68 para exercitar o upgrade de verdade: a coluna sai da tabela e
+        // o carimbo desce para a v67, com uma linha de resultado legada dentro.
+        // O teste é de SCHEMA: as linhas são sintéticas e não têm piloto, equipe nem corrida por
+        // trás. A integridade referencial de `race_results` é assunto de outro teste.
+        conn.execute_batch(
+            "PRAGMA foreign_keys = OFF;
+             ALTER TABLE race_results DROP COLUMN dnf_reason_key;
+             INSERT INTO race_results
+                (race_id, piloto_id, equipe_id, posicao_largada, posicao_final,
+                 voltas_completadas, dnf, pontos, dnf_reason)
+             VALUES ('R-velha', 'P001', 'T001', 3, 20, 12, 1, 0.0,
+                     'motor fundiu por superaquecimento');",
+        )
+        .expect("volta ao estado da v67");
+        set_schema_version(&conn, 67).expect("carimbo v67");
+        assert!(!column_exists(&conn, "race_results", "dnf_reason_key"));
+
+        run_pending(&conn).expect("upgrade v67 → v68");
+        assert_eq!(get_schema_version(&conn).expect("versão"), CURRENT_VERSION);
+        assert!(column_exists(&conn, "race_results", "dnf_reason_key"));
+
+        // A linha antiga continua legível, com o motivo de então e sem chave inventada.
+        let (motivo, chave): (String, Option<String>) = conn
+            .query_row(
+                "SELECT dnf_reason, dnf_reason_key FROM race_results WHERE race_id = 'R-velha'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .expect("linha legada");
+        assert_eq!(motivo, "motor fundiu por superaquecimento");
+        assert_eq!(chave, None, "a migração não pode adivinhar chave da prosa");
+
+        // E o registro novo entra no formato novo, na mesma tabela.
+        conn.execute(
+            "INSERT INTO race_results
+                (race_id, piloto_id, equipe_id, posicao_largada, posicao_final,
+                 voltas_completadas, dnf, pontos, dnf_reason, dnf_reason_key)
+             VALUES ('R-nova', 'P001', 'T001', 1, 18, 9, 1, 0.0,
+                     'câmbio quebrou', 'car_breakdown.problem.gearbox_0_dnf')",
+            [],
+        )
+        .expect("registro novo");
+        let chave_nova: Option<String> = conn
+            .query_row(
+                "SELECT dnf_reason_key FROM race_results WHERE race_id = 'R-nova'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("linha nova");
+        assert_eq!(
+            chave_nova.as_deref(),
+            Some("car_breakdown.problem.gearbox_0_dnf")
+        );
+    }
+
+    /// A v68 é idempotente: rodar de novo num banco já migrado não é erro nem duplica coluna.
+    #[test]
+    fn v68_roda_duas_vezes_sem_efeito_colateral() {
+        let conn = Connection::open_in_memory().expect("db");
+        run_all(&conn).expect("migrações");
+        migrate_v68_motivo_de_abandono_por_quebra_guarda_chave(&conn).expect("reaplicar v68");
+        assert!(column_exists(&conn, "race_results", "dnf_reason_key"));
+    }
+
+    /// v69 — o contador de socorro nasce zerado num banco novo, e um save carimbado na v68
+    /// sobe sem perder equipe nenhuma. Zerado é o estado certo para o save antigo: ele entra
+    /// com o orçamento de socorros da temporada corrente inteiro, e quem já tomou demais é
+    /// barrado pelo TETO DE DÍVIDA, que não depende do contador.
+    #[test]
+    fn v69_conta_de_socorro_nasce_zerada_e_sobe_do_save_antigo() {
+        let conn = Connection::open_in_memory().expect("db");
+        run_all(&conn).expect("migrações");
+        assert!(column_exists(&conn, "teams", "socorros_na_temporada"));
+        assert!(column_exists(&conn, "teams", "socorros_temporada_ref"));
+
+        // Volta ao estado da v68 e semeia uma equipe como um save antigo teria.
+        conn.execute_batch(
+            "ALTER TABLE teams DROP COLUMN socorros_na_temporada;
+             ALTER TABLE teams DROP COLUMN socorros_temporada_ref;
+             INSERT INTO teams (id, nome, nome_curto, categoria)
+             VALUES ('T-velha', 'Escuderia Antiga', 'ANT', 'gt3');",
+        )
+        .expect("volta ao estado da v68");
+        set_schema_version(&conn, 68).expect("carimbo v68");
+
+        run_pending(&conn).expect("upgrade v68 → v69");
+        assert_eq!(get_schema_version(&conn).expect("versão"), CURRENT_VERSION);
+
+        let (conta, ref_temp): (i64, i64) = conn
+            .query_row(
+                "SELECT socorros_na_temporada, socorros_temporada_ref FROM teams \
+                 WHERE id = 'T-velha'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .expect("linha legada");
+        assert_eq!((conta, ref_temp), (0, 0));
+    }
+
+    /// A v69 é idempotente: rodar de novo num banco já migrado não é erro nem duplica coluna.
+    #[test]
+    fn v69_roda_duas_vezes_sem_efeito_colateral() {
+        let conn = Connection::open_in_memory().expect("db");
+        run_all(&conn).expect("migrações");
+        migrate_v69_socorro_conta_por_temporada(&conn).expect("reaplicar v69");
+        assert!(column_exists(&conn, "teams", "socorros_na_temporada"));
+        assert!(column_exists(&conn, "teams", "socorros_temporada_ref"));
     }
 }

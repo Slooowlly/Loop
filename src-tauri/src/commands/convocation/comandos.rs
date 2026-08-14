@@ -108,7 +108,13 @@ pub fn iniciar_bloco_especial(career_id: String, app: AppHandle) -> Result<(), S
                 .map_err(|e| format!("Falha ao carregar oferta especial selecionada: {e}"))?
                 .ok_or_else(|| "Oferta especial selecionada nao encontrada.".to_string())?;
 
-            let tx = db.conn.transaction().map_err(|e| e.to_string())?;
+            // BEGIN IMMEDIATE pelo mesmo motivo de `respond_player_special_offer_in_base_dir`:
+            // a consolidação lê antes de escrever, e em DEFERRED isso morre com
+            // SQLITE_BUSY_SNAPSHOT se outra conexão comitar no meio.
+            let tx = db
+                .conn
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(|e| e.to_string())?;
             accept_player_special_offer_tx(&tx, &player, &season, &offer)?;
             tx.commit()
                 .map_err(|e| format!("Falha ao consolidar convocacao especial do jogador: {e}"))?;

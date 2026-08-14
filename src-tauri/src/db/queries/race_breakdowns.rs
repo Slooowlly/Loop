@@ -25,10 +25,45 @@ pub struct RaceBreakdownRow {
     pub severity: Severity,
     /// Segundos de penalidade (`!black`); `None` = DNF (`!dq`).
     pub penalty_secs: Option<u32>,
-    /// `true` se a peça bateu na parede (105%).
+    /// `true` se a peça bateu na parede (`breakdown::HARD_WALL`, hoje 120%).
     pub forced: bool,
-    /// Frase pronta do problema (peça + modo + severidade) pra narrativa.
+    /// A frase do problema como ela foi RENDERIZADA no idioma da corrida.
+    ///
+    /// Não é a fonte da verdade: quem identifica a frase é a trinca `(part, problem, severity)`
+    /// das três colunas acima, e [`RaceBreakdownRow::label_no_locale`] a recompõe no idioma
+    /// ativo. Esta coluna existe desde a v52 e continua sendo escrita porque é a única rede de
+    /// um save cuja linha de locale sumiu — e porque apagá-la exigiria reescrever o histórico
+    /// de todo save antigo, que é a mesma decisão já registrada em `simulation::catalog`.
     pub label: String,
+}
+
+impl RaceBreakdownRow {
+    /// A frase do problema recomposta da TRINCA persistida, no locale ativo.
+    ///
+    /// Cai no [`RaceBreakdownRow::label`] gravado quando a peça não é reconhecida — save de uma
+    /// versão que conhecia uma peça que não existe mais. Nesse caso o texto de então é o único
+    /// que existe, e mostrá-lo é melhor do que mostrar a chave.
+    pub fn label_no_locale(&self) -> String {
+        match crate::car::PartType::from_str(&self.part) {
+            Some(pt) => crate::car::breakdown::problem_text(pt, self.problem, self.severity),
+            None => self.label.clone(),
+        }
+    }
+
+    /// A CHAVE de i18n desta quebra — o mesmo identificador que [`label_no_locale`] resolve,
+    /// só que sem resolver. É o que o resultado da corrida guarda em `race_results.dnf_reason_key`
+    /// (v68) quando o abandono foi por quebra, para o motivo do DNF deixar de congelar no idioma
+    /// da corrida.
+    ///
+    /// `None` para peça que esta versão não conhece mais — mesmo caso em que `label_no_locale`
+    /// cai na prosa gravada. Sem peça não há chave estável a guardar, e inventar uma seria pior
+    /// que ficar com o texto de então.
+    ///
+    /// [`label_no_locale`]: RaceBreakdownRow::label_no_locale
+    pub fn problem_key(&self) -> Option<String> {
+        crate::car::PartType::from_str(&self.part)
+            .map(|pt| crate::car::breakdown::problem_key(pt, self.problem, self.severity))
+    }
 }
 
 /// DDL da tabela, num lugar só — a baseline e a migração v62 executam esta MESMA constante.
@@ -137,7 +172,13 @@ mod tests {
         Connection::open_in_memory().unwrap()
     }
 
-    fn row(driver: &str, part: &str, lap: u32, sev: Severity, pen: Option<u32>) -> RaceBreakdownRow {
+    fn row(
+        driver: &str,
+        part: &str,
+        lap: u32,
+        sev: Severity,
+        pen: Option<u32>,
+    ) -> RaceBreakdownRow {
         RaceBreakdownRow {
             driver_id: driver.to_string(),
             part: part.to_string(),
@@ -175,8 +216,12 @@ mod tests {
     #[test]
     fn a_coluna_guarda_a_chave_estavel_e_nao_o_nome_da_variante() {
         let db = conn();
-        insert_breakdowns_batch(&db, "race-1", &[row("d1", "engine", 14, Severity::Dnf, None)])
-            .unwrap();
+        insert_breakdowns_batch(
+            &db,
+            "race-1",
+            &[row("d1", "engine", 14, Severity::Dnf, None)],
+        )
+        .unwrap();
         let sev: String = db
             .query_row("SELECT severity FROM race_breakdowns", [], |r| r.get(0))
             .unwrap();
@@ -187,8 +232,12 @@ mod tests {
     #[test]
     fn severidade_desconhecida_na_coluna_falha_a_leitura() {
         let db = conn();
-        insert_breakdowns_batch(&db, "race-1", &[row("d1", "engine", 14, Severity::Dnf, None)])
-            .unwrap();
+        insert_breakdowns_batch(
+            &db,
+            "race-1",
+            &[row("d1", "engine", 14, Severity::Dnf, None)],
+        )
+        .unwrap();
         db.execute("UPDATE race_breakdowns SET severity = 'DNF'", [])
             .unwrap();
         assert!(get_breakdowns_for_race(&db, "race-1").is_err());

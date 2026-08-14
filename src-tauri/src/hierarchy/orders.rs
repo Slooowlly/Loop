@@ -155,6 +155,47 @@ pub fn update_status(team: &mut Team) {
 
 // ── Passo 10 — Detectar gatilho de inversão ──────────────────────────────────
 
+/// O clima mínimo para a inversão acontecer.
+///
+/// **Era "crise", e "crise" é inalcançável.** As outras quatro condições do gatilho
+/// descrevem uma situação de pista concreta; esta quinta lê o MESMO eixo por outra régua,
+/// e "crise" mora em tensão ≥ 90. O harness [`gatilho_de_inversao_medido`] mediu onde a
+/// tensão de fato está no instante em que as quatro armam, em 20 mil temporadas de 14
+/// corridas por taxa:
+///
+/// | taxa do N2 | temporadas que armam | tensão ao armar | tensão MÁXIMA |
+/// |---|---|---|---|
+/// | 0,276 (média do mundo) | 0,27% | 45,2 | 61,5 |
+/// | 0,325 (topo do mundo)  | 0,76% | 46,6 | 79,5 |
+/// | 0,500 | 8,67% | 49,5 | 88,5 |
+/// | 0,800 (fora do mundo)  | 68,72% | 55,5 | 88,5 |
+///
+/// O teto é 88,5 mesmo com o N2 ganhando 80% dos duelos — uma taxa que o mundo simulado
+/// não produz. Não é amostra pobre: é aritmética. O ganho máximo de uma corrida é
+/// `n2_vence` + `bonus_seq_n2_5` = 18, e manter o gatilho armado exige a sequência de 5,
+/// então numa temporada de 14 corridas a soma não chega a 90. Com o gate em "crise",
+/// `has_inversao_trigger` NUNCA devolveu `true` em produção — e com ele morriam os dois
+/// consumidores de consequência do eixo: os efeitos de motivação
+/// ([`apply_inversao_driver_effects`]) e a sincronia do papel no contrato, que é o que o
+/// mercado lê ([`sync_contract_roles_after_inversao`]).
+///
+/// O piso passa a ser a faixa em que a tensão REALMENTE está quando as quatro armam —
+/// "tensão" (≥ 40) e acima. O gate continua filtrando (uma dupla que arma as quatro com
+/// o eixo ainda calmo não inverte), mas deixa de ser contradição. Na taxa mediana do
+/// mundo isso dá ~0,2% de temporada-equipe invertendo: com ~100 equipes, algo como uma
+/// inversão a cada cinco temporadas. Raro, que é o que o passo deve ser.
+///
+/// [`gatilho_de_inversao_medido`]: crate::hierarchy::tensao
+fn clima_permite_inversao(status: TeamHierarchyClimate) -> bool {
+    matches!(
+        status,
+        TeamHierarchyClimate::Tensao
+            | TeamHierarchyClimate::Reavaliacao
+            | TeamHierarchyClimate::Inversao
+            | TeamHierarchyClimate::Crise
+    )
+}
+
 /// Retorna `true` quando todas as condições para trocar N1/N2 estão satisfeitas.
 ///
 /// Esse passo apenas detecta — não executa a inversão.
@@ -164,7 +205,8 @@ pub fn update_status(team: &mut Team) {
 /// - N2 em sequência de ≥ 5 vitórias consecutivas
 /// - Temporada passou da metade (`rodada_atual * 2 > total_rounds`)
 /// - N2 venceu ≥ 65% dos duelos totais
-/// - Status atual é crise
+/// - Clima da equipe em "tensão" ou pior — ver [`clima_permite_inversao`] para por que
+///   este último não é mais "crise"
 pub fn has_inversao_trigger(team: &Team, rodada_atual: i32, total_rounds: i32) -> bool {
     let win_rate = n2_win_rate(
         team.hierarquia_duelos_total,
@@ -177,7 +219,7 @@ pub fn has_inversao_trigger(team: &Team, rodada_atual: i32, total_rounds: i32) -
         && team.hierarquia_sequencia_n2 >= 5
         && past_halfway
         && win_rate >= 0.65
-        && status == TeamHierarchyClimate::Crise
+        && clima_permite_inversao(status)
 }
 
 // ── Passo 11 — Executar a inversão ───────────────────────────────────────────
@@ -369,6 +411,11 @@ mod tests {
     // ── Passo 12b — sincronia do contrato ────────────────────────────────────
 
     /// Schema mínimo de `contracts` — só o necessário para `SELECT *` mapear.
+    ///
+    /// `temporada_inicio` e `temporada_fim` são TEXT aqui porque são TEXT na tabela real
+    /// ([`crate::db::migrations::baseline`]). Enquanto o fixture as declarava INTEGER, a
+    /// comparação lexicográfica ficava invisível: as temporadas 9, 10, 12 e 26 ordenavam
+    /// certo por acidente do tipo.
     fn contracts_only_db() -> Connection {
         let conn = Connection::open_in_memory().expect("db em memoria");
         conn.execute_batch(
@@ -378,9 +425,9 @@ mod tests {
                 piloto_nome TEXT NOT NULL,
                 equipe_id TEXT NOT NULL,
                 equipe_nome TEXT NOT NULL,
-                temporada_inicio INTEGER NOT NULL,
+                temporada_inicio TEXT NOT NULL,
                 duracao_anos INTEGER NOT NULL,
-                temporada_fim INTEGER NOT NULL,
+                temporada_fim TEXT NOT NULL,
                 salario REAL NOT NULL DEFAULT 0.0,
                 salario_anual REAL NOT NULL DEFAULT 0.0,
                 papel TEXT NOT NULL DEFAULT 'Numero2',
@@ -1012,10 +1059,8 @@ mod tests {
     /// temporadas sintéticas: 0,0% chegam à Crise mesmo com o N2 levando 95% dos
     /// duelos.
     ///
-    /// Sair disso é decisão de produto e mora em outros arquivos: baixar o limiar de
-    /// Crise (`models/team.rs`) ou deixar a tensão atravessar a virada
-    /// (`hierarchy/transition.rs`, hoje sempre reset). Enquanto for assim, este teste
-    /// guarda o fato; quando deixar de valer, ele quebra e cobra a atualização.
+    /// A Crise continua fora de alcance — e é POR ISSO que ela deixou de ser o gate.
+    /// O teto segue valendo; o que mudou é que o gatilho não depende mais dele.
     #[test]
     fn a_temporada_perfeita_do_n2_ainda_fica_longe_da_crise() {
         let mut team = sample_team("P001", "P002");
@@ -1034,20 +1079,52 @@ mod tests {
         assert_ne!(
             TeamHierarchyClimate::from_str(&team.hierarquia_status),
             TeamHierarchyClimate::Crise,
-            "a Crise virou alcançável numa temporada — o gatilho de inversão passou a \
-             existir, atualize este teste e o item A2.2"
+            "a Crise virou alcançável numa temporada — reveja `clima_permite_inversao`, \
+             que existe justamente porque ela não é"
         );
+
+        // O EIXO SAIU DO PAPEL. A temporada perfeita do N2 é o caso mais extremo que o
+        // jogo consegue montar; com o gate em Crise ela também não invertia, e o eixo de
+        // tensão inteiro terminava sem uma única consequência.
         assert!(
-            !has_inversao_trigger(&team, 14, 14),
-            "o gatilho de inversão passou a disparar; reveja o teto e o limiar de Crise"
+            has_inversao_trigger(&team, 14, 14),
+            "a temporada perfeita do N2 tem que inverter a hierarquia"
         );
     }
 
+    /// O gate NÃO virou decoração: uma dupla que arma as quatro condições concretas com o
+    /// eixo ainda calmo continua sem inverter. É o que sobra de filtro depois que a Crise
+    /// saiu — e o que impede a inversão de virar consequência automática do placar.
     #[test]
-    fn test_has_inversao_trigger_status_nao_crise() {
-        let mut team = team_gatilho_inversao();
-        team.hierarquia_tensao = 80.0;
-        team.hierarquia_status = "inversao".to_string();
-        assert!(!has_inversao_trigger(&team, 9, 14));
+    fn clima_calmo_ainda_segura_a_inversao() {
+        for (tensao, status) in [(10.0, "estavel"), (30.0, "competitivo")] {
+            let mut team = team_gatilho_inversao();
+            team.hierarquia_tensao = tensao;
+            team.hierarquia_status = status.to_string();
+            assert!(
+                !has_inversao_trigger(&team, 9, 14),
+                "clima {status} não devia permitir inversão"
+            );
+        }
+    }
+
+    /// E a faixa que o harness mediu no instante em que as quatro armam (45 a 56, ou seja
+    /// "tensão") passa. Era ela que o gate em Crise recusava.
+    #[test]
+    fn a_faixa_medida_no_instante_do_gatilho_permite_inversao() {
+        for (tensao, status) in [
+            (45.0, "tensao"),
+            (55.0, "tensao"),
+            (70.0, "reavaliacao"),
+            (80.0, "inversao"),
+        ] {
+            let mut team = team_gatilho_inversao();
+            team.hierarquia_tensao = tensao;
+            team.hierarquia_status = status.to_string();
+            assert!(
+                has_inversao_trigger(&team, 9, 14),
+                "clima {status} (tensão {tensao}) tinha que permitir inversão"
+            );
+        }
     }
 }

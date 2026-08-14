@@ -1,17 +1,24 @@
 use super::*;
 
-/// Desenha uma volta inteira a um ritmo constante e a fecha.
+/// Desenha uma volta inteira a um ritmo constante e a fecha nos dois tempos reais: a curva sai
+/// de cena na virada, o tempo chega depois.
 ///
 /// Amostra DENSO, como a telemetria a 60 Hz: dez amostras por balde. Um por balde parecia
 /// suficiente e não é — `3/200 * 200` dá 2,9999999999999996 em ponto flutuante, e o balde 3
 /// ficava vazio. Foi assim que a fragilidade do piso de cobertura apareceu.
 fn volta(v: &mut VoltaReferencia, tempo_s: f64) {
+    desenhar(v, tempo_s);
+    v.suspender_volta();
+    v.confirmar_suspensa(tempo_s);
+}
+
+/// Só o desenho, sem fechar. Serve aos casos que precisam mexer na curva antes da virada.
+fn desenhar(v: &mut VoltaReferencia, tempo_s: f64) {
     let amostras = BALDES * 10;
     for i in 0..amostras {
         let pct = i as f64 / amostras as f64;
         v.amostrar(pct, pct * tempo_s);
     }
-    v.fechar_volta(tempo_s);
 }
 
 #[test]
@@ -57,7 +64,8 @@ fn volta_com_buraco_nao_vira_referencia() {
         let pct = i as f64 / amostras as f64;
         v.amostrar(pct, pct * 90.0);
     }
-    v.fechar_volta(90.0);
+    v.suspender_volta();
+    v.confirmar_suspensa(90.0);
     assert!(!v.tem_referencia(), "meia volta virou referência");
 }
 
@@ -72,7 +80,8 @@ fn o_primeiro_valor_do_balde_e_que_vale() {
         v.amostrar(pct, pct * 90.0);
         v.amostrar(pct, pct * 90.0 + 5.0); // segunda passagem, mais tarde
     }
-    v.fechar_volta(90.0);
+    v.suspender_volta();
+    v.confirmar_suspensa(90.0);
     assert!(v.delta_s(0.5, 45.0).unwrap().abs() < 0.5);
 }
 
@@ -111,10 +120,13 @@ fn um_quadro_perdido_nao_derruba_a_volta() {
         }
         v.amostrar(pct, pct * 90.0);
     }
-    v.fechar_volta(90.0);
+    v.suspender_volta();
+    v.confirmar_suspensa(90.0);
     assert!(v.tem_referencia(), "um buraco de 1% derrubou a volta");
     // E o buraco foi interpolado, não deixado em zero — que produziria delta absurdo ali.
-    let d = v.delta_s(0.41, 0.41 * 90.0).expect("sem delta no trecho interpolado");
+    let d = v
+        .delta_s(0.41, 0.41 * 90.0)
+        .expect("sem delta no trecho interpolado");
     assert!(d.abs() < 0.5, "o buraco não foi interpolado: delta {d}");
 }
 
@@ -128,6 +140,68 @@ fn descartar_nao_apaga_a_referencia() {
     v.descartar_volta();
     assert!(v.tem_referencia());
     assert!(v.delta_s(0.5, 45.0).is_some());
+}
+
+#[test]
+fn confirmar_a_suspensa_nao_apaga_a_volta_em_curso() {
+    // O defeito que a suspensão evita. O tempo oficial chega alguns décimos DEPOIS da virada, e
+    // nesse intervalo a volta seguinte já está sendo desenhada. O fecho num passo só terminava
+    // descartando o desenho: a volta nova perdia o começo e era reprovada no piso de cobertura,
+    // então a melhor volta da sessão simplesmente não entrava.
+    let mut v = VoltaReferencia::novo();
+    let amostras = BALDES * 10;
+
+    desenhar(&mut v, 95.0);
+    v.suspender_volta();
+
+    // Os primeiros 10% da volta seguinte, desenhados enquanto o tempo da anterior não chega.
+    for i in 0..(amostras / 10) {
+        let pct = i as f64 / amostras as f64;
+        v.amostrar(pct, pct * 90.0);
+    }
+    v.confirmar_suspensa(95.0);
+    // O resto dela, já com a anterior confirmada.
+    for i in (amostras / 10)..amostras {
+        let pct = i as f64 / amostras as f64;
+        v.amostrar(pct, pct * 90.0);
+    }
+    v.suspender_volta();
+    v.confirmar_suspensa(90.0);
+
+    assert!(
+        (v.melhor_s() - 90.0).abs() < 1e-9,
+        "a volta de 90 s perdeu o começo e foi reprovada na cobertura: melhor {}",
+        v.melhor_s()
+    );
+}
+
+#[test]
+fn suspensa_sem_tempo_nao_atrasa_a_referencia_em_uma_volta() {
+    // O tempo pode nunca chegar (volta anulada pelo sim sem cronômetro nosso). A suspensa velha
+    // não pode sobreviver até a próxima confirmação: ela casaria a curva de uma volta com o
+    // relógio da seguinte, que é o mesmo par trocado que o ciclo de volta existe para matar.
+    let mut v = VoltaReferencia::novo();
+    desenhar(&mut v, 95.0);
+    v.suspender_volta(); // volta lenta, tempo nunca confirmado
+    desenhar(&mut v, 90.0);
+    v.suspender_volta(); // volta rápida, esta é a que vai receber o tempo
+    v.confirmar_suspensa(90.0);
+
+    assert!((v.melhor_s() - 90.0).abs() < 1e-9);
+    // A curva guardada é a de 90 s: no meio da volta ela marca ~45 s, não ~47,5 s.
+    let d = v.delta_s(0.5, 45.0).expect("há referência");
+    assert!(d.abs() < 0.5, "a curva ficou a da volta anterior: {d}");
+}
+
+#[test]
+fn confirmar_sem_suspensa_nao_faz_nada() {
+    // A volta de preparação e a volta suja nem chegam a ser suspensas, e o ciclo de volta do
+    // monitor entrega o tempo delas do mesmo jeito. Aceitar aqui faria a curva da tentativa
+    // ANTERIOR ser regravada com o tempo do passeio de saída do box.
+    let mut v = VoltaReferencia::novo();
+    volta(&mut v, 90.0);
+    v.confirmar_suspensa(70.0);
+    assert!((v.melhor_s() - 90.0).abs() < 1e-9);
 }
 
 #[test]

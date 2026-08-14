@@ -50,7 +50,7 @@ function PlayerSkillLockedRow({ attr }) {
     : 0;
 
   return (
-    <div className="grid gap-1.5 rounded-lg border border-white/6 bg-black/10 px-3 py-2.5">
+    <div className="grid gap-1.5 rounded-lg border border-white/[0.06] bg-black/10 px-3 py-2.5">
       <div className="flex items-center justify-between gap-3">
         <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#6e7681]">
           <span aria-hidden="true">🔒</span>
@@ -157,7 +157,7 @@ export function PlayerSkillSection({ SectionComponent, careerId }) {
         </div>
 
         {loading ? (
-          <div className="rounded-xl border border-white/6 bg-black/10 p-4 text-sm text-[#7d8590]">
+          <div className="rounded-xl border border-white/[0.06] bg-black/10 p-4 text-sm text-[#7d8590]">
             {t("driverDetail.playerSkill.loading")}
           </div>
         ) : error ? (
@@ -179,7 +179,7 @@ export function PlayerSkillSection({ SectionComponent, careerId }) {
             </div>
           </>
         ) : (
-          <div className="rounded-xl border border-white/6 bg-black/10 p-4 text-sm text-[#7d8590]">
+          <div className="rounded-xl border border-white/[0.06] bg-black/10 p-4 text-sm text-[#7d8590]">
             {t("driverDetail.playerSkill.noHistory")}
           </div>
         )}

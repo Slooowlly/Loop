@@ -426,8 +426,35 @@ fn sem_zero_negativo(valor: f64) -> f64 {
 /// Este número **substitui** `finance::planning::CategoryFinanceScale::operating_cost_midpoint`
 /// como referência — e diverge dele de propósito. A tabela velha é o que está sob suspeita;
 /// nada aqui foi escolhido para chegar perto dela.
+///
+/// Memoizado por divisão, pelo mesmo motivo e com o mesmo padrão de
+/// [`faixa_de_custo_operacional_anual`] — ver [`memo_do_anual`].
 pub fn custo_operacional_anual_de_referencia(categoria: &str, classe: Option<&str>) -> f64 {
-    decomposicao_anual(categoria, classe).total()
+    *memo_do_anual()
+        .entry(competitive_division_key(categoria, classe))
+        .or_insert_with(|| decomposicao_anual(categoria, classe).total())
+}
+
+/// Memo do custo operacional anual por divisão.
+///
+/// A função é pura por divisão: [`decomposicao_anual`] monta a temporada de uma equipe
+/// MEDIANA (`EquipeNaTemporada::default()`) sobre tabelas constantes, sem tocar em save, em
+/// ambiente ou em locale. Nada do estado do jogo entra, então o resultado de uma divisão
+/// nunca muda dentro do processo.
+///
+/// Sem o memo cada chamada remonta a temporada inteira — a fatura de recorrentes mais uma
+/// fatura por etapa do calendário. E ela é chamada de todo lugar: `faixa_de_caixa`,
+/// `caixa_para_meses`, `meses_de_operacao` e, por eles, `finance::state` e
+/// `finance::planning`, que rodam por equipe e por rodada. A faixa já era memoizada; o
+/// ponto médio, que é o consumidor mais quente dos dois, não era.
+///
+/// O `or_insert_with` calcula com o cadeado na mão, e isso é seguro porque
+/// [`decomposicao_anual`] não reentra aqui — nem ela nem `economia::evento` consultam a
+/// âncora anual. Mesma condição que [`memo_da_faixa`] já sustenta.
+fn memo_do_anual() -> std::sync::MutexGuard<'static, HashMap<String, f64>> {
+    static MEMO: std::sync::LazyLock<std::sync::Mutex<HashMap<String, f64>>> =
+        std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+    MEMO.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// A FAIXA do custo operacional anual da divisão: `(enxuta, encorpada)`.

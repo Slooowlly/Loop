@@ -289,6 +289,126 @@ fn test_cannot_accept_offer_from_other_season() {
     assert!(error.contains("nao encontrada"));
 }
 
+/// Insere uma oferta pendente cuja `special_category` NÃO é production/endurance, que
+/// são as duas que `accept_player_special_offer_tx` recusa na primeira linha. É o único
+/// jeito de exercitar o corpo transacional do aceite: com as categorias de produção a
+/// função devolve `Err` antes de tocar no banco.
+fn insert_offer_com_categoria_aceitavel(base_dir: &Path, offer_id: &str) -> (String, String) {
+    let db_path = career_db_path(base_dir, "career_001");
+    let db = Database::open_existing(&db_path).expect("open db");
+    let player = driver_queries::get_player_driver(&db.conn).expect("player");
+    let season = season_queries::get_active_season(&db.conn)
+        .expect("active season")
+        .expect("season");
+    let team = team_queries::get_teams_by_category_and_class(&db.conn, "endurance", "gt4")
+        .expect("endurance gt4 teams")
+        .into_iter()
+        .next()
+        .expect("endurance gt4 team");
+
+    db.conn
+        .execute(
+            "INSERT INTO player_special_offers (
+                    id, season_id, player_driver_id, team_id, team_name,
+                    special_category, class_name, papel, status, created_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![
+                offer_id,
+                &season.id,
+                &player.id,
+                &team.id,
+                &team.nome,
+                "convite_teste",
+                "gt4",
+                TeamRole::Numero1.as_str(),
+                "Pendente",
+                crate::common::time::current_timestamp(),
+            ],
+        )
+        .expect("insert offer com categoria aceitavel");
+
+    (player.id, team.id)
+}
+
+/// O aceite LÊ (contrato especial ativo, equipe, contrato do substituído) e só então
+/// ESCREVE, tudo na mesma transação. Este caso trava as duas pontas do que a troca de
+/// DEFERRED para IMMEDIATE precisa preservar: a sequência SELECT→WRITE completa dentro
+/// da transação, e o desfazimento integral quando ela volta atrás sem commit.
+#[test]
+fn test_aceite_faz_select_e_write_na_mesma_transacao_e_desfaz_tudo_no_rollback() {
+    let base_dir = create_test_base_dir("aceite_rollback");
+    seed_special_offer_career(&base_dir);
+    let (player_id, team_id) = insert_offer_com_categoria_aceitavel(&base_dir, "PSO-TX");
+
+    let db_path = career_db_path(&base_dir, "career_001");
+    let mut db = Database::open_existing(&db_path).expect("open db");
+    let player = driver_queries::get_player_driver(&db.conn).expect("player");
+    let season = season_queries::get_active_season(&db.conn)
+        .expect("active season")
+        .expect("season");
+    let offer = get_player_special_offer_by_id_for_season(&db.conn, &season.id, "PSO-TX")
+        .expect("offer query")
+        .expect("offer");
+    // Linha de base do lineup, para comparar depois do rollback.
+    let piloto_1_antes = team_queries::get_team_by_id(&db.conn, &team_id)
+        .expect("equipe antes")
+        .expect("equipe")
+        .piloto_1_id;
+
+    // Mesmo comportamento que os dois call sites de produção usam.
+    let tx = db
+        .conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .expect("begin immediate");
+    accept_player_special_offer_tx(&tx, &player, &season, &offer).expect("aceite dentro da tx");
+
+    // DENTRO da transação as escritas já valem: o SELECT→WRITE completou.
+    let dentro = get_player_special_offer_by_id_for_season(&tx, &season.id, "PSO-TX")
+        .expect("offer query dentro da tx")
+        .expect("offer dentro da tx");
+    assert_eq!(dentro.status, "Aceita");
+    assert!(
+        contract_queries::has_active_especial_contract(&tx, &player_id)
+            .expect("contrato especial dentro da tx"),
+        "o aceite deveria ter criado o contrato especial dentro da transação"
+    );
+    let equipe_dentro = team_queries::get_team_by_id(&tx, &team_id)
+        .expect("equipe dentro da tx")
+        .expect("equipe");
+    assert_eq!(
+        equipe_dentro.piloto_1_id.as_deref(),
+        Some(player_id.as_str())
+    );
+
+    // Sem commit: descartar a transação tem que apagar TODAS as escritas acima.
+    drop(tx);
+
+    let offer_depois = get_player_special_offer_by_id_for_season(&db.conn, &season.id, "PSO-TX")
+        .expect("offer query depois do rollback")
+        .expect("offer depois do rollback");
+    assert_eq!(
+        offer_depois.status, "Pendente",
+        "o rollback tem que devolver a oferta para pendente"
+    );
+    assert!(
+        !contract_queries::has_active_especial_contract(&db.conn, &player_id)
+            .expect("contrato especial depois do rollback"),
+        "o contrato especial não pode sobreviver ao rollback"
+    );
+    let equipe_depois = team_queries::get_team_by_id(&db.conn, &team_id)
+        .expect("equipe depois do rollback")
+        .expect("equipe");
+    assert_eq!(
+        equipe_depois.piloto_1_id, piloto_1_antes,
+        "o lineup da equipe tem que voltar ao que era antes da transação"
+    );
+    let jogador_depois = driver_queries::get_player_driver(&db.conn).expect("player depois");
+    assert!(
+        jogador_depois.categoria_especial_ativa.is_none(),
+        "a categoria especial do jogador não pode sobreviver ao rollback"
+    );
+}
+
 #[test]
 fn test_special_window_state_starts_on_day_one_with_daily_payload() {
     let base_dir = create_test_base_dir("window_state_day_one");

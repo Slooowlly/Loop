@@ -68,19 +68,9 @@ pub(crate) fn get_team_finance_report_in_base_dir(
     let (expected_constructor_prize, current_position, grid_size) =
         match get_teams_standings_in_base_dir(base_dir, career_id, &category) {
             Ok(standings) => {
-                let grid_size = standings.len() as i32;
-                match standings.iter().find(|s| s.id == team_id) {
-                    Some(standing) => (
-                        crate::finance::prize::constructor_prize(
-                            &category,
-                            standing.posicao,
-                            grid_size,
-                        ),
-                        standing.posicao,
-                        grid_size,
-                    ),
-                    None => (0.0, 0, grid_size),
-                }
+                let grid: Vec<(String, Option<String>)> =
+                    standings.into_iter().map(|s| (s.id, s.classe)).collect();
+                projecao_do_premio(&category, &grid, team_id)
             }
             Err(_) => (0.0, 0, 0),
         };
@@ -94,6 +84,63 @@ pub(crate) fn get_team_finance_report_in_base_dir(
         current_position,
         grid_size,
     })
+}
+
+/// Projeção do prêmio de construtores no GRUPO DE CAMPEONATO real da equipe:
+/// `(prêmio, posição, tamanho do grid)`.
+///
+/// `grid` é a classificação da categoria em ordem, cada entrada com o id da equipe e a
+/// classe dela.
+///
+/// # O que estava mostrado, e o que era pago
+///
+/// A projeção lia a posição e o grid da CATEGORIA inteira e pedia o prêmio sem classe. No
+/// Endurance as três leituras erravam de uma vez: a equipe aparecia em 14º de 18 quando o
+/// campeonato dela tem 6 carros, e o valor vinha da âncora da divisão de referência. Quem
+/// paga ([`crate::evolution::pipeline`], sobre `team_season_archive`) sempre numerou por
+/// classe. Recortar o grupo aqui é o que faz o número mostrado ser o mesmo número pago —
+/// não uma segunda conta com a mesma cara.
+///
+/// O recorte por classe vale só para as categorias multi-classe, que é exatamente onde
+/// `world::team_archive::constructor_ranking_group_key` também o aplica.
+fn projecao_do_premio(
+    categoria: &str,
+    grid: &[(String, Option<String>)],
+    team_id: &str,
+) -> (f64, i32, i32) {
+    let normaliza = |classe: &Option<String>| -> Option<String> {
+        classe
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .map(str::to_string)
+    };
+
+    let Some((_, classe_da_equipe)) = grid.iter().find(|(id, _)| id == team_id) else {
+        return (0.0, 0, grid.len() as i32);
+    };
+    let classe = normaliza(classe_da_equipe);
+
+    // A ordem do `grid` é a da classificação, então filtrar preserva o ranking: a posição
+    // na classe é o índice dentro do grupo.
+    let grupo: Vec<&(String, Option<String>)> = if categories::is_multiclass_category(categoria) {
+        grid.iter()
+            .filter(|(_, c)| normaliza(c) == classe)
+            .collect()
+    } else {
+        grid.iter().collect()
+    };
+
+    let grid_size = grupo.len() as i32;
+    let posicao = grupo
+        .iter()
+        .position(|(id, _)| id == team_id)
+        .map(|indice| indice as i32 + 1)
+        .unwrap_or(0);
+
+    let premio =
+        crate::finance::prize::constructor_prize(categoria, classe.as_deref(), posicao, grid_size);
+    (premio, posicao, grid_size)
 }
 
 /// Uma linha do ledger virando a linha que a tela lê.
@@ -237,6 +284,101 @@ mod tests {
                 r.structural_maintenance_cost
             );
         }
+    }
+
+    fn grid_do_endurance() -> Vec<(String, Option<String>)> {
+        // Ordem da classificação da categoria inteira, três classes intercaladas — que é
+        // como o Endurance chega da `get_teams_standings_in_base_dir`.
+        [
+            ("T_LMP2_A", "lmp2"),
+            ("T_GT3_A", "gt3"),
+            ("T_LMP2_B", "lmp2"),
+            ("T_GT4_A", "gt4"),
+            ("T_GT3_B", "gt3"),
+            ("T_GT4_B", "gt4"),
+            ("T_LMP2_C", "lmp2"),
+            ("T_GT4_C", "gt4"),
+            ("T_GT3_C", "gt3"),
+        ]
+        .into_iter()
+        .map(|(id, classe)| (id.to_string(), Some(classe.to_string())))
+        .collect()
+    }
+
+    /// **O mostrado é o pago.** A projeção do dossiê tem que devolver exatamente o que
+    /// `evolution::pipeline::award_constructor_prizes` creditaria com a mesma classificação:
+    /// mesma classe, mesma posição DENTRO da classe e mesmo tamanho de grid.
+    ///
+    /// Antes a tela lia a categoria inteira: a T_GT4_C aparecia em 8º de 9 e recebia a
+    /// projeção da divisão de referência do Endurance, enquanto o caixa dela ia receber o
+    /// prêmio de 3º de 3 na escala do GT4. Duas contas com a mesma cara, e nenhuma das duas
+    /// era a que o jogador ia ver no extrato.
+    #[test]
+    fn a_projecao_do_dossie_bate_com_o_premio_que_o_pipeline_paga() {
+        let grid = grid_do_endurance();
+
+        for (team_id, classe, posicao_na_classe) in [
+            ("T_GT4_A", "gt4", 1),
+            ("T_GT4_C", "gt4", 3),
+            ("T_GT3_B", "gt3", 2),
+            ("T_LMP2_A", "lmp2", 1),
+        ] {
+            let (premio, posicao, grid_size) = projecao_do_premio("endurance", &grid, team_id);
+
+            assert_eq!(grid_size, 3, "{team_id}: o grid do prêmio é o da classe");
+            assert_eq!(posicao, posicao_na_classe, "{team_id}: posição na classe");
+
+            // A MESMA chamada que `award_constructor_prizes` faz sobre o arquivo.
+            let pago =
+                crate::finance::prize::constructor_prize("endurance", Some(classe), posicao, 3);
+            assert!(
+                (premio - pago).abs() < 1e-6,
+                "{team_id}: o dossiê mostra {premio:.0} e o pipeline paga {pago:.0}"
+            );
+        }
+    }
+
+    /// As três classes não podem projetar o mesmo número na mesma posição — é o sintoma
+    /// visível do prêmio cego para a classe, e ele aparecia na tela antes de aparecer no
+    /// caixa.
+    #[test]
+    fn as_classes_do_endurance_projetam_premios_diferentes_na_mesma_posicao() {
+        let grid = grid_do_endurance();
+
+        let (gt4, _, _) = projecao_do_premio("endurance", &grid, "T_GT4_A");
+        let (gt3, _, _) = projecao_do_premio("endurance", &grid, "T_GT3_A");
+        let (lmp2, _, _) = projecao_do_premio("endurance", &grid, "T_LMP2_A");
+
+        assert!(
+            gt4 < gt3 && gt3 < lmp2,
+            "as três líderes de classe projetaram gt4 {gt4:.0}, gt3 {gt3:.0}, lmp2 {lmp2:.0}"
+        );
+    }
+
+    /// Categoria de classe única continua lendo o grid inteiro — o recorte por classe não
+    /// pode inventar grupos onde o campeonato é um só.
+    #[test]
+    fn categoria_monoclasse_projeta_sobre_o_grid_inteiro() {
+        let grid: Vec<(String, Option<String>)> =
+            (1..=12).map(|i| (format!("T{i:03}"), None)).collect();
+
+        let (premio, posicao, grid_size) = projecao_do_premio("gt3", &grid, "T004");
+
+        assert_eq!(grid_size, 12);
+        assert_eq!(posicao, 4);
+        let esperado = crate::finance::prize::constructor_prize("gt3", None, 4, 12);
+        assert!((premio - esperado).abs() < 1e-6);
+    }
+
+    /// Equipe fora da classificação (save meio migrado, equipe recém-chegada) devolve
+    /// projeção neutra em vez de um número inventado.
+    #[test]
+    fn equipe_fora_da_classificacao_projeta_zero() {
+        let grid = grid_do_endurance();
+        let (premio, posicao, _) = projecao_do_premio("endurance", &grid, "T_FANTASMA");
+
+        assert_eq!(premio, 0.0);
+        assert_eq!(posicao, 0);
     }
 
     /// O acumulado é a soma das rodadas DA TEMPORADA pedida, e `round` carrega a contagem.

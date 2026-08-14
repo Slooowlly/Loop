@@ -1,4 +1,15 @@
 //! Consultas de leitura de contratos (por piloto, equipe, categoria e temporada).
+//!
+//! `temporada_inicio` e `temporada_fim` são colunas **TEXT** na tabela real
+//! ([`crate::db::migrations::baseline`]), mesmo carregando número. Toda comparação
+//! e toda ordenação por elas passa por `CAST(... AS INTEGER)`, sem exceção: em TEXT
+//! o SQLite compara lexicograficamente, e aí `'10' < '9'` e `'26' < '9'`.
+//!
+//! A afinidade contamina até o parâmetro ligado: coluna TEXT contra `?1` inteiro
+//! empurra o parâmetro para TEXT. Numa igualdade isso acerta enquanto os dois lados
+//! escreverem o número igual, e é só nisso que a igualdade sem CAST se apoia. Numa
+//! desigualdade ou num `ORDER BY` o acerto acaba na primeira temporada de dois
+//! dígitos.
 
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -26,7 +37,7 @@ pub fn get_active_contract_for_pilot(
     let mut stmt = conn.prepare(&format!(
         "SELECT {} FROM contracts
          WHERE piloto_id = ?1 AND status = 'Ativo'
-         ORDER BY temporada_inicio DESC, created_at DESC
+         ORDER BY CAST(temporada_inicio AS INTEGER) DESC, created_at DESC
          LIMIT 1",
         colunas_select_contract()
     ))?;
@@ -43,7 +54,7 @@ pub fn get_contracts_for_pilot(
     let mut stmt = conn.prepare(&format!(
         "SELECT {} FROM contracts
          WHERE piloto_id = ?1
-         ORDER BY temporada_inicio DESC, created_at DESC",
+         ORDER BY CAST(temporada_inicio AS INTEGER) DESC, created_at DESC",
         colunas_select_contract()
     ))?;
     let mapped = stmt.query_map(params![piloto_id], contract_from_row)?;
@@ -65,8 +76,8 @@ pub fn get_former_teammates(
          JOIN contracts c2
            ON c1.equipe_id = c2.equipe_id
           AND c2.piloto_id <> c1.piloto_id
-          AND c2.temporada_inicio <= c1.temporada_fim
-          AND c2.temporada_fim >= c1.temporada_inicio
+          AND CAST(c2.temporada_inicio AS INTEGER) <= CAST(c1.temporada_fim AS INTEGER)
+          AND CAST(c2.temporada_fim AS INTEGER) >= CAST(c1.temporada_inicio AS INTEGER)
          WHERE c1.piloto_id = ?1",
     )?;
     let rows = stmt
@@ -196,7 +207,7 @@ pub fn get_active_regular_contract_for_pilot(
     let mut stmt = conn.prepare(&format!(
         "SELECT {} FROM contracts
          WHERE piloto_id = ?1 AND status = 'Ativo' AND tipo = 'Regular'
-         ORDER BY temporada_inicio DESC, created_at DESC
+         ORDER BY CAST(temporada_inicio AS INTEGER) DESC, created_at DESC
          LIMIT 1",
         colunas_select_contract()
     ))?;

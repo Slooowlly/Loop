@@ -244,6 +244,14 @@ pub(crate) fn limites_da_banda(min: f64, max: f64) -> (i64, i64) {
 /// `target_track_id` (opcional) = a pista da corrida que vai ser disputada: aplica
 /// a margem por pista no teto de skill. None → só o teto do tier (sem offset).
 ///
+/// **Não recebe `car_key`** e **não lê `duracao_corrida_min` da categoria.** As duas coisas
+/// vinham de fontes que aceitavam lixo em silêncio: a `car_key` era adivinhada por
+/// substring no frontend e caía em `mx5` por `else`, e a constante da categoria é a
+/// SENTINELA `0` no Endurance, que viraria `race_length: 0` no arquivo. Hoje o carro sai de
+/// [`super::exportavel::car_key_da_categoria`] e a duração da cascata canônica
+/// ([`crate::calendar::duracao_efetiva`]), reduzida ao único `race_length` que o
+/// formato aceita por [`super::exportavel::race_length_da_temporada`].
+///
 /// **Escreve no save.** O nome promete gerar um arquivo, e ele também faz um `UPDATE` em
 /// `calendar` gravando clima e temperatura de cada etapa. É deliberado: a história do
 /// clima é determinística e precisa de UMA fonte, senão a UI, a simulação offline e o que
@@ -255,7 +263,6 @@ pub fn iracing_generate_season(
     career_id: String,
     categoria: String,
     roster_name: String,
-    car_key: String,
     target_track_id: Option<i64>,
     // Modo TESTE: aiseason "zerado" (sem resultados) com a corrida 1 usando o clima
     // roteirizado da 1ª corrida — pra visualizar o roteiro no menu do iRacing.
@@ -272,8 +279,11 @@ pub fn iracing_generate_season(
     use crate::iracing_sdk::{paths, results_gen, roster_gen, season_gen};
     use tauri::Manager;
 
+    // MESMA fonte que o roster usa — os dois arquivos precisam falar do mesmo carro, e é
+    // por isso que nenhum dos dois aceita mais a chave vinda de fora.
+    let car_key = super::exportavel::car_key_da_categoria(&categoria)?;
     let car =
-        roster_gen::car_spec(&car_key).ok_or_else(|| format!("Carro desconhecido: {car_key}"))?;
+        roster_gen::car_spec(car_key).ok_or_else(|| format!("Carro desconhecido: {car_key}"))?;
     let cat = get_category_config(&categoria)
         .ok_or_else(|| format!("Categoria desconhecida: {categoria}"))?;
 
@@ -319,7 +329,25 @@ pub fn iracing_generate_season(
     // Por ora a timeline só "segura" a condição da etapa (a carreira ainda não
     // modela evolução); a ESTRUTURA dinâmica fica provada e pronta para evoluir.
     let custid = iracing_sdk::cached_custid().unwrap_or(0);
-    let race_end = cat.duracao_corrida_min as i64;
+    // Duração do arquivo pela cascata canônica de cada ETAPA, reduzida ao único valor que o
+    // formato aceita. Só as etapas que de fato viram evento entram na conta — a mesma
+    // condição do `free_or_substitute` do laço abaixo, senão uma pista paga fora do export
+    // poderia derrubar a temporada inteira por divergir de duração.
+    //
+    // Aqui morrem os dois zeros: a sentinela `0` da categoria (que este comando lia direto)
+    // e a etapa gravada sem duração em save antigo. Nenhum dos dois alcança o `race_length`.
+    let duracoes_exportadas: Vec<crate::car::breakdown::DuracaoDeProva> = entries
+        .iter()
+        .filter(|entry| free_or_substitute(entry.track_id).is_some())
+        .map(|entry| entry.duracao_efetiva())
+        .collect();
+    if duracoes_exportadas.is_empty() {
+        return Err(format!(
+            "Calendário da categoria '{categoria}' está vazio — nada para exportar."
+        ));
+    }
+    let race_end =
+        super::exportavel::race_length_da_temporada(&duracoes_exportadas)?.minutos() as i64;
     // 1ª corrida do save = nenhuma etapa concluída ainda (roteiro especial do clima).
     let career_first_race = entries
         .iter()
@@ -459,11 +487,11 @@ pub fn iracing_generate_season(
         }
     }
     let _ = substituted; // (contagem de substituições — reservado p/ UI/log futuro)
-    if events.is_empty() {
-        return Err(format!(
-            "Calendário da categoria '{categoria}' está vazio — nada para exportar."
-        ));
-    }
+    debug_assert_eq!(
+        events.len(),
+        duracoes_exportadas.len(),
+        "o filtro de pista do laço tem que casar com o que entrou na conta da duração"
+    );
 
     // Faixa de skill — RÉGUA ASSIMÉTRICA por tier. O iRacing ESTICA a ordem do grid
     // para preencher [minSkill, maxSkill]:
@@ -640,7 +668,8 @@ pub fn iracing_generate_season(
         name: name.clone(),
         car_id: car.car_id,
         car_class_id: car.car_class_id,
-        race_length_min: cat.duracao_corrida_min as i64,
+        // A duração já resolvida acima (nunca a sentinela da categoria).
+        race_length_min: race_end,
         max_drivers,
         min_skill,
         max_skill,

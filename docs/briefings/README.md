@@ -6,10 +6,8 @@ arquivo inteiro a uma sessão separada — não precisa de contexto desta conver
 
 | # | briefing | área | tam | depende de |
 |---|---|---|---|---|
-| F-07 | [Espectadores e interesse de evento](F07-espectadores-interesse.md) | Rust + Frontend | M | nada (leia o R3 antes de unificar presença) |
 | D-09 | [Despacho de R1 / R2 / R4](D09-despacho-r1-r2-r4.md) | Rust | G | ver o guia |
 
-**Podem rodar em paralelo:** F-07 e o R4. São áreas disjuntas.
 **Nunca em paralelo:** R1 e R2, que tocam os mesmos arquivos de `narrative/`.
 
 **Removidos na limpeza de 11/08/2026**, porque o trabalho fechou e o briefing virou pergunta
@@ -20,8 +18,17 @@ respondida:
 - `F10-escopo-iracing.md`: o F-10 foi **decidido** em 27/07/2026, e a saída dele é o
   [iracing-escopo.md](../iracing-escopo.md), que é o documento oficial da área. O retrato do
   que existe hoje está no [DESIGN.md](../DESIGN.md) §19.
+- `F07-espectadores-interesse.md`: o F-07 está **feito**. O retrato do ciclo fechado (card de
+  interesse esperado na Sala de Estratégia, repercussão no resultado, presença pública na
+  Minha Equipe) está no [DESIGN.md](../DESIGN.md) §17.1. ⚠️ **Vale ler o que o briefing errou**,
+  porque é o erro de método mais comum deste repo: ele descrevia como pendente a fatia P1
+  (repercussão pós-corrida) e a P2 (presença pública da equipe), e as duas já estavam
+  implementadas quando foi despachado. Só a terceira coisa faltava, e ela não era nenhuma das
+  duas fatias — era a exibição rica do interesse ESPERADO, que o `DESIGN.md` §17.1 pedia e o
+  briefing não listou como trabalho. Briefing envelhece; confira cada fatia contra o código
+  antes de escrever uma linha.
 
-Os dois continuam recuperáveis pelo histórico do git.
+Os três continuam recuperáveis pelo histórico do git.
 
 Os briefings da varredura de acoplamento ficam em
 [../varredura-acoplamento/](../varredura-acoplamento/) e seguem válidos; o D-09 aqui é só

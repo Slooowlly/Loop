@@ -233,6 +233,9 @@ function MainMenu({ intro = false }) {
   const [panelAnchor, setPanelAnchor] = useState(0);
   const [panelClosing, setPanelClosing] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
+  // A carreira escolhida não abriu. Fica no menu, e não no painel de saves: os dois caminhos
+  // que entram numa carreira ("Continuar" e a lista) desembocam aqui.
+  const [erroAoEntrar, setErroAoEntrar] = useState(false);
   const closeTimer = useRef(null);
 
   // Fecha com animacao: marca closing, e desmonta so quando a anim termina.
@@ -538,8 +541,14 @@ function MainMenu({ intro = false }) {
   }
 
   // Entrar numa carreira (continuar / carregar save) = zoom + dashboard.
+  //
+  // A falha aqui é a de um save corrompido ou de um banco que não abre, e o `catch` só
+  // desfazia a animação: as barras fechavam, o menu voltava e o jogador ficava clicando no
+  // mesmo cartão sem nenhuma pista do que houve. O aviso mora no menu porque é ali que ele
+  // continua — "Continuar" e a lista de saves levam ao mesmo lugar.
   async function enterCareer(careerId) {
     if (!careerId || exiting) return;
+    setErroAoEntrar(false);
     setExiting(true);
     whoosh();
     try {
@@ -550,6 +559,7 @@ function MainMenu({ intro = false }) {
       navigate("/dashboard");
     } catch {
       setExiting(false);
+      setErroAoEntrar(true);
     }
   }
 
@@ -632,6 +642,12 @@ function MainMenu({ intro = false }) {
           <h1 className="mm-title kfx">LOOP</h1>
         </div>
         <p className="mm-season">{t("menu.season", { year: new Date().getFullYear() })}</p>
+
+        {erroAoEntrar ? (
+          <p className="mm-panel-error" role="alert">
+            {t("menu.loadFailed")}
+          </p>
+        ) : null}
 
         <div className="mm-list">
           {recentSave ? (

@@ -619,8 +619,9 @@ fn closed_system_playable_world_has_no_orphans_and_drivers_raced() {
             born_above_floor += 1;
             eprintln!(
                 "[NASCEU ACIMA] {piloto_id} 1o_contrato={categoria} tier={} temporada={temporada} \
-                 ano={ano} piso_do_ano={piso}"
-            , config.tier);
+                 ano={ano} piso_do_ano={piso}",
+                config.tier
+            );
         }
     }
     eprintln!(

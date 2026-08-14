@@ -105,6 +105,7 @@ pub fn insert_race_results_batch(
             tempo_total,
             fastest_lap,
             dnf_reason,
+            dnf_reason_key,
             dnf_segment,
             incidents_count,
             gap_to_winner_ms,
@@ -121,7 +122,7 @@ pub fn insert_race_results_batch(
             paradas_json
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-            ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25
+            ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26
         )
         ",
     )?;
@@ -158,6 +159,7 @@ pub fn insert_race_results_batch(
             result.total_race_time_ms,
             fastest_lap_int,
             result.dnf_reason,
+            result.dnf_reason_key,
             result.dnf_segment,
             result.incidents_count,
             result.gap_to_winner_ms,
@@ -398,6 +400,7 @@ mod tests {
             gap_to_winner_ms: 0.0,
             is_dnf: false,
             dnf_reason: None,
+            dnf_reason_key: None,
             dnf_segment: None,
             incidents_count: 0,
             incidents: Vec::new(),
@@ -636,5 +639,135 @@ mod tests {
         assert!(get_race_safety_cars(&conn, "C001")
             .expect("safety cars")
             .is_empty());
+    }
+
+    // ───────── v68: o motivo do abandono POR QUEBRA não congela no idioma da corrida ─────────
+
+    /// Grava um abandono de quebra num locale e lê o motivo pelo `get_event_results` em outro.
+    fn motivo_gravado_em_lido_em(locale_gravacao: &str, locale_leitura: &str) -> Option<String> {
+        use crate::car::breakdown::{problem_key, Severity};
+        use crate::car::PartType;
+        use crate::db::queries::race_history::get_event_results;
+
+        let anterior = rust_i18n::locale().to_string();
+        let mut conn = setup_test_db();
+
+        rust_i18n::set_locale(locale_gravacao);
+        let chave = problem_key(PartType::Gearbox, 0, Severity::Dnf);
+        let mut result = sample_result();
+        result.is_dnf = true;
+        result.classification_status = ClassificationStatus::Dnf;
+        // Exatamente o que os dois caminhos de quebra fazem: frase de agora + chave.
+        result.marcar_dnf_de_quebra(
+            crate::car::breakdown::problem_text(PartType::Gearbox, 0, Severity::Dnf),
+            Some(chave),
+        );
+
+        let tx = conn.transaction().unwrap();
+        insert_race_results_batch(&tx, "C001", &[result]).expect("inserção");
+        tx.commit().unwrap();
+
+        rust_i18n::set_locale(locale_leitura);
+        let motivo = get_event_results(&conn, "C001").expect("resultados")[0]
+            .dnf_reason
+            .clone();
+        rust_i18n::set_locale(&anterior);
+        motivo
+    }
+
+    /// **Carreira jogada em pt-BR, lida em en-US.** É o bug que a v68 fecha: o painel de quebra
+    /// já se re-renderizava pela trinca de `race_breakdowns` e o motivo do resultado, ao lado,
+    /// continuava em português para sempre.
+    ///
+    /// `#[serial]` porque o locale é global do processo.
+    #[test]
+    #[serial_test::serial]
+    fn dnf_de_quebra_gravado_em_pt_br_e_lido_em_ingles() {
+        assert_eq!(
+            motivo_gravado_em_lido_em("pt-BR", "en-US").as_deref(),
+            Some("gearbox broke")
+        );
+    }
+
+    /// O caminho inverso, e ele não é simetria de fachada: quem joga em inglês e volta para o
+    /// português tem o mesmo direito, e é o sentido em que a heurística de "traduzir a prosa"
+    /// falharia mais feio.
+    #[test]
+    #[serial_test::serial]
+    fn dnf_de_quebra_gravado_em_ingles_e_lido_em_pt_br() {
+        assert_eq!(
+            motivo_gravado_em_lido_em("en-US", "pt-BR").as_deref(),
+            Some("câmbio quebrou")
+        );
+    }
+
+    /// **Save legado.** Linha gravada antes da v68: só prosa, `dnf_reason_key` NULL. A leitura
+    /// devolve o texto de então, sem falhar e sem tentar adivinhar chave a partir da frase.
+    #[test]
+    #[serial_test::serial]
+    fn save_legado_sem_chave_continua_mostrando_o_texto_gravado() {
+        use crate::db::queries::race_history::get_event_results;
+
+        let anterior = rust_i18n::locale().to_string();
+        let mut conn = setup_test_db();
+
+        rust_i18n::set_locale("pt-BR");
+        let mut result = sample_result();
+        result.is_dnf = true;
+        result.classification_status = ClassificationStatus::Dnf;
+        result.dnf_reason = Some("motor fundiu por superaquecimento".to_string());
+        result.dnf_reason_key = None; // o que toda linha anterior à v68 tem
+        let tx = conn.transaction().unwrap();
+        insert_race_results_batch(&tx, "C001", &[result]).expect("inserção");
+        tx.commit().unwrap();
+
+        rust_i18n::set_locale("en-US");
+        let motivo = get_event_results(&conn, "C001").expect("resultados")[0]
+            .dnf_reason
+            .clone();
+        rust_i18n::set_locale(&anterior);
+
+        assert_eq!(motivo.as_deref(), Some("motor fundiu por superaquecimento"));
+    }
+
+    /// **Abandono que NÃO é quebra** (batida, erro de pilotagem, pane do catálogo) continua
+    /// exatamente como era: o texto do incidente, sem chave e sem re-render. A v68 não converte
+    /// motivo genérico em chave, porque não existe estrutura segura para isso.
+    #[test]
+    #[serial_test::serial]
+    fn dnf_que_nao_e_quebra_atravessa_intacto() {
+        use crate::db::queries::race_history::get_event_results;
+
+        let anterior = rust_i18n::locale().to_string();
+        let mut conn = setup_test_db();
+
+        rust_i18n::set_locale("pt-BR");
+        let mut result = sample_result();
+        result.is_dnf = true;
+        result.classification_status = ClassificationStatus::Dnf;
+        result.dnf_reason = Some("rodou sozinho na saída da última curva".to_string());
+        let tx = conn.transaction().unwrap();
+        insert_race_results_batch(&tx, "C001", &[result]).expect("inserção");
+        tx.commit().unwrap();
+
+        let chave: Option<String> = conn
+            .query_row(
+                "SELECT dnf_reason_key FROM race_results WHERE race_id = 'C001'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("coluna");
+        assert_eq!(chave, None, "abandono sem quebra não pode ganhar chave");
+
+        rust_i18n::set_locale("en-US");
+        let motivo = get_event_results(&conn, "C001").expect("resultados")[0]
+            .dnf_reason
+            .clone();
+        rust_i18n::set_locale(&anterior);
+
+        assert_eq!(
+            motivo.as_deref(),
+            Some("rodou sozinho na saída da última curva")
+        );
     }
 }

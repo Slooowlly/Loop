@@ -171,6 +171,12 @@ export function buildBriefingContext({
     thesisTitle: thesis.title,
     audienceEstimate,
     audienceRankLabel,
+    // Cota do público que a equipe do jogador puxa, em pontos percentuais. Já era
+    // calculada aqui para a narrativa da IA e para o `attendanceNarrative`; sai no
+    // payload porque o card de interesse do evento (F-07) a desenha — é o fio entre
+    // a fama do piloto e a bilheteria, e sem ela o card diz o tamanho da etapa sem
+    // dizer o que ela tem a ver com quem está lendo. `null` sem equipe.
+    fameSharePct,
     eventDateShort: formatEventSummaryDate(nextRace?.display_date),
     interestLabel:
       nextRace?.event_interest?.tier_label ?? i18n.t("raceContext.display.interestLabelFallback"),

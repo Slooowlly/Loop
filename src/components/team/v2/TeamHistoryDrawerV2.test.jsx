@@ -465,7 +465,7 @@ describe("TeamHistoryDrawerV2 — blocos de Esportivo", () => {
     expect([...fita.children].map((el) => el.textContent)).toEqual(["1", "3", "11"]);
     // A troca de categoria no meio da fita explica a queda — sem ela, 11º se
     // leria como perda de forma.
-    expect(within(fita.parentElement).getByText(/agora na Production/)).toBeInTheDocument();
+    expect(within(fita.parentElement).getByText(/Agora na Production/)).toBeInTheDocument();
 
     // Curva: só as temporadas com posição conhecida viram ponto. 2026 está em
     // andamento ("—") e não pode inventar um resultado.
@@ -692,7 +692,7 @@ describe("TeamHistoryDrawerV2 — confiabilidade e pilotos", () => {
       ["other", "1"],
     ]);
     // A média do grupo é o que dá escala: 83% é abaixo de 89%.
-    expect(within(painel).getByText(/grupo em 89%/)).toBeInTheDocument();
+    expect(within(painel).getByText(/Grupo em 89%/)).toBeInTheDocument();
     expect(within(painel.parentElement).getByText(/Câmbio/)).toBeInTheDocument();
   });
 

@@ -172,7 +172,11 @@ pub fn get_weekend_modifiers(
         crate::models::enums::WeatherCondition::HeavyRain => "heavy",
     };
     let penalidade_de = |fator_chuva: f64| {
-        crate::simulation::math::rain_penalty_escalada(ctx.weather, fator_chuva, ctx.rain_sensitivity)
+        crate::simulation::math::rain_penalty_escalada(
+            ctx.weather,
+            fator_chuva,
+            ctx.rain_sensitivity,
+        )
     };
     // A média do grid é a régua: na chuva todo mundo cai, e o que decide posição é cair menos.
     let media_do_grid = if grid.esteira.grid.is_empty() {

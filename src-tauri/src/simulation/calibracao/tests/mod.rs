@@ -441,6 +441,286 @@ fn nao_regride_para_determinismo_absoluto() {
 }
 
 // ---------------------------------------------------------------------------
+// Camada leve — o teto de não-regressão enquanto a calibração está aberta
+// ---------------------------------------------------------------------------
+//
+// **Leia isto antes de olhar os números abaixo.**
+//
+// O baseline medido HOJE não é o objetivo. Ele é o estado ruim conhecido: as vitórias da pole
+// batem em ~0,70 na rookie contra um alvo de 0,15–0,35, e as correlações estão perto de carimbar
+// o grid na chegada. `Alvos::entrada()` e `Alvos::topo()` continuam sendo o alvo, e são eles que
+// os testes pesados cobram.
+//
+// O que estes guards fazem é uma coisa só: impedir que a simulação fique PIOR do que já está
+// enquanto a calibração (V3.1) não acontece. Eles rodam em ~50 corridas por categoria, sem
+// `#[ignore]`, e por isso pegam regressão no mesmo dia em vez de na próxima campanha pesada.
+//
+// O que eles NÃO autorizam:
+//
+// - passar aqui não significa que a distribuição está boa; significa que ela não regrediu;
+// - o teto nunca deve ser afrouxado para acomodar uma mudança que piorou o agregado;
+// - o dia em que a calibração fechar, estes tetos descem junto ou saem, porque a partir dali
+//   quem manda são os alvos.
+//
+// Os números vêm de `imprime_medicao_do_guard`, com folga deliberada sobre o medido: a folga
+// absorve mudança pequena de mecanismo, não regressão de calibração. A regra da folga é fixa, para
+// ninguém precisar negociar caso a caso:
+//
+// - fração e correlação (pole, ρ de grid, ρ de etapas): **medido + 0,03**, arredondado para cima;
+// - contagem e dispersão (desvio, vencedores): **medido − 10%**, arredondado para baixo.
+//
+// A medição é determinística (sementes fixas), então a folga NÃO existe para cobrir ruído de
+// medição: ela existe para mudança de mecanismo que mexe no agregado de raspão. Qualquer coisa
+// maior que isso é decisão, e decisão aparece no diff.
+
+/// Configuração do guard: 20 pilotos × 12 etapas × 24 temporadas = 288 corridas por categoria.
+///
+/// **A forma é a da campanha pesada de propósito** — mesmo número de pilotos e de etapas, só com
+/// menos temporadas. Duas métricas (`vencedores_distintos` e `spearman_etapas_consecutivas`)
+/// dependem estruturalmente do tamanho da temporada, então medir com 8 etapas produziria números
+/// que não conversam com `snapshot::CONGELADO` e convidariam a comparação errada.
+///
+/// Incidentes LIGADOS, pelo mesmo motivo de [`campanha_pesada_com_incidentes`]: um guard que roda
+/// a corrida limpa não guarda a corrida que o jogo roda.
+fn campanha_do_guard(base: ConfigTemporada) -> ConfigTemporada {
+    ConfigTemporada {
+        pilotos: 20,
+        etapas: 12,
+        ..base
+    }
+    .com_incidentes(true)
+}
+
+/// 16 temporadas por semente, três sementes: 576 corridas por categoria.
+///
+/// Três sementes, e não uma, porque o ruído entre sementes neste harness é grande: a mesma
+/// configuração mediu `vencedores_distintos` 2,77 na semente do congelado e 3,96 na 3101. Com uma
+/// medição só, uma regressão real que calhe de cair para o lado bom naquela semente passa batido.
+/// É a mesma correção que tirou a fragilidade da guarda da peneira T1 — ver o cabeçalho deste
+/// arquivo.
+const TEMPORADAS_DO_GUARD: usize = 16;
+const SEMENTES_DO_GUARD: [u64; 3] = [3101, 3102, 3103];
+
+/// As métricas do guard, já promediadas sobre [`SEMENTES_DO_GUARD`].
+#[derive(Debug, Clone, Copy)]
+struct MedicaoDoGuard {
+    pct_vitorias_do_pole: f64,
+    spearman_grid_chegada: f64,
+    spearman_etapas_consecutivas: f64,
+    desvio_posicao: f64,
+    vencedores_distintos: f64,
+    dnfs_por_etapa: f64,
+}
+
+fn medir_guard(rotulo: &str, base: ConfigTemporada) -> MedicaoDoGuard {
+    let config = campanha_do_guard(base);
+    let medicoes: Vec<metricas::MetricasAgregadas> = SEMENTES_DO_GUARD
+        .iter()
+        .map(|semente| arena::medir(rotulo, &config, TEMPORADAS_DO_GUARD, *semente))
+        .collect();
+
+    let media = |extrair: fn(&metricas::MetricasAgregadas) -> f64| {
+        medicoes.iter().map(extrair).sum::<f64>() / medicoes.len() as f64
+    };
+
+    MedicaoDoGuard {
+        pct_vitorias_do_pole: media(|m| m.pct_vitorias_do_pole),
+        spearman_grid_chegada: media(|m| m.spearman_grid_chegada),
+        spearman_etapas_consecutivas: media(|m| m.spearman_etapas_consecutivas),
+        desvio_posicao: media(|m| m.desvio_posicao),
+        vencedores_distintos: media(|m| m.vencedores_distintos),
+        dnfs_por_etapa: media(|m| m.dnfs_por_etapa),
+    }
+}
+
+/// Os limites de piora de uma categoria. Cada campo é um lado só: o lado por onde a simulação
+/// ficaria mais previsível.
+#[derive(Debug, Clone, Copy)]
+struct TetoDeRegressao {
+    /// Mais pole virando vitória = mais carimbo. Teto.
+    pct_vitorias_do_pole: f64,
+    /// Grid explicando a chegada = mais carimbo. Teto.
+    spearman_grid_chegada: f64,
+    /// Etapa N explicando N+1 = campeonato congelado. Teto.
+    spearman_etapas_consecutivas: f64,
+    /// Dispersão da chegada. Piso — cair é achatar.
+    desvio_posicao: f64,
+    /// Nomes diferentes ganhando na temporada. Piso — cair é concentrar.
+    vencedores_distintos: f64,
+}
+
+fn conferir_teto(medicao: &MedicaoDoGuard, teto: &TetoDeRegressao) -> Vec<String> {
+    let mut falhas = Vec::new();
+    // `is_finite` primeiro: NaN sai calado de qualquer comparação, e um agregado NaN é defeito de
+    // medição, não aprovação.
+    let mut maximo = |nome: &str, valor: f64, limite: f64| {
+        if !valor.is_finite() || valor > limite {
+            falhas.push(format!("{nome}: {valor:.4} passou do teto {limite:.4}"));
+        }
+    };
+    maximo(
+        "pct_vitorias_do_pole",
+        medicao.pct_vitorias_do_pole,
+        teto.pct_vitorias_do_pole,
+    );
+    maximo(
+        "spearman_grid_chegada",
+        medicao.spearman_grid_chegada,
+        teto.spearman_grid_chegada,
+    );
+    maximo(
+        "spearman_etapas_consecutivas",
+        medicao.spearman_etapas_consecutivas,
+        teto.spearman_etapas_consecutivas,
+    );
+
+    let mut minimo = |nome: &str, valor: f64, limite: f64| {
+        if !valor.is_finite() || valor < limite {
+            falhas.push(format!(
+                "{nome}: {valor:.4} caiu abaixo do piso {limite:.4}"
+            ));
+        }
+    };
+    minimo(
+        "desvio_posicao",
+        medicao.desvio_posicao,
+        teto.desvio_posicao,
+    );
+    minimo(
+        "vencedores_distintos",
+        medicao.vencedores_distintos,
+        teto.vencedores_distintos,
+    );
+    falhas
+}
+
+/// Mede exatamente o que os dois guards medem e imprime os valores crus, para recalibrar o teto
+/// sem transcrever número à mão. Recalibrar é conferir que a mudança melhorou e apertar o limite.
+#[test]
+#[ignore = "medidor do guard rápido; roda com --nocapture"]
+fn imprime_medicao_do_guard() {
+    for (rotulo, base) in [
+        ("mazda_rookie", ConfigTemporada::rookie()),
+        ("gt3", ConfigTemporada::gt3()),
+    ] {
+        let m = medir_guard(rotulo, base);
+        println!(
+            "{rotulo}: pole={:.4} grid={:.4} etapas={:.4} desvio={:.4} vencedores={:.4} dnf/etapa={:.4}",
+            m.pct_vitorias_do_pole,
+            m.spearman_grid_chegada,
+            m.spearman_etapas_consecutivas,
+            m.desvio_posicao,
+            m.vencedores_distintos,
+            m.dnfs_por_etapa
+        );
+    }
+}
+
+/// Roda o guard de uma categoria. Separado dos dois testes só para o corpo deles ser a tabela de
+/// limites e nada mais — é essa tabela que alguém vai ler quando o teste ficar vermelho.
+fn guardar_teto(rotulo: &str, base: ConfigTemporada, teto: TetoDeRegressao, alvo: &str) {
+    let medicao = medir_guard(rotulo, base);
+    assert!(
+        medicao.dnfs_por_etapa > 0.0,
+        "{rotulo}: guard sem nenhum abandono — o catálogo de incidentes carregou vazio?"
+    );
+
+    let falhas = conferir_teto(&medicao, &teto);
+    assert!(
+        falhas.is_empty(),
+        "{rotulo} piorou além do estado conhecido de 11/08/2026. \
+         O teto é anti-regressão, não alvo — o alvo é `{alvo}`:\n{}",
+        falhas.join("\n")
+    );
+}
+
+/// Teto da rookie. **Não é alvo** — ver o bloco de comentário no topo desta seção.
+///
+/// Medido em 11/08/2026 e a distância que falta até o alvo:
+///
+/// | Métrica | medido 11/08 | medido 12/08 | teto aqui | alvo `Alvos::entrada()` |
+/// |---|---|---|---|---|
+/// | `pct_vitorias_do_pole` | 0,773 | **0,705** | ≤ 0,80 | 0,15–0,35 |
+/// | `spearman_grid_chegada` | 0,919 | **0,893** | ≤ 0,95 | 0,40–0,75 |
+/// | `spearman_etapas_consecutivas` | 0,527 | **0,574** | ≤ 0,61 | 0,20–0,55 |
+/// | `desvio_posicao` | 3,763 | 3,556 | ≥ 3,38 | 3,50–6,50 |
+/// | `vencedores_distintos` | 4,375 | 4,146 | ≥ 3,93 | 5,00–10,00 |
+///
+/// # 12/08/2026 — o teto de `spearman_etapas_consecutivas` SUBIU, e isso é deliberado
+///
+/// A calibração de B9 (`race::trafego::DELTA_DE_RITMO_QUE_SATURA`) desprendeu a corrida do
+/// grid: o pole deixou de vencer 77% das etapas e passou a vencer 70%, e ρ(grid × chegada)
+/// caiu de 0,919 para 0,893 — os dois na direção de `Alvos::entrada()`.
+///
+/// O preço é o campeonato: com a ultrapassagem convertendo, o carro rápido chega à frente com
+/// mais regularidade e ρ(etapas consecutivas) sobe de 0,527 para 0,574, saindo do alvo
+/// (0,20–0,55). A varredura não tem ponto que ganhe de um lado sem pagar do outro — é a mesma
+/// consequência lida em dois lugares. A troca foi decidida em 12/08/2026 e o teto foi remedido
+/// em vez de a correção ser desfeita; a tabela acima guarda as duas medições para a decisão
+/// continuar visível.
+///
+/// **Os abandonos NÃO subiram**: `dnfs_por_etapa` mede 0,6510 contra 0,6476 de antes. A
+/// variedade da corrida não veio de mais batida — veio de a manobra funcionar.
+#[test]
+fn rookie_nao_piora_alem_do_teto_atual() {
+    guardar_teto(
+        "mazda_rookie",
+        ConfigTemporada::rookie(),
+        TetoDeRegressao {
+            pct_vitorias_do_pole: 0.80,
+            spearman_grid_chegada: 0.95,
+            spearman_etapas_consecutivas: 0.61,
+            desvio_posicao: 3.38,
+            vencedores_distintos: 3.93,
+        },
+        "Alvos::entrada()",
+    );
+}
+
+/// Teto da gt3. **Não é alvo** — ver o bloco de comentário no topo desta seção.
+///
+/// Medido em 11/08/2026 e a distância que falta até o alvo:
+///
+/// | Métrica | medido 11/08 | medido 12/08 | teto aqui | alvo `Alvos::topo()` |
+/// |---|---|---|---|---|
+/// | `pct_vitorias_do_pole` | 0,830 | **0,759** | ≤ 0,86 | 0,30–0,55 |
+/// | `spearman_grid_chegada` | 0,952 | **0,939** | ≤ 0,98 | 0,60–0,88 |
+/// | `spearman_etapas_consecutivas` | 0,660 | **0,716** | ≤ 0,75 | 0,35–0,70 |
+/// | `desvio_posicao` | 3,216 | 2,952 | ≥ 2,89 | 2,50–5,00 |
+/// | `vencedores_distintos` | 4,271 | 4,042 | ≥ 3,84 | 3,00–8,00 |
+///
+/// O teto de `spearman_grid_chegada` em 0,98 já encosta no máximo teórico, e é assim mesmo: com o
+/// medido em 0,952 não sobra espaço para um limite folgado que ainda signifique alguma coisa. Ele
+/// só pega a piora para o carimbo total, e é essa a única promessa que ele faz.
+///
+/// # 12/08/2026 — mesma troca da rookie, mesma razão
+///
+/// Ver o bloco em [`rookie_nao_piora_alem_do_teto_atual`]: a calibração de B9 derruba o pole
+/// de 83% para 76% e ρ(grid × chegada) de 0,952 para 0,939, e em troca ρ(etapas consecutivas)
+/// sobe de 0,660 para 0,716. `dnfs_por_etapa` fica em 0,3125 contra 0,3108 — os abandonos não
+/// se mexeram.
+///
+/// O piso da gt3 é arquitetural e não desce daqui com os botões de tráfego: com a grade
+/// SORTEADA, ρ(grid) cai para 0,66, ou seja a corrida embaralha. O que sustenta o 0,94 é a
+/// grade real já estar na ordem do ritmo, porque na gt3 o carro responde por metade da
+/// variância permanente. Ver `race::trafego::DELTA_DE_RITMO_QUE_SATURA`.
+#[test]
+fn gt3_nao_piora_alem_do_teto_atual() {
+    guardar_teto(
+        "gt3",
+        ConfigTemporada::gt3(),
+        TetoDeRegressao {
+            pct_vitorias_do_pole: 0.86,
+            spearman_grid_chegada: 0.98,
+            spearman_etapas_consecutivas: 0.75,
+            desvio_posicao: 2.89,
+            vencedores_distintos: 3.84,
+        },
+        "Alvos::topo()",
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Camada leve — decomposição de variância
 // ---------------------------------------------------------------------------
 
@@ -921,11 +1201,15 @@ fn metricas_de_atrito_saem_de_corrida_real() {
     assert!(m.trens >= 1.0);
 }
 
+/// O adaptador de posições por segmento está LIGADO e devolve as cinco posições de cada
+/// piloto, na ordem em que a corrida as produziu.
+///
+/// Este teste era o lembrete de ligar (`..._ainda_esta_pendente`, que assertava `is_none`).
+/// Agora ele é a trava do contrário: se o adaptador voltar a devolver `None`, ou se o motor
+/// parar de preencher os cinco segmentos, as métricas de atrito voltam a medir nada e é aqui
+/// que isso aparece.
 #[test]
-fn adaptador_de_posicoes_por_segmento_ainda_esta_pendente() {
-    // Guarda de ligação: quando `RaceDriverResult::posicoes_por_segmento` entrar e o adaptador
-    // for conectado, ESTE teste falha — e isso é o lembrete de trocar as métricas de segmento
-    // de entrada sintética para corrida de verdade, e de refazer os alvos do D contra elas.
+fn o_adaptador_de_posicoes_por_segmento_entrega_a_corrida_de_verdade() {
     let config = ConfigTemporada {
         etapas: 1,
         pilotos: 12,
@@ -940,11 +1224,57 @@ fn adaptador_de_posicoes_por_segmento_ainda_esta_pendente() {
         1,
     );
 
-    assert!(
-        atrito::posicoes_por_segmento(&corridas[0]).is_none(),
-        "o campo chegou! conecte o adaptador em atrito.rs e ligue as métricas de segmento \
-         ao relatório do pacote D"
+    let posicoes = atrito::posicoes_por_segmento(&corridas[0])
+        .expect("o adaptador tem que entregar as posições da corrida");
+    assert_eq!(posicoes.len(), corridas[0].race_results.len());
+    for (id, segmentos) in &posicoes {
+        assert_eq!(
+            segmentos.len(),
+            atrito::SEGMENTOS,
+            "{id} veio com {} segmentos",
+            segmentos.len()
+        );
+        assert!(segmentos.iter().all(|p| *p >= 1), "{id}: posição inválida");
+    }
+
+    // E a matemática de segmento roda sobre isso sem NaN.
+    let grid_inicial: Vec<i32> = posicoes
+        .iter()
+        .map(|(id, _)| {
+            corridas[0]
+                .race_results
+                .iter()
+                .find(|r| &r.pilot_id == id)
+                .map(|r| r.grid_position)
+                .unwrap_or(0)
+        })
+        .collect();
+    let m = atrito::medir_segmentos(&grid, &posicoes, &grid_inicial);
+    assert!(m.rho_por_segmento.iter().all(|r| r.is_finite()));
+    assert!(m.fracao_travado.is_finite());
+}
+
+/// Corrida sem o dado de segmento (resultado importado do iRacing, save anterior ao campo)
+/// continua devolvendo `None` em vez de fabricar métrica com vetor curto.
+#[test]
+fn corrida_sem_o_dado_de_segmento_continua_devolvendo_none() {
+    let config = ConfigTemporada {
+        etapas: 1,
+        pilotos: 12,
+        ..ConfigTemporada::rookie()
+    };
+    let grid = gerar_campo(&config.perfil, config.pilotos, 62);
+    let mut corridas = arena::rodar_temporada(
+        &config,
+        &grid,
+        &crate::simulation::catalog::IncidentCatalog::empty(),
+        62,
+        1,
     );
+    for r in corridas[0].race_results.iter_mut() {
+        r.posicoes_por_segmento.clear();
+    }
+    assert!(atrito::posicoes_por_segmento(&corridas[0]).is_none());
 }
 
 #[test]
@@ -1685,6 +2015,9 @@ fn a_varredura_de_knobs_esta_sincronizada_com_a_de_consumo() {
 // ---------------------------------------------------------------------------
 
 /// Configuração dos testes pesados: 20 pilotos × 12 etapas × 84 temporadas = 1008 corridas.
+///
+/// **Não mexe em `incidentes`** de propósito: quem chama decide, e a decisão faz parte do nome do
+/// teste. `cenarios_do_baseline` depende disso para congelar os quatro cenários (com e sem).
 fn campanha_pesada(base: ConfigTemporada) -> ConfigTemporada {
     ConfigTemporada {
         pilotos: 20,
@@ -1693,7 +2026,34 @@ fn campanha_pesada(base: ConfigTemporada) -> ConfigTemporada {
     }
 }
 
+/// A campanha pesada **como o jogo roda**: catálogo real de incidentes ligado.
+///
+/// Existe porque os dois testes de aceitação se chamam "como corrida de verdade" e rodavam com o
+/// [`IncidentCatalog`](crate::simulation::catalog::IncidentCatalog) vazio, ou seja, numa corrida em
+/// que ninguém abandona. Medir realismo de distribuição sem abandono é medir outra corrida: o
+/// abandono é justamente um dos caminhos pelos quais a ordem de grid deixa de carimbar a chegada.
+///
+/// Ligar incidentes NÃO muda nenhuma probabilidade — o catálogo e as taxas são os do jogo.
+fn campanha_pesada_com_incidentes(base: ConfigTemporada) -> ConfigTemporada {
+    campanha_pesada(base).com_incidentes(true)
+}
+
 const TEMPORADAS_PESADAS: usize = 84;
+
+/// Confere que a medição realmente exercitou o catálogo de incidentes.
+///
+/// Sem isto, uma regressão que devolvesse o catálogo vazio (migração que não carrega, config que
+/// perde o `incidentes: true`) deixaria o teste "como corrida de verdade" verde medindo de novo a
+/// corrida limpa. O guard leve `incidentes_ligados_produzem_abandono` cobre o mesmo mecanismo em
+/// escala pequena; este cobre o contexto que a asserção de faixa realmente usa.
+fn exigir_abandono(agregado: &metricas::MetricasAgregadas) {
+    assert!(
+        agregado.dnfs_por_etapa > 0.0,
+        "{}: medição sem nenhum abandono — o catálogo de incidentes carregou vazio? \
+         Um teste de 'corrida de verdade' sem DNF não mede a corrida que o jogo roda.",
+        agregado.rotulo
+    );
+}
 
 fn conferir(agregado: &metricas::MetricasAgregadas, alvos: &Alvos) -> Vec<String> {
     let mut falhas = Vec::new();
@@ -1754,9 +2114,10 @@ fn conferir(agregado: &metricas::MetricasAgregadas, alvos: &Alvos) -> Vec<String
 #[test]
 #[ignore = "pesado (~1000 corridas) e FALHA hoje — é o critério de aceitação do conserto"]
 fn rookie_distribui_como_corrida_de_verdade() {
-    let config = campanha_pesada(ConfigTemporada::rookie());
+    let config = campanha_pesada_com_incidentes(ConfigTemporada::rookie());
     let agregado = arena::medir("mazda_rookie", &config, TEMPORADAS_PESADAS, 2026);
     let alvos = Alvos::entrada();
+    exigir_abandono(&agregado);
 
     let falhas = conferir(&agregado, &alvos);
     assert!(
@@ -1770,9 +2131,59 @@ fn rookie_distribui_como_corrida_de_verdade() {
 #[test]
 #[ignore = "pesado (~1000 corridas) e FALHA hoje — é o critério de aceitação do conserto"]
 fn gt3_distribui_como_corrida_de_verdade() {
-    let config = campanha_pesada(ConfigTemporada::gt3());
+    let config = campanha_pesada_com_incidentes(ConfigTemporada::gt3());
     let agregado = arena::medir("gt3", &config, TEMPORADAS_PESADAS, 2027);
     let alvos = Alvos::topo();
+    exigir_abandono(&agregado);
+
+    let falhas = conferir(&agregado, &alvos);
+    assert!(
+        falhas.is_empty(),
+        "{}\n{}",
+        relatorio::tabela(&agregado, &alvos),
+        falhas.join("\n")
+    );
+}
+
+/// O mesmo critério **com o ruído de batida removido** — isolamento do motor de pontuação.
+///
+/// Não é "a corrida de verdade" e o nome não deve sugerir que é: aqui o catálogo de incidentes
+/// fica vazio de propósito, para separar o que a distribuição deve à pontuação do que ela deve ao
+/// abandono. Serve de contrafactual quando o par acima falhar: se as duas medições derem
+/// praticamente igual, o abandono não é a alavanca e o problema está antes dele.
+///
+/// Foi este o cenário que os testes de "corrida de verdade" rodavam por engano até 11/08/2026.
+#[test]
+#[ignore = "pesado (~1000 corridas) e FALHA hoje — contrafactual de isolamento, não critério"]
+fn rookie_distribui_com_incidentes_isolados() {
+    let config = campanha_pesada(ConfigTemporada::rookie().com_incidentes(false));
+    let agregado = arena::medir("mazda_rookie", &config, TEMPORADAS_PESADAS, 2026);
+    let alvos = Alvos::entrada();
+    assert_eq!(
+        agregado.dnfs_por_etapa, 0.0,
+        "cenário de isolamento com abandono: o catálogo não deveria ter carregado"
+    );
+
+    let falhas = conferir(&agregado, &alvos);
+    assert!(
+        falhas.is_empty(),
+        "{}\n{}",
+        relatorio::tabela(&agregado, &alvos),
+        falhas.join("\n")
+    );
+}
+
+/// Par de [`rookie_distribui_com_incidentes_isolados`] no topo da pirâmide.
+#[test]
+#[ignore = "pesado (~1000 corridas) e FALHA hoje — contrafactual de isolamento, não critério"]
+fn gt3_distribui_com_incidentes_isolados() {
+    let config = campanha_pesada(ConfigTemporada::gt3().com_incidentes(false));
+    let agregado = arena::medir("gt3", &config, TEMPORADAS_PESADAS, 2027);
+    let alvos = Alvos::topo();
+    assert_eq!(
+        agregado.dnfs_por_etapa, 0.0,
+        "cenário de isolamento com abandono: o catálogo não deveria ter carregado"
+    );
 
     let falhas = conferir(&agregado, &alvos);
     assert!(
@@ -2606,3 +3017,6 @@ fn imprime_varredura_de_knobs() {
     }
     println!("{saida}");
 }
+
+/// Medição das pendências B5, B9 e B19 — régua, sem asserção de comportamento.
+mod pendencias;

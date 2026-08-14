@@ -450,7 +450,7 @@ pasta temporária nova a cada execução, então cada `cargo test` nascia com um
 novo, um `install_id` novo e virava um punhado de "instalações" no Firestore. Com custo
 real nos dois provedores: US$ 2,03 somando os dois meses.
 
-O conserto é o `rede_de_ia_bloqueada()` em [narrative/client.rs](src-tauri/src/narrative/client.rs),
+O conserto é o `rede_de_ia_bloqueada()` em [narrative/client.rs](../src-tauri/src/narrative/client.rs),
 no topo das cinco funções de geração. O guard fica na **saída de rede**, e não em cada
 chamador, para que um caminho novo ao servidor já nasça coberto:
 

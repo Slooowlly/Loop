@@ -70,13 +70,13 @@ export function DriverRankingRow({ row, relativeEntry, focusedDriverId, detailDr
         onOpenDriverDetail(row.id);
       }}
       className={[
-        "cursor-pointer border-b border-white/6 last:border-0 transition-glass hover:bg-white/[0.04]",
+        "cursor-pointer border-b border-white/[0.06] last:border-0 transition-glass hover:bg-white/[0.04]",
         // O halo da chegada vem ANTES dos realces de estado na lista de classes
         // só por leitura; quem decide é a animação, que sobrepõe o `bg` das
         // outras enquanto corre e devolve a linha ao normal quando acaba.
         glowing ? "animate-driver-row-glow" : "",
-        row.id === focusedDriverId ? "bg-accent-primary/12 ring-1 ring-accent-primary/40" : "",
-        isDetailDriver ? "bg-accent-secondary/12 ring-2 ring-accent-secondary/60 shadow-[inset_4px_0_0_rgba(242,196,109,0.95)]" : "",
+        row.id === focusedDriverId ? "bg-accent-primary/[0.12] ring-1 ring-accent-primary/40" : "",
+        isDetailDriver ? "bg-accent-secondary/[0.12] ring-2 ring-accent-secondary/60 shadow-[inset_4px_0_0_rgba(242,196,109,0.95)]" : "",
         row.is_jogador ? "border-l-2 border-l-accent-primary/70" : "",
         row.status === "Livre" && !isDetailDriver ? "opacity-60" : "",
         row.status === "Aposentado" && !isDetailDriver ? "opacity-50" : "",

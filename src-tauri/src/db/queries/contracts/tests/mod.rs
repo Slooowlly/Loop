@@ -484,15 +484,19 @@ fn setup_test_db() -> Result<Connection, DbError> {
             ('P002', 'Piloto 2'),
             ('P003', 'Piloto 3');
 
+        -- `temporada_inicio` e `temporada_fim` sao TEXT aqui porque sao TEXT na
+        -- tabela real (db::migrations::baseline). Enquanto o fixture as declarava
+        -- INTEGER, a suite nao conseguia ver a comparacao lexicografica: as
+        -- temporadas 9, 10, 12 e 26 ordenavam certo por acidente do tipo.
         CREATE TABLE contracts (
             id TEXT PRIMARY KEY NOT NULL,
             piloto_id TEXT NOT NULL,
             piloto_nome TEXT NOT NULL,
             equipe_id TEXT NOT NULL,
             equipe_nome TEXT NOT NULL,
-            temporada_inicio INTEGER NOT NULL,
+            temporada_inicio TEXT NOT NULL,
             duracao_anos INTEGER NOT NULL,
-            temporada_fim INTEGER NOT NULL,
+            temporada_fim TEXT NOT NULL,
             salario REAL NOT NULL DEFAULT 0.0,
             salario_anual REAL NOT NULL DEFAULT 0.0,
             papel TEXT NOT NULL DEFAULT 'Numero2',
@@ -501,9 +505,32 @@ fn setup_test_db() -> Result<Connection, DbError> {
             categoria TEXT NOT NULL,
             classe TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );",
+        );
+
+        -- Um unico contrato ativo por (piloto, tipo), como no schema real. Sem ele
+        -- o fixture aceitaria dois Regulares ativos no mesmo piloto e um teste
+        -- poderia se apoiar num estado que o banco de verdade recusa.
+        CREATE UNIQUE INDEX idx_contracts_active_pilot_tipo
+            ON contracts(piloto_id, tipo)
+            WHERE status = 'Ativo';",
     )?;
     Ok(conn)
+}
+
+/// Contrato com vigencia explicita, para os casos de temporada de dois digitos.
+fn contrato_em(
+    id: &str,
+    piloto_id: &str,
+    equipe_id: &str,
+    status: ContractStatus,
+    inicio: i32,
+    fim: i32,
+) -> Contract {
+    let mut contract = sample_contract(id, piloto_id, equipe_id, status);
+    contract.temporada_inicio = inicio;
+    contract.temporada_fim = fim;
+    contract.duracao_anos = fim - inicio + 1;
+    contract
 }
 
 fn insert_team_stub(conn: &Connection, id: &str, cor_primaria: &str) {
@@ -525,12 +552,15 @@ fn insert_license_stub(conn: &Connection, piloto_id: &str, nivel: i32) {
 #[test]
 fn test_get_former_teammates_requires_same_team_and_season_overlap() {
     let conn = setup_test_db().unwrap();
+    // Status 'Expirado' em todos: ex-companheiro é vínculo encerrado, e o fixture
+    // agora carrega o índice único de um contrato ativo por (piloto, tipo) — P002
+    // tem dois contratos aqui e os dois não podem estar ativos.
     let ins = |id: &str, pid: &str, nome: &str, eq: &str, ini: i32, fim: i32| {
         conn.execute(
             "INSERT INTO contracts
                 (id, piloto_id, piloto_nome, equipe_id, equipe_nome,
-                 temporada_inicio, duracao_anos, temporada_fim, categoria)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'gt3')",
+                 temporada_inicio, duracao_anos, temporada_fim, categoria, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'gt3', 'Expirado')",
             params![id, pid, nome, eq, "Team", ini, fim - ini + 1, fim],
         )
         .unwrap();
@@ -554,4 +584,233 @@ fn test_get_former_teammates_requires_same_team_and_season_overlap() {
     assert!(!ids.contains(&"P001"), "não inclui o próprio piloto");
     // Distinto: P002 aparece uma única vez apesar de dois contratos.
     assert_eq!(ids.iter().filter(|i| **i == "P002").count(), 1);
+}
+
+// --------------------------------------------------------------------------
+// Temporadas de dois dígitos: `temporada_inicio` e `temporada_fim` são colunas
+// TEXT, então comparação e ordenação sem `CAST(... AS INTEGER)` são
+// lexicográficas — e aí '10' < '9' e '26' < '9'. Os casos abaixo usam 9, 10, 12
+// e 26 justamente porque é o menor conjunto em que a ordem lexicográfica e a
+// numérica discordam nas duas direções.
+// --------------------------------------------------------------------------
+
+/// O histórico do piloto sai em ordem cronológica de verdade. Em TEXT puro a
+/// temporada 9 encabeçava a lista e a 26 caía para o meio.
+#[test]
+fn historico_do_piloto_ordena_temporadas_de_dois_digitos_numericamente() {
+    let conn = setup_test_db().expect("test db");
+    insert_contracts(
+        &conn,
+        &[
+            contrato_em("C09", "P001", "T009", ContractStatus::Expirado, 9, 9),
+            contrato_em("C26", "P001", "T026", ContractStatus::Ativo, 26, 27),
+            contrato_em("C10", "P001", "T010", ContractStatus::Expirado, 10, 11),
+            contrato_em("C12", "P001", "T012", ContractStatus::Expirado, 12, 25),
+        ],
+    )
+    .expect("insert contracts");
+
+    let ids: Vec<String> = get_contracts_for_pilot(&conn, "P001")
+        .expect("historico do piloto")
+        .into_iter()
+        .map(|contrato| contrato.id)
+        .collect();
+
+    assert_eq!(
+        ids,
+        vec!["C26", "C12", "C10", "C09"],
+        "a ordem é da temporada mais recente para a mais antiga, e 26 > 12 > 10 > 9",
+    );
+}
+
+/// Com contrato duplo (Regular + Especial), o contrato ativo "mais recente" é o
+/// de temporada maior. Em TEXT o Especial da temporada 9 ganhava do Regular da 26.
+#[test]
+fn contrato_ativo_do_piloto_escolhe_a_temporada_maior_e_nao_a_string_maior() {
+    let conn = setup_test_db().expect("test db");
+    let regular = contrato_em("C_REG", "P001", "T026", ContractStatus::Ativo, 26, 27);
+    let mut especial = contrato_em("C_ESP", "P001", "T009", ContractStatus::Ativo, 9, 9);
+    especial.tipo = ContractType::Especial;
+    especial.classe = Some("mazda".to_string());
+    insert_contracts(&conn, &[regular, especial]).expect("insert contracts");
+
+    let ativo = get_active_contract_for_pilot(&conn, "P001")
+        .expect("contrato ativo")
+        .expect("piloto tem contrato ativo");
+    assert_eq!(
+        ativo.id, "C_REG",
+        "a temporada 26 é mais recente que a 9, mesmo com '26' < '9' em texto",
+    );
+
+    let regular_ativo = get_active_regular_contract_for_pilot(&conn, "P001")
+        .expect("regular ativo")
+        .expect("piloto tem regular ativo");
+    assert_eq!(regular_ativo.id, "C_REG");
+    assert_eq!(regular_ativo.temporada_inicio, 26);
+
+    let especial_ativo = get_active_especial_contract_for_pilot(&conn, "P001")
+        .expect("especial ativo")
+        .expect("piloto tem especial ativo");
+    assert_eq!(especial_ativo.id, "C_ESP");
+    assert_eq!(especial_ativo.temporada_inicio, 9);
+}
+
+/// Sobreposição verdadeira que a comparação em TEXT apagava: 9–26 contra 10–12.
+/// O teste de fim (`'12' >= '9'`) dava falso e o companheiro real sumia da lista.
+#[test]
+fn ex_companheiros_mantem_sobreposicao_real_entre_as_temporadas_9_e_26() {
+    let conn = setup_test_db().expect("test db");
+    insert_contracts(
+        &conn,
+        &[
+            contrato_em("C1", "P001", "TA", ContractStatus::Expirado, 9, 26),
+            contrato_em("C2", "P002", "TA", ContractStatus::Expirado, 10, 12),
+            // Mesmas temporadas, equipe diferente: nunca dividiu garagem.
+            contrato_em("C3", "P003", "TB", ContractStatus::Expirado, 10, 12),
+        ],
+    )
+    .expect("insert contracts");
+
+    let ids: Vec<String> = get_former_teammates(&conn, "P001")
+        .expect("ex-companheiros")
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+
+    assert!(
+        ids.contains(&"P002".to_string()),
+        "P002 correu pela TA nas temporadas 10 a 12, dentro da janela 9 a 26 do jogador",
+    );
+    assert!(!ids.contains(&"P003".to_string()), "equipe diferente");
+}
+
+/// Sobreposição falsa que a comparação em TEXT inventava: 1–9 contra 12–26.
+/// `'12' <= '9'` dava verdadeiro e um piloto que chegou depois virava ex-companheiro.
+#[test]
+fn ex_companheiros_nao_inventa_sobreposicao_entre_as_temporadas_9_e_12() {
+    let conn = setup_test_db().expect("test db");
+    insert_contracts(
+        &conn,
+        &[
+            contrato_em("C1", "P001", "TA", ContractStatus::Expirado, 1, 9),
+            contrato_em("C2", "P002", "TA", ContractStatus::Expirado, 12, 26),
+            // Encostou na janela pela borda: a temporada 9 é a última do jogador.
+            contrato_em("C3", "P003", "TA", ContractStatus::Expirado, 9, 10),
+        ],
+    )
+    .expect("insert contracts");
+
+    let ids: Vec<String> = get_former_teammates(&conn, "P001")
+        .expect("ex-companheiros")
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+
+    assert!(
+        !ids.contains(&"P002".to_string()),
+        "P002 só chegou na temporada 12, três anos depois de o jogador sair",
+    );
+    assert!(
+        ids.contains(&"P003".to_string()),
+        "a temporada 9 é comum aos dois, a sobreposição de um ano vale",
+    );
+}
+
+/// A ex-equipe e a ex-categoria do agente livre vêm do contrato de vigência mais
+/// recente. Em TEXT o vínculo da temporada 9 se passava pelo mais recente e a
+/// vitrine mostrava a equipe errada.
+#[test]
+fn ex_equipe_e_categoria_do_agente_livre_vem_da_temporada_mais_recente() {
+    let conn = setup_test_db().expect("test db");
+    insert_team_stub(&conn, "T009", "#090909");
+    insert_team_stub(&conn, "T026", "#262626");
+
+    let mut antigo = contrato_em("C09", "P003", "T009", ContractStatus::Expirado, 9, 9);
+    antigo.equipe_nome = "Equipe da Nona".to_string();
+    antigo.categoria = "mazda_amador".to_string();
+    let mut recente = contrato_em("C26", "P003", "T026", ContractStatus::Expirado, 10, 26);
+    recente.equipe_nome = "Equipe da Vigesima Sexta".to_string();
+    recente.categoria = "bmw_m2".to_string();
+    insert_contracts(&conn, &[antigo, recente]).expect("insert contracts");
+
+    let agente = get_free_agents_for_preseason(&conn)
+        .expect("agentes livres")
+        .into_iter()
+        .find(|agente| agente.driver_id == "P003")
+        .expect("P003 está sem contrato regular ativo");
+
+    assert_eq!(agente.categoria, "bmw_m2");
+    assert_eq!(
+        agente.previous_team_name.as_deref(),
+        Some("Equipe da Vigesima Sexta"),
+    );
+    assert_eq!(agente.previous_team_color.as_deref(), Some("#262626"));
+    assert_eq!(
+        agente.seasons_at_last_team, 17,
+        "as temporadas 10 a 26 na mesma equipe",
+    );
+}
+
+/// A expiração do bloco especial filtra por temporada. Pelo caminho normal de
+/// escrita o `= ?1` sem CAST acerta por acaso: a coluna é TEXT, o parâmetro
+/// inteiro herda essa afinidade e '26' casa com '26'. O acerto depende de os dois
+/// lados escreverem o número igual, e a coluna TEXT não garante isso — o terceiro
+/// contrato abaixo grava a mesma temporada 26 como '026' e só o CAST o encontra.
+#[test]
+fn expiracao_do_bloco_especial_casa_a_temporada_numericamente() {
+    let conn = setup_test_db().expect("test db");
+    let mut da_temporada_26 = contrato_em("C26", "P001", "T026", ContractStatus::Ativo, 26, 26);
+    da_temporada_26.tipo = ContractType::Especial;
+    let mut da_temporada_9 = contrato_em("C09", "P002", "T009", ContractStatus::Ativo, 9, 9);
+    da_temporada_9.tipo = ContractType::Especial;
+    let mut com_zero_a_esquerda =
+        contrato_em("C26Z", "P003", "T026", ContractStatus::Ativo, 26, 26);
+    com_zero_a_esquerda.tipo = ContractType::Especial;
+    insert_contracts(
+        &conn,
+        &[da_temporada_26, da_temporada_9, com_zero_a_esquerda],
+    )
+    .expect("insert contracts");
+    conn.execute(
+        "UPDATE contracts SET temporada_inicio = '026' WHERE id = 'C26Z'",
+        [],
+    )
+    .expect("grava a temporada com zero a esquerda");
+
+    let expirados = expire_especial_contracts(&conn, 26).expect("expira bloco especial");
+
+    assert_eq!(expirados, 2, "as duas grafias da temporada 26 fecham");
+    assert_eq!(
+        get_contract_by_id(&conn, "C26Z")
+            .expect("query")
+            .expect("contrato")
+            .status,
+        ContractStatus::Expirado,
+        "'026' é a temporada 26 escrita de outro jeito",
+    );
+    assert_eq!(
+        get_contract_by_id(&conn, "C26")
+            .expect("query")
+            .expect("contrato")
+            .status,
+        ContractStatus::Expirado,
+    );
+    assert_eq!(
+        get_contract_by_id(&conn, "C09")
+            .expect("query")
+            .expect("contrato")
+            .status,
+        ContractStatus::Ativo,
+        "o bloco de outra temporada continua de pé",
+    );
+}
+
+/// Toda coluna da projeção de contrato existe na tabela real.
+#[test]
+fn a_projecao_de_contrato_existe_no_schema_real() {
+    crate::db::queries::tests_projecoes::a_projecao_existe_no_schema_real(
+        "contracts",
+        "COLUNAS_CONTRACT",
+        super::mapeamento::COLUNAS_CONTRACT,
+    );
 }

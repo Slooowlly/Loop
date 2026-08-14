@@ -16,17 +16,25 @@ pub struct ProposalDecision {
     pub reason: String,
 }
 
+/// A decisão do piloto sobre uma proposta.
+///
+/// `team_car_strength` em **0–100** ([`crate::models::team::Team::car_strength`]), a
+/// mesma escala que `Vacancy::car_strength` carrega e que o resto do domínio compara com
+/// reputação, confiabilidade e moral. Recebia o escalar legado em −5..16 e renormalizava
+/// aqui dentro: com a vaga já entregando 0–100, qualquer carro acima de 16 saturava em
+/// 100 e TODO assento virava carro perfeito para o piloto. A normalização é única e mora
+/// na fonte.
 pub fn evaluate_proposal(
     driver: &Driver,
     proposal: &MarketProposal,
     current_contract: Option<&Contract>,
     current_category_tier: u8,
     proposal_category_tier: u8,
-    team_car_performance: f64,
+    team_car_strength: f64,
     team_reputacao: f64,
     rng: &mut impl Rng,
 ) -> ProposalDecision {
-    let car_perf_normalized = (((team_car_performance + 5.0) / 21.0) * 100.0).clamp(0.0, 100.0);
+    let car_strength = team_car_strength.clamp(0.0, 100.0);
     let salary_minimum = calculate_salary_minimum(driver, current_category_tier);
 
     if proposal.salario_oferecido < salary_minimum * 0.80 {
@@ -47,7 +55,7 @@ pub fn evaluate_proposal(
         return reject("Quer ser N1");
     }
 
-    let mut score = (car_perf_normalized / 100.0) * 30.0
+    let mut score = car_score_component(car_strength)
         + (proposal_category_tier as f64 / 5.0) * 25.0
         + if proposal.papel == TeamRole::Numero1 {
             15.0
@@ -72,7 +80,7 @@ pub fn evaluate_proposal(
             }
         }
         Some(PrimaryPersonality::Consolidador) => {
-            if proposal_category_tier == current_category_tier && car_perf_normalized > 60.0 {
+            if proposal_category_tier == current_category_tier && car_strength > 60.0 {
                 score += 10.0;
             }
         }
@@ -97,6 +105,17 @@ pub fn evaluate_proposal(
     } else {
         reject("Proposta não atrativa o suficiente")
     }
+}
+
+/// Peso do carro no score de aceitação, em pontos do mesmo score (o teto de 30 é a maior
+/// componente isolada, à frente de tier, papel, salário e reputação).
+pub const CAR_SCORE_WEIGHT: f64 = 30.0;
+
+/// Quanto o carro vale no score, a partir da força em **0–100**. É o único ponto que
+/// converte a força em pontos, e ele não renormaliza nada: 0 → 0, 50 → metade do peso,
+/// 100 → o peso inteiro.
+pub fn car_score_component(team_car_strength: f64) -> f64 {
+    (team_car_strength / 100.0).clamp(0.0, 1.0) * CAR_SCORE_WEIGHT
 }
 
 fn calculate_salary_minimum(driver: &Driver, current_category_tier: u8) -> f64 {
@@ -183,7 +202,7 @@ mod tests {
         let proposal = sample_proposal(120_000.0, TeamRole::Numero1);
         let mut rng = StdRng::seed_from_u64(1);
 
-        let result = evaluate_proposal(&driver, &proposal, None, 2, 3, 12.0, 80.0, &mut rng);
+        let result = evaluate_proposal(&driver, &proposal, None, 2, 3, 81.0, 80.0, &mut rng);
 
         assert!(result.accepted);
     }
@@ -194,7 +213,7 @@ mod tests {
         let proposal = sample_proposal(5_000.0, TeamRole::Numero1);
         let mut rng = StdRng::seed_from_u64(2);
 
-        let result = evaluate_proposal(&driver, &proposal, None, 3, 3, 10.0, 70.0, &mut rng);
+        let result = evaluate_proposal(&driver, &proposal, None, 3, 3, 71.0, 70.0, &mut rng);
 
         assert!(!result.accepted);
         assert!(result.reason.contains("Salário"));
@@ -213,7 +232,7 @@ mod tests {
             Some(&contract),
             4,
             2,
-            10.0,
+            71.0,
             70.0,
             &mut rng,
         );
@@ -227,7 +246,7 @@ mod tests {
         let proposal = sample_proposal(80_000.0, TeamRole::Numero2);
         let mut rng = StdRng::seed_from_u64(3);
 
-        let result = evaluate_proposal(&driver, &proposal, None, 1, 3, 8.0, 70.0, &mut rng);
+        let result = evaluate_proposal(&driver, &proposal, None, 1, 3, 62.0, 70.0, &mut rng);
 
         assert!(result.accepted);
     }
@@ -238,7 +257,7 @@ mod tests {
         let proposal = sample_proposal(220_000.0, TeamRole::Numero2);
         let mut rng = StdRng::seed_from_u64(4);
 
-        let result = evaluate_proposal(&driver, &proposal, None, 2, 2, 6.0, 55.0, &mut rng);
+        let result = evaluate_proposal(&driver, &proposal, None, 2, 2, 52.0, 55.0, &mut rng);
 
         assert!(result.accepted);
     }
@@ -250,7 +269,7 @@ mod tests {
 
         for seed in 1..=12 {
             let mut rng = StdRng::seed_from_u64(seed);
-            let result = evaluate_proposal(&driver, &proposal, None, 3, 4, 0.0, 80.0, &mut rng);
+            let result = evaluate_proposal(&driver, &proposal, None, 3, 4, 24.0, 80.0, &mut rng);
             assert!(
                 result.accepted,
                 "carro fraco nao deve gerar trava absoluta quando a oferta e forte; seed={seed}"
@@ -271,7 +290,7 @@ mod tests {
             Some(&contract),
             2,
             2,
-            8.0,
+            62.0,
             60.0,
             &mut rng,
         );
@@ -378,11 +397,53 @@ mod tests {
         let mut rng_e = StdRng::seed_from_u64(42);
         let mut rng_b = StdRng::seed_from_u64(42);
         let dec_elite =
-            evaluate_proposal(&driver_elite, &proposal, None, 3, 3, 14.0, 80.0, &mut rng_e);
+            evaluate_proposal(&driver_elite, &proposal, None, 3, 3, 90.0, 80.0, &mut rng_e);
         let dec_baixa =
-            evaluate_proposal(&driver_baixa, &proposal, None, 3, 3, 14.0, 80.0, &mut rng_b);
+            evaluate_proposal(&driver_baixa, &proposal, None, 3, 3, 90.0, 80.0, &mut rng_b);
 
         assert_eq!(dec_elite.accepted, dec_baixa.accepted);
+    }
+
+    // ── A unidade do carro: 0–100, uma normalização só ────────────────────────
+
+    #[test]
+    fn carro_pontua_na_escala_0_100_sem_segunda_normalizacao() {
+        // A vaga entrega `car_strength` em 0–100; aqui ela vira ponto de score direto.
+        // 20 → 6, 50 → 15, 80 → 24 (fração do peso). Com a renormalização legada
+        // (`(x+5)/21*100`) os três saturavam em 100 e valiam os 30 pontos cheios.
+        assert!((car_score_component(20.0) - 6.0).abs() < 1e-9);
+        assert!((car_score_component(50.0) - 15.0).abs() < 1e-9);
+        assert!((car_score_component(80.0) - 24.0).abs() < 1e-9);
+        // Extremos da escala e recorte fora dela.
+        assert!((car_score_component(0.0) - 0.0).abs() < 1e-9);
+        assert!((car_score_component(100.0) - CAR_SCORE_WEIGHT).abs() < 1e-9);
+        assert!((car_score_component(140.0) - CAR_SCORE_WEIGHT).abs() < 1e-9);
+        assert!((car_score_component(-20.0) - 0.0).abs() < 1e-9);
+        // O topo da escala LEGADA (16) é um carro fraco na escala canônica, não um
+        // carro perfeito — é exatamente a confusão que a renormalização produzia.
+        assert!(car_score_component(16.0) < CAR_SCORE_WEIGHT / 2.0);
+    }
+
+    #[test]
+    fn carro_melhor_faz_o_piloto_aceitar_mais() {
+        // Comportamental sobre a decisão inteira: só o carro varia (20, 50, 80) e a
+        // aceitação cresce com ele. Com a renormalização legada os três davam o MESMO
+        // score e as três contagens empatavam.
+        let driver = sample_driver(66.0, None);
+        let proposal = sample_proposal(90_000.0, TeamRole::Numero1);
+        let aceites = |car: f64| {
+            (1..=40)
+                .filter(|seed| {
+                    let mut rng = StdRng::seed_from_u64(*seed);
+                    evaluate_proposal(&driver, &proposal, None, 3, 3, car, 60.0, &mut rng).accepted
+                })
+                .count()
+        };
+        let (fraco, medio, forte) = (aceites(20.0), aceites(50.0), aceites(80.0));
+        assert!(
+            fraco < medio && medio < forte,
+            "aceitação deve crescer com o carro: 20→{fraco}, 50→{medio}, 80→{forte}"
+        );
     }
 
     fn sample_contract() -> Contract {

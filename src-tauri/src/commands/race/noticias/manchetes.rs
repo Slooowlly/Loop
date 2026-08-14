@@ -176,9 +176,9 @@ pub(super) fn montar_e_gravar_manchetes(
             .unwrap_or_else(|_| inc.pilot_id.clone());
         let id = next_id(conn, IdType::News).map_err(|e| format!("next_id incident: {e:?}"))?;
         let titulo = if inc.is_dnf {
-            format!("{} abandona a corrida após incidente", driver_name)
+            rust_i18n::t!("race.news.incident_dnf_title", name = driver_name).to_string()
         } else {
-            format!("{} envolvido em incidente durante a prova", driver_name)
+            rust_i18n::t!("race.news.incident_title", name = driver_name).to_string()
         };
         let texto = inc.description.clone();
         let inc_importance = if inc.narrative_importance_hint >= 3 {
@@ -211,11 +211,8 @@ pub(super) fn montar_e_gravar_manchetes(
             .map(|d| d.nome)
             .unwrap_or_else(|_| injury.pilot_id.clone());
         let id = next_id(conn, IdType::News).map_err(|e| format!("next_id injury: {e:?}"))?;
-        let titulo = "desfalque confirmado".to_string();
-        let texto = format!(
-            "{} está fora da próxima etapa após lesão confirmada. Situação será reavaliada nos próximos dias.",
-            driver_name
-        );
+        let titulo = rust_i18n::t!("race.news.injury_title").to_string();
+        let texto = rust_i18n::t!("race.news.injury_text", name = driver_name).to_string();
         items.push(NewsItem {
             id,
             tipo: NewsType::Lesao,
@@ -241,4 +238,61 @@ pub(super) fn montar_e_gravar_manchetes(
     }
 
     Ok(corrida_news_id)
+}
+
+#[cfg(test)]
+mod tests {
+    /// As manchetes de incidente e de lesão eram `format!` em português cru até 11/08/2026.
+    /// Viraram chave, e o modo de falha do `rust-i18n` é silencioso: chave que não existe no
+    /// YAML volta como o PRÓPRIO caminho da chave, e a notícia chega ao jogador escrita
+    /// "race.news.injury_title". O teste cobre as quatro chaves nos dois idiomas.
+    ///
+    /// `#[serial]` porque o locale é estado GLOBAL do processo: sem ele, este teste liga o
+    /// en-US no meio de outro que assevera prosa em português.
+    #[test]
+    #[serial_test::serial]
+    fn as_manchetes_de_incidente_e_lesao_saem_do_locale_nos_dois_idiomas() {
+        let anterior = rust_i18n::locale().to_string();
+
+        for locale in ["pt-BR", "en-US"] {
+            rust_i18n::set_locale(locale);
+            let nome = "Ana Costa";
+
+            let com_nome = [
+                rust_i18n::t!("race.news.incident_dnf_title", name = nome).to_string(),
+                rust_i18n::t!("race.news.incident_title", name = nome).to_string(),
+                rust_i18n::t!("race.news.injury_text", name = nome).to_string(),
+            ];
+            for texto in &com_nome {
+                assert!(
+                    !texto.starts_with("race.news."),
+                    "chave sem tradução em {locale}: {texto}"
+                );
+                assert!(
+                    texto.contains(nome),
+                    "a manchete tem que nomear o piloto em {locale}: {texto}"
+                );
+                assert!(
+                    !texto.contains("%{"),
+                    "sobrou interpolação crua em {locale}: {texto}"
+                );
+            }
+
+            let titulo_lesao = rust_i18n::t!("race.news.injury_title").to_string();
+            assert!(
+                !titulo_lesao.starts_with("race.news."),
+                "chave sem tradução em {locale}: {titulo_lesao}"
+            );
+            // Regra de copy do projeto: nada que o jogador lê começa em minúscula.
+            assert!(
+                titulo_lesao
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_uppercase()),
+                "título de notícia em minúscula em {locale}: {titulo_lesao}"
+            );
+        }
+
+        rust_i18n::set_locale(&anterior);
+    }
 }

@@ -63,7 +63,7 @@ pub struct WindowConfig {
     pub low_tier_cap: u8,      // 2
     pub accept_threshold: f64, // 50.0 (semana 1)
     pub threshold_decay: f64,  // 4.0/semana — o piloto fica menos exigente
-    pub threshold_floor: f64,  // 35.0 — mínimo
+    pub threshold_floor: f64,  // 28.0 — mínimo
     pub dignity_tier_gap: u8,  // 2 — recusa cair 2+ tiers abaixo do seu nível
     pub craque_skill: f64,     // 80.0 — sempre acha vaga; pode descer (slam)
     pub hard_week_cap: u32,    // 10

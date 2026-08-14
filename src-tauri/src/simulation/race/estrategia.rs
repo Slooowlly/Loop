@@ -92,6 +92,11 @@ pub fn traz_bandeira_amarela(inc: &IncidentResult) -> bool {
 /// Zera os gaps sem reordenar: as duas parcelas do `max` crescem com a posição, então quem
 /// estava na frente continua na frente. O que se perde é a MARGEM — e é isso que transforma
 /// uma liderança confortável em briga, e o que torna o SC o maior embaralhador do esporte.
+///
+/// **`posicao` é a posição de AGORA, casada com `gap_para_o_lider_ms`.** A preservação da ordem
+/// depende inteiramente disso: com uma posição de outro instante, o degrau de fila desempata
+/// pelo instante errado e o safety car desfaz ultrapassagem. Quem passa a posição corrente é
+/// `aplicar_safety_car`, que a mede na hora em vez de ler `RaceState::current_position`.
 pub fn atraso_sob_safety_car(gap_para_o_lider_ms: f64, posicao: i32) -> f64 {
     let comprimido = gap_para_o_lider_ms * FATOR_DE_COMPRESSAO_DO_PELOTAO;
     let fila = (posicao.max(1) - 1) as f64 * GAP_MINIMO_SOB_SAFETY_CAR_MS;

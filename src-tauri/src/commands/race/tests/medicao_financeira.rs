@@ -46,40 +46,48 @@
 
 use std::collections::HashMap;
 
+use crate::finance::events::{
+    PARAQUEDAS_MESES, SOCORROS_MAX_POR_TEMPORADA, SOCORRO_GATE_CAIXA_MESES,
+    SOCORRO_PRINCIPAL_MESES, SOCORRO_TETO_DIVIDA_MESES,
+};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
-use super::despesa_legada::despesa_legada_da_rodada;
 use super::super::{
     calculate_team_round_finance_context_modelo, despesa_da_rodada, CalculoDaDespesa,
     CoeficientesDeReceita, EtapaFisica, RoundOperationContext,
 };
+use super::despesa_legada::despesa_legada_da_rodada;
 use crate::car::seed::seed_car;
 use crate::car::{Car, PartType};
 use crate::constants::categories::get_category_config;
 use crate::constants::scoring::{get_points_for_position, BONUS_FASTEST_LAP};
 use crate::constants::tracks::{get_tracks_for_category, TrackInfo};
-use crate::event_interest::{calculate_expected_event_interest, EventInterestContext};
-use crate::finance::cashflow::{apply_offseason_competitiveness_impact, apply_round_cashflow};
-use crate::finance::economy::global_economic_health_for_season;
-use crate::finance::events::apply_crisis_event_if_needed;
-use crate::finance::focus::TeamFocus;
-use crate::finance::planning::category_finance_scale;
-use crate::finance::prize::constructor_prize_with;
-use crate::finance::rescue::apply_team_sale;
-use crate::finance::salary::calculate_offer_salary_from_money;
-use crate::finance::state::{
-    choose_season_strategy, derive_financial_state, financial_health_score, meses_de_operacao,
-    refresh_team_financial_state_com, FaixasDeMeses,
-};
-use crate::finance::strategy::{apply_elite_resource_floor, designate_elite_teams};
-use crate::market::car_maintenance::{
-    apply_plan, decide_car_maintenance, planning_horizon, upgrades_permitidos_nesta_corrida,
-};
 use crate::economia::desenvolvimento::{
     planejar_desenvolvimento, EntradaDeDesenvolvimento, ParametrosDeDesenvolvimento,
 };
 use crate::economia::receita::{
     premio_de_fim_de_temporada, receita_da_etapa, EntradaDeReceitaDaEtapa, ParametrosDeReceita,
+};
+use crate::event_interest::{calculate_expected_event_interest, EventInterestContext};
+use crate::finance::cashflow::{apply_offseason_competitiveness_impact, apply_round_cashflow};
+use crate::finance::economy::economy_income_modifier;
+use crate::finance::economy::global_economic_health_for_season;
+use crate::finance::events::apply_crisis_event_if_needed;
+use crate::finance::focus::TeamFocus;
+use crate::finance::planning::{
+    calculate_financial_plan, calculate_spending_power, category_finance_scale,
+    category_finance_scale_for, derive_budget_index_from_money,
+};
+use crate::finance::prize::constructor_prize_with;
+use crate::finance::rescue::apply_team_sale;
+use crate::finance::salary::calculate_offer_salary_from_money;
+use crate::finance::state::{
+    choose_season_strategy, custo_operacional_mensal, derive_financial_state,
+    financial_health_score, meses_de_operacao, refresh_team_financial_state_com, FaixasDeMeses,
+};
+use crate::finance::strategy::{apply_elite_resource_floor, designate_elite_teams};
+use crate::market::car_maintenance::{
+    apply_plan, decide_car_maintenance, planning_horizon, upgrades_permitidos_nesta_corrida,
 };
 use crate::models::enums::{SeasonPhase, ThematicSlot};
 use crate::models::team::{placeholder_team_from_db, Team};
@@ -429,9 +437,8 @@ fn montar_grid(
             // A largura é parametrizada: `FAMA_DE_HOJE` reproduz o save real, e larguras
             // maiores emulam a fama reescrita (piso pessoal + composto de público), que é a
             // condição declarada para o critério 11 ser alcançável.
-            let presenca = (midia + (q - 0.5) * espalhamento_da_fama
-                + rng.gen_range(-3.0..3.0))
-            .clamp(5.0, 100.0);
+            let presenca = (midia + (q - 0.5) * espalhamento_da_fama + rng.gen_range(-3.0..3.0))
+                .clamp(5.0, 100.0);
 
             grid.push(EquipeMedida {
                 team,
@@ -736,6 +743,314 @@ impl Default for AncoraDoDinheiro {
 const FAMA_DE_HOJE: f64 = 18.0;
 const FAMA_COM_AMPLITUDE: f64 = 52.0;
 
+/// **O laço de realimentação da riqueza**, ligado ou desligado.
+///
+/// O patrocínio de produção soma `plan.budget_index × round_operating_base × 0,002`
+/// (`race::financas`), e `budget_index` é derivado do dinheiro
+/// (`planning::derive_budget_index_from_money`). Fechando o círculo: caixa → meses de
+/// operação → meses projetados → escada de estados → índice 0–100 → patrocínio → caixa.
+/// Equipe rica capta mais patrocínio **por ser rica**.
+///
+/// O eixo existe para medir o tamanho desse laço, e só ele: o contrafactual zera o termo e
+/// não mexe em mais nada. Reputação, fama, bilheteria, prêmio, despesa e o resto do índice
+/// (que outros sistemas leem) continuam idênticos.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Realimentacao {
+    /// Produção de hoje.
+    Atual,
+    /// O mesmo mundo com o termo do índice fora do patrocínio.
+    Zerada,
+    /// **O braço que separa nível de forma.** Cada equipe recebe o termo calculado sobre o
+    /// índice MÉDIO da classe dela naquela rodada, em vez do índice próprio.
+    ///
+    /// Existe porque `Zerada` responde a duas perguntas de uma vez e não diz qual das duas
+    /// respondeu: ela tira 11–17% do patrocínio do mundo (NÍVEL) e tira a diferenciação
+    /// entre rica e pobre (FORMA) no mesmo movimento. Um mundo mais pobre é mais desigual
+    /// neste modelo por motivos que não têm nada a ver com o laço, então concentração medida
+    /// contra `Zerada` vem contaminada.
+    ///
+    /// Aqui o dinheiro total que o canal injeta na classe fica igual ao de produção, ponto a
+    /// ponto, e o que morre é só quem recebe mais e quem recebe menos. A diferença
+    /// `Atual − Achatada` é o efeito do LAÇO, limpo.
+    Achatada,
+}
+
+// ===================== Os eixos absolutos (B47 / B50 / B52) =====================
+
+/// **O empréstimo de emergência**: a produção de hoje, o piso sem socorro e os dois
+/// contrafactuais que sustentam a decisão de B50.
+///
+/// A produção **era** absoluta: gatilho em `caixa < −75 mil` **OU** `dívida ≥ 750 mil`, valor
+/// de uma tabela por categoria (150 mil na Rookie, 800 mil no Endurance). Nenhum dos três
+/// números sabia quanto custa operar a divisão, e o `OU` fazia da dívida uma condição que
+/// LIBERAVA mais socorro. Hoje ela é relativa e tem teto — ver `finance::events`. O braço
+/// [`Socorro::Absoluta`] guarda a política velha para o antes/depois continuar mensurável
+/// depois de a produção ter mudado.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Socorro {
+    /// `finance::events::apply_crisis_event_if_needed`, intacto: 2 meses de gate de caixa,
+    /// teto de dívida em 4 meses, principal de 2 meses, no máximo 2 por temporada.
+    Producao,
+    /// Ninguém é socorrido. O piso de referência: quanto do mundo de pé é obra do empréstimo.
+    Sem,
+    /// **A política ANTIGA**, congelada aqui: os três números absolutos, o `OU` no gatilho e
+    /// nenhum limite de reincidência. É contra este braço que se lê o que a correção fez.
+    Absoluta,
+    /// Os gates e o principal da produção NOVA, com a taxa cobrada ao longo do tempo em vez
+    /// de capitalizada no ato.
+    ///
+    /// Em produção a dívida cresce `1,18 × principal` na mesma rodada do socorro. Aqui ela
+    /// cresce só o principal e os 18% viram despesa de caixa rateada nas rodadas de uma
+    /// temporada. O dinheiro cobrado é o mesmo; o que muda é QUANDO ele entra na dívida — e
+    /// agora a dívida é o TETO do socorro seguinte, então adiar o reconhecimento dela é
+    /// adiar o freio. Medido: pior que a capitalizada, e é por isso que a produção não mudou
+    /// deste lado.
+    Amortizada,
+    /// Os gates, o teto e o limite por temporada da produção, com o PRINCIPAL e a TAXA
+    /// varridos. Existe para o critério que o 2/4/2 não cumpriu de primeira: o braço com
+    /// socorro tinha que deixar o colapso ≤ o do braço SEM socorro, e ficava 0,6 pp acima.
+    ///
+    /// A causa é aritmética: o socorro entrega `p` meses de caixa e cria `p × taxa` meses de
+    /// dívida, e a saúde do mundo é medida em `caixa − dívida`. Com taxa acima de 1 o socorro
+    /// PIORA o indicador no ato, e depois a equipe ainda paga juro sobre a diferença — 5% por
+    /// rodada na banda de colapso. Este braço varre os dois números na mesma unidade relativa
+    /// para achar onde a conta fecha.
+    Variante {
+        /// Principal, em meses de operação.
+        principal: f64,
+        /// Multiplicador da dívida sobre o principal.
+        taxa: f64,
+    },
+}
+
+/// A política ANTIGA do socorro, copiada de `finance::events` como ela era até 12/08/2026.
+/// Existe só para o braço [`Socorro::Absoluta`] — nenhuma linha de produção passa por aqui.
+fn socorro_absoluto_antigo(team: &Team) -> Option<f64> {
+    if team.financial_state != "collapse" {
+        return None;
+    }
+    if team.cash_balance > -75_000.0 && team.debt_balance < 750_000.0 {
+        return None;
+    }
+    let base = match team.categoria.as_str() {
+        "mazda_rookie" | "toyota_rookie" => 150_000.0,
+        "mazda_amador" | "toyota_amador" => 225_000.0,
+        "bmw_m2" => 300_000.0,
+        "production_challenger" => 375_000.0,
+        "gt4" => 475_000.0,
+        "gt3" => 650_000.0,
+        "endurance" => 800_000.0,
+        _ => 250_000.0,
+    };
+    Some(base * (0.85 + team.reputacao.clamp(0.0, 100.0) / 500.0))
+}
+
+/// O que um socorro fez com a equipe. Existe porque o braço amortizado separa o que entra na
+/// dívida do que fica pendurado para ser cobrado em caixa.
+#[derive(Debug, Clone, Copy, Default)]
+struct Socorrido {
+    principal: f64,
+    /// Quanto foi somado ao `debt_balance` no ato.
+    divida: f64,
+    /// Taxa que ainda será cobrada em caixa, rateada nas próximas rodadas.
+    taxa_diferida: f64,
+}
+
+/// Quanto o socorro soma à dívida por unidade de principal. Cópia de
+/// `finance::events::SOCORRO_TAXA` — cobrada pelo guard
+/// [`os_numeros_do_socorro_ainda_sao_os_da_producao`].
+const SOCORRO_TAXA: f64 = 1.00;
+
+/// A taxa de originação como ela era até 12/08/2026. Usada pelos braços históricos
+/// ([`Socorro::Absoluta`] e [`Socorro::Amortizada`]), que existem para medir o ANTES.
+const TAXA_HISTORICA: f64 = 1.18;
+
+/// Aplica o socorro do braço escolhido. Devolve `Some(principal)` quando emprestou.
+fn aplicar_socorro(team: &mut Team, socorro: Socorro, temporada: i32) -> Option<Socorrido> {
+    match socorro {
+        Socorro::Producao => apply_crisis_event_if_needed(team, temporada).map(|e| Socorrido {
+            principal: e.cash_delta,
+            divida: e.debt_delta,
+            taxa_diferida: 0.0,
+        }),
+        Socorro::Sem => None,
+        Socorro::Amortizada => {
+            let principal =
+                crate::finance::events::emergency_loan_amount_na_temporada(team, temporada)?;
+            team.cash_balance += principal;
+            team.debt_balance += principal;
+            // O contador continua sendo o da produção: o braço muda só QUANDO a taxa entra.
+            team.socorros_na_temporada =
+                crate::finance::events::socorros_ja_tomados(team, temporada) + 1;
+            team.socorros_temporada_ref = temporada;
+            Some(Socorrido {
+                principal,
+                divida: principal,
+                taxa_diferida: principal * (TAXA_HISTORICA - 1.0),
+            })
+        }
+        Socorro::Variante { principal, taxa } => {
+            // Reusa os PORTÕES da produção e troca só o tamanho do cheque: o eixo aqui é o
+            // principal e a taxa, não a elegibilidade.
+            let da_producao =
+                crate::finance::events::emergency_loan_amount_na_temporada(team, temporada)?;
+            let escala = principal / crate::finance::events::SOCORRO_PRINCIPAL_MESES;
+            let valor = da_producao * escala;
+            team.cash_balance += valor;
+            team.debt_balance += valor * taxa;
+            team.socorros_na_temporada =
+                crate::finance::events::socorros_ja_tomados(team, temporada) + 1;
+            team.socorros_temporada_ref = temporada;
+            Some(Socorrido {
+                principal: valor,
+                divida: valor * taxa,
+                taxa_diferida: 0.0,
+            })
+        }
+        Socorro::Absoluta => {
+            let principal = socorro_absoluto_antigo(team)?;
+            team.cash_balance += principal;
+            team.debt_balance += principal * TAXA_HISTORICA;
+            Some(Socorrido {
+                principal,
+                divida: principal * TAXA_HISTORICA,
+                taxa_diferida: 0.0,
+            })
+        }
+    }
+}
+
+/// **O paraquedas de rebaixamento**, que o harness nunca tinha ligado.
+///
+/// Este harness não promove nem rebaixa (ver o cabeçalho do módulo), então
+/// `parachute_payment_remaining` era zero em toda equipe e a linha `ajuda` da fatura vinha
+/// vazia — o canal existia em produção e não era medido em lugar nenhum.
+///
+/// A coorte aqui é sintética e declarada: **a última colocada de cada classe** fecha a
+/// temporada recebendo o saldo de paraquedas, como se tivesse sido rebaixada. Ela continua
+/// na mesma divisão (o harness não tem escada), o que torna a medida uma cota SUPERIOR do
+/// alívio: no jogo a equipe desce para uma divisão mais barata e o mesmo dinheiro compra
+/// mais meses ainda.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Paraquedas {
+    /// Ninguém é rebaixado — o harness de sempre.
+    Nenhum,
+    /// Produção: total de [`crate::finance::events::PARAQUEDAS_MESES`] meses de operação da
+    /// divisão de destino, pago em `rodadas` parcelas iguais (`race::financas`).
+    Producao,
+    /// **A política ANTIGA**, congelada aqui: a tabela absoluta por categoria e a parcela fixa
+    /// de 25 mil por rodada. É o ANTES contra o qual se lê a correção de B47.
+    Absoluta,
+}
+
+/// A parcela fixa que a produção pagava por rodada até 12/08/2026. Vive aqui como referência
+/// histórica do braço [`Paraquedas::Absoluta`].
+const PARCELA_DE_AJUDA: f64 = 25_000.0;
+
+/// A tabela absoluta do paraquedas, como ela era até 12/08/2026. Só o braço histórico usa.
+fn paraquedas_absoluto_antigo(team: &Team) -> f64 {
+    let base = match team.categoria.as_str() {
+        "mazda_rookie" | "toyota_rookie" => 120_000.0,
+        "mazda_amador" | "toyota_amador" => 180_000.0,
+        "bmw_m2" => 250_000.0,
+        "production_challenger" => 325_000.0,
+        "gt4" => 425_000.0,
+        "gt3" => 575_000.0,
+        "endurance" => 700_000.0,
+        _ => 200_000.0,
+    };
+    base * (0.85 + team.reputacao.clamp(0.0, 100.0) / 400.0)
+}
+
+/// **Os dois limiares de `choose_season_strategy`** (B52).
+///
+/// A produção compara `spending_power` — grandeza ANUAL re-derivada em cima de meses de
+/// operação — contra frações do `operating_cost_midpoint` ANUAL. O divisor vinha de
+/// `category_finance_scale`, a forma CEGA À CLASSE, e os dois braços contrafactuais separavam
+/// as duas suspeitas: o valor dos limiares e a escala contra a qual eles são lidos.
+///
+/// A segunda suspeita virou correção: `choose_season_strategy` passou a ler a escala da
+/// DIVISÃO (B52). Por isso `PorClasse` e `Limiares` coincidem nos mesmos limiares — o braço
+/// continua na tabela porque é ele que registra o que a correção mudou.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Estrategia {
+    /// `finance::state::choose_season_strategy`, intacta.
+    Producao,
+    /// A mesma forma, com os dois limiares parametrizados (frações do operacional anual).
+    Limiares { all_in: f64, austeridade: f64 },
+    /// Os mesmos limiares, lidos contra a escala da CLASSE da equipe em vez da categoria.
+    PorClasse { all_in: f64, austeridade: f64 },
+}
+
+/// Os limiares que a produção usa hoje. Cópia — cobrada pelo guard
+/// [`os_limiares_da_estrategia_ainda_sao_os_da_producao`].
+const LIMIAR_ALL_IN: f64 = 0.20;
+const LIMIAR_AUSTERIDADE: f64 = 0.50;
+/// Gate de dívida do `survival`, fração do `expected_cash_midpoint`.
+const LIMIAR_SURVIVAL: f64 = 0.75;
+
+/// Reprodução local de `choose_season_strategy` com os limiares abertos.
+///
+/// É cópia de lógica de produção, e o guard existe por isso: rodar o contrafactual sobre uma
+/// forma que a produção não tem mais mediria outra coisa em silêncio.
+fn escolher_estrategia(team: &Team, eixo: Estrategia) -> &'static str {
+    let (all_in, austeridade) = match eixo {
+        Estrategia::Producao => return choose_season_strategy(team),
+        Estrategia::Limiares {
+            all_in,
+            austeridade,
+        }
+        | Estrategia::PorClasse {
+            all_in,
+            austeridade,
+        } => (all_in, austeridade),
+    };
+    let plan = calculate_financial_plan(team);
+    // Mesma escala da produção desde B52: a da DIVISÃO da equipe.
+    let scale = category_finance_scale_for(&team.categoria, team.classe.as_deref());
+
+    if plan.debt_pressure >= scale.expected_cash_midpoint() * LIMIAR_SURVIVAL {
+        return "survival";
+    }
+    if plan.spending_power < scale.operating_cost_midpoint() * all_in && team.car_strength() < 38.0
+    {
+        return "all_in";
+    }
+    match crate::finance::state::estado_por_meses(
+        crate::finance::state::meses_de_operacao(team),
+        FaixasDeMeses::default(),
+    ) {
+        "elite" => "balanced",
+        "healthy" => {
+            if team.car_strength() < 50.0 {
+                "expansion"
+            } else {
+                "balanced"
+            }
+        }
+        "stable" => {
+            if plan.spending_power < scale.operating_cost_midpoint() * austeridade {
+                "austerity"
+            } else {
+                "balanced"
+            }
+        }
+        "pressured" => "all_in",
+        "crisis" | "collapse" => "survival",
+        _ => "balanced",
+    }
+}
+
+/// O coeficiente do termo do índice no patrocínio. **É uma cópia** do literal que mora em
+/// `race::financas::calculate_team_round_finance_context_modelo` — o harness não pode
+/// importá-lo porque ele não tem nome lá.
+///
+/// A cópia é cobrada por `o_coeficiente_do_indice_ainda_e_o_da_producao`, que mede a
+/// derivada do patrocínio em relação ao índice chamando a função de produção. Se alguém
+/// mexer no 0,002 lá, o teste cai aqui em vez de o contrafactual passar a medir a coisa
+/// errada em silêncio.
+const COEF_DO_INDICE: f64 = 0.002;
+
 /// Tudo que define uma rodada do harness. Existe para não passar seis argumentos soltos por
 /// quatro níveis de função — e para que acrescentar um eixo novo não mexa em call site
 /// nenhum.
@@ -753,6 +1068,19 @@ struct Cenario {
     espalhamento_da_fama: f64,
     /// As fronteiras dos seis estados financeiros, em MESES de operação.
     faixas: FaixasDeMeses,
+    /// O laço dinheiro → índice → patrocínio → dinheiro.
+    realimentacao: Realimentacao,
+    /// O empréstimo de emergência (B50).
+    socorro: Socorro,
+    /// O paraquedas de rebaixamento e a parcela por rodada (B47).
+    paraquedas: Paraquedas,
+    /// Os limiares de `choose_season_strategy` (B52).
+    estrategia: Estrategia,
+    /// Deslocamento da semente do mundo. A semente-base sai do NOME da categoria, então uma
+    /// categoria tinha um mundo só; colapso e recuperação são eventos raros e um mundo só
+    /// não distingue efeito de sorteio. Cada valor daqui é uma réplica com o mesmo desenho e
+    /// outro sorteio.
+    semente: u64,
 }
 
 impl Default for Cenario {
@@ -771,6 +1099,11 @@ impl Default for Cenario {
             ancora: AncoraDoDinheiro::default(),
             espalhamento_da_fama: FAMA_DE_HOJE,
             faixas: FaixasDeMeses::default(),
+            realimentacao: Realimentacao::Atual,
+            socorro: Socorro::Producao,
+            paraquedas: Paraquedas::Nenhum,
+            estrategia: Estrategia::Producao,
+            semente: 0,
         }
     }
 }
@@ -801,6 +1134,34 @@ struct Linhas {
     /// O RALO simulado (`Ralo`), somando as três formas. Zero quando não há ralo ligado —
     /// é o que mantém os testes existentes intactos.
     ralo: f64,
+}
+
+/// **A foto de uma equipe no fim de uma temporada.** É a trajetória, não o destino.
+///
+/// Todo o resto do `Resultado` fecha em 20 temporadas ou agrega o mundo inteiro; medir o
+/// laço de realimentação em 1, 3 e 5 anos exige o estado ano a ano, equipe a equipe, com o
+/// suficiente para normalizar entre categorias (`mensal`) e para separar por classe e por
+/// estado de partida.
+#[derive(Default, Clone, Copy)]
+struct FotoDaEquipe {
+    /// Meses de operação com o caixa já abatido da dívida — a grandeza comparável.
+    meses: f64,
+    caixa: f64,
+    divida: f64,
+    /// `calculate_spending_power`, em dinheiro. O relatório o divide por `mensal`.
+    poder_de_gasto: f64,
+    /// `derive_budget_index_from_money`, 0–100.
+    indice: f64,
+    /// Patrocínio somado NESTA temporada.
+    patrocinio_do_ano: f64,
+    /// Receita total somada NESTA temporada, prêmio de construtores incluído.
+    receita_do_ano: f64,
+    estado: &'static str,
+    /// Índice da classe em `Arena::classes` — o corte de classe do relatório.
+    classe: usize,
+    /// Custo de operar UM mês nesta divisão. É o denominador que torna dinheiro de rookie
+    /// comparável com dinheiro de LMP2.
+    mensal: f64,
 }
 
 /// A autópsia de um GRUPO de equipes-temporada: a composição do ano delas.
@@ -973,6 +1334,27 @@ struct Resultado {
     ja_quebraram: u32,
     vendas: u32,
     emprestimos: u32,
+    /// Principal somado dos empréstimos de emergência da simulação inteira (B50).
+    emprestimo_valor: f64,
+    /// Dívida somada CRIADA pelos empréstimos — principal mais a taxa que foi capitalizada
+    /// no ato. Em produção é `1,18 × principal`; no braço amortizado é o principal seco.
+    divida_criada: f64,
+    /// Taxa do empréstimo efetivamente cobrada em caixa ao longo do tempo (braço amortizado).
+    taxa_amortizada_paga: f64,
+    /// Quantos empréstimos cada equipe do grid tomou na simulação inteira, na ordem do grid.
+    /// É o eixo de REINCIDÊNCIA: um canal que socorre 20 equipes uma vez é outra coisa que um
+    /// canal que socorre 4 equipes cinco vezes.
+    emprestimos_por_equipe: Vec<u32>,
+    /// (equipe × temporada) em que o gatilho do empréstimo esteve ABERTO no fim de alguma
+    /// rodada — a taxa de elegibilidade, que é diferente da taxa de uso.
+    elegiveis: u32,
+    /// Ajuda de paraquedas efetivamente paga na simulação inteira, no braço que estiver
+    /// rodando (B47).
+    ajuda_paga: f64,
+    /// Quantas equipes-temporada receberam o saldo de paraquedas (a coorte sintética).
+    paraquedas_concedidos: u32,
+    /// Distribuição de `season_strategy` escolhida no fim de cada temporada (B52).
+    estrategias: HashMap<&'static str, u32>,
     linhas: Linhas,
     /// Caixa em múltiplos do caixa-médio da categoria, na primeira e na última temporada.
     caixa_inicio: Vec<f64>,
@@ -1056,6 +1438,12 @@ struct Resultado {
     /// Receita acumulada da MELHOR equipe do grid ÷ a da PIOR. É o outro fator do produto:
     /// uma conta fixa alta só afoga alguém se a receita for espalhada dentro do grid.
     receita_espalhada: f64,
+    /// A foto de cada equipe no fim de cada temporada: `serie[temporada - 1][equipe]`.
+    /// Alimentada sempre; custa uma struct por equipe por ano.
+    serie: Vec<Vec<FotoDaEquipe>>,
+    /// A foto do grid ANTES da primeira corrida — o estado de partida de cada equipe, que é
+    /// o corte "por estado financeiro" do relatório de realimentação.
+    foto_inicial: Vec<FotoDaEquipe>,
     /// A composição do ano de quem terminou a temporada em `collapse`.
     autopsia_colapso: Autopsia,
     /// A composição do ano de quem terminou de pé (`stable` ou melhor) — o controle.
@@ -1100,10 +1488,21 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
         ancora: ancora_do_dinheiro,
         espalhamento_da_fama,
         faixas,
+        realimentacao,
+        socorro,
+        paraquedas,
+        estrategia,
+        semente,
     } = *cenario;
     let arena = arena(categoria);
     let refer = referencia(categoria);
-    let mut rng = StdRng::seed_from_u64(categoria.bytes().map(|b| b as u64).sum::<u64>());
+    let mut rng = StdRng::seed_from_u64(
+        categoria
+            .bytes()
+            .map(|b| b as u64)
+            .sum::<u64>()
+            .wrapping_add(semente.wrapping_mul(1_000_003)),
+    );
     let mut grid = montar_grid(&arena, &mut rng, espalhamento_da_fama, faixas);
     let scale = category_finance_scale(arena.id);
     // O custo operacional declarado de UMA temporada de UMA equipe. É a unidade em que o
@@ -1123,9 +1522,7 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
             AncoraDoDinheiro::Declarada => op_anual,
             AncoraDoDinheiro::Fisica => {
                 let classe = (!c.nome.is_empty()).then_some(c.nome);
-                crate::economia::temporada::custo_operacional_anual_de_referencia(
-                    arena.id, classe,
-                )
+                crate::economia::temporada::custo_operacional_anual_de_referencia(arena.id, classe)
             }
         })
         .collect();
@@ -1156,9 +1553,26 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
     let mut pontos_acumulados = vec![0.0f64; n_equipes];
     let mut saldo_acumulado = vec![0.0f64; n_equipes];
     let mut titulos = vec![0u32; n_equipes];
+    // B50: quantos socorros cada equipe tomou, e a taxa que o braço amortizado ainda deve
+    // cobrar dela (valor pendente e quantas parcelas faltam).
+    let mut emprestimos_por_equipe = vec![0u32; n_equipes];
+    let mut taxa_pendente = vec![0.0f64; n_equipes];
+    let mut parcelas_da_taxa = vec![0usize; n_equipes];
     for e in &grid {
         r.caixa_inicio
             .push(e.team.cash_balance / scale.expected_cash_midpoint());
+        r.foto_inicial.push(FotoDaEquipe {
+            meses: meses_de_operacao(&e.team),
+            caixa: e.team.cash_balance,
+            divida: e.team.debt_balance,
+            poder_de_gasto: calculate_spending_power(&e.team),
+            indice: derive_budget_index_from_money(&e.team),
+            patrocinio_do_ano: 0.0,
+            receita_do_ano: 0.0,
+            estado: estado_estatico(&e.team),
+            classe: e.classe,
+            mensal: custo_operacional_mensal(&e.team.categoria, e.team.classe.as_deref()),
+        });
     }
 
     for temporada in 1..=TEMPORADAS {
@@ -1173,6 +1587,8 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
         // quebrou. E o fôlego com que cada uma entrou no ano.
         let mut linhas_temporada = vec![Linhas::default(); n_equipes];
         let meses_no_inicio: Vec<f64> = grid.iter().map(|e| meses_de_operacao(&e.team)).collect();
+        // O gatilho do empréstimo esteve aberto em alguma rodada deste ano? (B50)
+        let mut elegivel_no_ano = vec![false; n_equipes];
 
         for etapa in 0..arena.rodadas {
             let track = pistas[etapa % pistas.len().max(1)];
@@ -1206,9 +1622,9 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
             let mut podios_rodada = vec![0i32; n_equipes];
             let mut melhor_rodada = vec![99i32; n_equipes];
             let mut voltas_rodada = vec![(0.0f64, 0.0f64); n_equipes]; // (soma, carros)
-            // Posição de cada carro da equipe DENTRO DA CLASSE, incluindo quem abandonou —
-            // carro que largou continua ocupando lugar na classificação, e o prêmio por
-            // etapa do modelo novo paga por posição, não por ponto.
+                                                                       // Posição de cada carro da equipe DENTRO DA CLASSE, incluindo quem abandonou —
+                                                                       // carro que largou continua ocupando lugar na classificação, e o prêmio por
+                                                                       // etapa do modelo novo paga por posição, não por ponto.
             let mut posicoes_rodada: Vec<Vec<u32>> = vec![Vec::new(); n_equipes];
             let mut volta_rapida_rodada = vec![false; n_equipes];
 
@@ -1263,6 +1679,24 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
                 })
                 .collect();
             let atracao_total: f64 = atracoes.iter().sum();
+            // O índice MÉDIO de cada classe no início da rodada — a entrada do braço
+            // `Achatada`. Sai do mesmo instantâneo que a atração usa, antes de qualquer
+            // equipe mexer no próprio caixa nesta rodada; produção lê o time vivo, e a
+            // diferença é de uma rodada de defasagem numa média de grid.
+            let indice_medio_da_classe: Vec<f64> = (0..arena.classes.len())
+                .map(|ic| {
+                    let da_classe: Vec<f64> = grid
+                        .iter()
+                        .filter(|e| e.classe == ic)
+                        .map(|e| derive_budget_index_from_money(&e.team))
+                        .collect();
+                    if da_classe.is_empty() {
+                        0.0
+                    } else {
+                        da_classe.iter().sum::<f64>() / da_classe.len() as f64
+                    }
+                })
+                .collect();
             let restantes = arena.rodadas - etapa;
             let janela_completa: Vec<u32> = (0..arena.rodadas)
                 .map(|i| pistas[(etapa + i) % pistas.len().max(1)].track_id)
@@ -1272,8 +1706,8 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
                 // ── 1. Contato de disputa e quebra: o castigo físico ANTES do cérebro ──
                 // É a ordem de `maintain_team_car_pits`. O harness antigo pulava as duas
                 // coisas, e com elas some a maior parte do custo de peça não planejado.
-                let contatos = (refer.incidentes_por_carro * arena.pilotos_por_equipe as f64)
-                    .round() as u32;
+                let contatos =
+                    (refer.incidentes_por_carro * arena.pilotos_por_equipe as f64).round() as u32;
                 let dano = crate::car::crash::apply_contact_wear(&mut e.car, arena.id, contatos);
                 for &pt in &dano.destroyed {
                     if let Some(p) = e.car.parts.iter_mut().find(|p| p.part_type == pt) {
@@ -1414,6 +1848,34 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
                     ctx.gate_income = nova.bilheteria;
                 }
 
+                // ── O CONTRAFACTUAL DA REALIMENTAÇÃO ──────────────────────────────────
+                // O termo sai por subtração, reconstruído com as MESMAS entradas que a
+                // função de produção usou uma linha acima: o índice da equipe neste
+                // instante, a base da rodada da divisão DELA (classe incluída, que é o que
+                // `category_finance_scale_for` resolve) e o modificador da temporada
+                // econômica. Reconstruir em vez de reimplementar a receita inteira é o que
+                // garante que a única diferença entre os dois mundos seja este termo.
+                //
+                // Só vale sobre `Receita::Producao`: o modelo novo (`economia::receita`)
+                // sobrescreve o patrocínio e, por decisão da seção 2.4 dele, já nasce sem
+                // realimentação de riqueza — não há o que zerar ali.
+                if realimentacao != Realimentacao::Atual && modelo_de_receita == Receita::Producao {
+                    let base_da_equipe =
+                        category_finance_scale_for(&e.team.categoria, e.team.classe.as_deref())
+                            .operating_cost_midpoint()
+                            / (arena.rodadas as f64).max(1.0);
+                    let por_ponto_de_indice =
+                        base_da_equipe * COEF_DO_INDICE * economy_income_modifier(saude);
+                    let indice_da_equipe = calculate_financial_plan(&e.team).budget_index;
+                    let indice_pago = match realimentacao {
+                        Realimentacao::Atual => indice_da_equipe,
+                        Realimentacao::Zerada => 0.0,
+                        Realimentacao::Achatada => indice_medio_da_classe[e.classe],
+                    };
+                    ctx.sponsorship_income +=
+                        (indice_pago - indice_da_equipe) * por_ponto_de_indice;
+                }
+
                 let ctx = ctx;
 
                 // ── A ITEMIZAÇÃO, no modelo que estiver rodando ───────────────────────
@@ -1445,8 +1907,10 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
                 // termo abstrato `0,16 × base` deixou de existir, e é isso que o comparador
                 // precisa mostrar em vez de esconder num total.
                 r.fatura.soma("estrutural", ctx.structural_maintenance_cost);
-                r.fatura
-                    .soma("base_tecnica", ctx.technical_investment_cost - custo_manutencao);
+                r.fatura.soma(
+                    "base_tecnica",
+                    ctx.technical_investment_cost - custo_manutencao,
+                );
                 r.fatura.soma("pecas_compradas", custo_manutencao);
                 r.fatura.observacoes += 1.0;
 
@@ -1455,6 +1919,7 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
                 r.linhas.bonus += ctx.result_bonus;
                 r.linhas.premio_parcial += ctx.partial_prize_income;
                 r.linhas.ajuda += ctx.aid_income;
+                r.ajuda_paga += ctx.aid_income;
                 r.linhas.salario += ctx.salary_expense;
                 r.linhas.operacao += ctx.event_operations_cost;
                 r.linhas.estrutural += ctx.structural_maintenance_cost;
@@ -1507,8 +1972,53 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
                     saldo_temporada_equipe[i] -= manutencao_estrutura;
                 }
 
-                if apply_crisis_event_if_needed(&mut e.team).is_some() {
+                // ── B47: a parcela do braço ABSOLUTO ───────────────────────────────────
+                // A produção já pagou a parcela dela dentro do `ctx` (total ÷ rodadas desde
+                // 12/08/2026) e `apply_round_cashflow` já abateu esse tanto do saldo. O braço
+                // absoluto reescreve o pagamento para os 25 mil fixos que valiam antes, para
+                // o dinheiro entrar na MESMA rodada e a diferença ser só o TAMANHO da parcela.
+                if let Paraquedas::Absoluta = paraquedas {
+                    let saldo_antes = e.team.parachute_payment_remaining + ctx.aid_income;
+                    if saldo_antes > 0.0 {
+                        let alvo = PARCELA_DE_AJUDA.min(saldo_antes);
+                        e.team.cash_balance += alvo - ctx.aid_income;
+                        e.team.parachute_payment_remaining = (saldo_antes - alvo).max(0.0);
+                        r.ajuda_paga += alvo - ctx.aid_income;
+                    }
+                }
+
+                // Elegibilidade lida SEMPRE pelo gatilho de produção, em qualquer braço: é a
+                // pergunta "quantas equipes a regra de hoje alcançaria", e ela não pode
+                // depender do braço que está rodando.
+                if crate::finance::events::emergency_loan_amount_na_temporada(&e.team, temporada)
+                    .is_some()
+                {
+                    elegivel_no_ano[i] = true;
+                }
+
+                // B50: a taxa diferida do braço amortizado, cobrada em caixa antes de um
+                // socorro novo — é despesa da rodada como qualquer outra, e conta como juros.
+                if parcelas_da_taxa[i] > 0 {
+                    let parcela = taxa_pendente[i] / parcelas_da_taxa[i] as f64;
+                    e.team.cash_balance -= parcela;
+                    taxa_pendente[i] -= parcela;
+                    parcelas_da_taxa[i] -= 1;
+                    r.linhas.juros += parcela;
+                    r.taxa_amortizada_paga += parcela;
+                    linhas_temporada[i].juros += parcela;
+                    saldo_temporada -= parcela;
+                    saldo_temporada_equipe[i] -= parcela;
+                }
+
+                if let Some(s) = aplicar_socorro(&mut e.team, socorro, temporada) {
                     r.emprestimos += 1;
+                    r.emprestimo_valor += s.principal;
+                    r.divida_criada += s.divida;
+                    emprestimos_por_equipe[i] += 1;
+                    if s.taxa_diferida > 0.0 {
+                        taxa_pendente[i] += s.taxa_diferida;
+                        parcelas_da_taxa[i] = arena.rodadas;
+                    }
                 }
                 refresh_team_financial_state_com(&mut e.team, faixas);
             }
@@ -1528,6 +2038,7 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
                 let premio = match modelo_de_receita {
                     Receita::Producao => constructor_prize_with(
                         arena.id,
+                        (!classe.nome.is_empty()).then_some(classe.nome),
                         (colocacao + 1) as i32,
                         classe.equipes as i32,
                         coef.premio_base,
@@ -1557,6 +2068,22 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
                 if colocacao + 1 == classificacao.len() {
                     r.receita_lanterna += receita_temporada[*i];
                     r.saldo_lanterna += saldo_temporada_equipe[*i];
+                    // ── B47: a coorte sintética de rebaixadas ─────────────────────────
+                    // A última da classe recebe o saldo de paraquedas. Ela NÃO desce de
+                    // divisão (o harness não tem escada), então o alívio medido aqui é uma
+                    // cota inferior: no jogo o mesmo dinheiro compraria mais meses da
+                    // divisão de baixo, que é mais barata.
+                    let novo = match paraquedas {
+                        Paraquedas::Nenhum => 0.0,
+                        Paraquedas::Producao => {
+                            crate::finance::events::parachute_payment_for_relegation(&grid[*i].team)
+                        }
+                        Paraquedas::Absoluta => paraquedas_absoluto_antigo(&grid[*i].team),
+                    };
+                    if novo > 0.0 {
+                        grid[*i].team.parachute_payment_remaining += novo;
+                        r.paraquedas_concedidos += 1;
+                    }
                 }
                 // O fechamento é muleta? Fechou no azul só por causa dele.
                 r.temporadas_equipe += 1;
@@ -1576,6 +2103,7 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
             }
         }
 
+        let mut fotos = vec![FotoDaEquipe::default(); n_equipes];
         for (i, e) in grid.iter_mut().enumerate() {
             // O estado com que a equipe FECHA o ano — o mesmo que arma a venda por colapso
             // crônico logo abaixo. Guardado antes do offseason porque o ralo ainda mexe no
@@ -1587,7 +2115,13 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
             // termômetro mentia".
             let legado = derive_financial_state(financial_health_score(&e.team));
             *r.estados_legado
-                .entry(ESTADOS.iter().copied().find(|x| *x == legado).unwrap_or("stable"))
+                .entry(
+                    ESTADOS
+                        .iter()
+                        .copied()
+                        .find(|x| *x == legado)
+                        .unwrap_or("stable"),
+                )
                 .or_insert(0) += 1;
             r.meses_observados.push(meses_de_operacao(&e.team));
             match e.team.financial_state.as_str() {
@@ -1612,7 +2146,12 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
             }
 
             // Offseason: estratégia e impacto de competitividade.
-            e.team.season_strategy = choose_season_strategy(&e.team).to_string();
+            if elegivel_no_ano[i] {
+                r.elegiveis += 1;
+            }
+            let escolhida = escolher_estrategia(&e.team, estrategia);
+            *r.estrategias.entry(escolhida).or_insert(0) += 1;
+            e.team.season_strategy = escolhida.to_string();
             let foco = foco_aproximado(&e.team);
             let (eng_antes, fac_antes) = (e.team.engineering, e.team.facilities);
 
@@ -1664,6 +2203,23 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
             // O ano fechado desta equipe, já com o investimento de offseason descontado.
             saldo_acumulado[i] += saldo_temporada_equipe[i] - drenado;
 
+            // ── A FOTO DO ANO ────────────────────────────────────────────────────────
+            // Depois do ralo e do refresh: é o estado com que a equipe entra no ano
+            // seguinte, que é o que o próximo `budget_index` vai ler. Fica antes do
+            // recálculo da folha porque o salário do ano que vem é decisão do ano que vem.
+            fotos[i] = FotoDaEquipe {
+                meses: meses_de_operacao(&e.team),
+                caixa: e.team.cash_balance,
+                divida: e.team.debt_balance,
+                poder_de_gasto: calculate_spending_power(&e.team),
+                indice: derive_budget_index_from_money(&e.team),
+                patrocinio_do_ano: linhas_temporada[i].patrocinio,
+                receita_do_ano: linhas_temporada[i].receita_do_ano,
+                estado: estado_estatico(&e.team),
+                classe: e.classe,
+                mensal: custo_operacional_mensal(&e.team.categoria, e.team.classe.as_deref()),
+            };
+
             // ── A AUTÓPSIA ────────────────────────────────────────────────────────────
             // Fecha o ano da equipe no grupo do estado com que ela terminou. Fica DEPOIS do
             // ralo porque o investimento de offseason é despesa do ano que acabou de passar
@@ -1687,6 +2243,7 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
             e.team.stats_podios = 0;
         }
 
+        r.serie.push(fotos);
         r.saldo_por_temporada.push(saldo_temporada);
     }
 
@@ -1697,24 +2254,15 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
     r.saldo_campeao /= temporadas_f * classes_f;
     r.saldo_lanterna /= temporadas_f * classes_f;
     r.pontos_por_equipe_por_corrida = pontos_totais / corridas_equipe.max(1.0);
-    r.portao_melhor = portao_por_equipe
-        .iter()
-        .copied()
-        .fold(f64::MIN, f64::max)
-        / temporadas_f;
-    r.portao_pior = portao_por_equipe
-        .iter()
-        .copied()
-        .fold(f64::MAX, f64::min)
-        / temporadas_f;
+    r.portao_melhor = portao_por_equipe.iter().copied().fold(f64::MIN, f64::max) / temporadas_f;
+    r.portao_pior = portao_por_equipe.iter().copied().fold(f64::MAX, f64::min) / temporadas_f;
     // A equipe de MENOR portão do grid: quanto o canal vale para ela, em % da receita dela.
     if let Some(pior) = (0..n_equipes).min_by(|a, b| {
         portao_por_equipe[*a]
             .partial_cmp(&portao_por_equipe[*b])
             .unwrap_or(std::cmp::Ordering::Equal)
     }) {
-        r.portao_pct_da_pior =
-            portao_por_equipe[pior] / receita_acumulada[pior].max(1.0) * 100.0;
+        r.portao_pct_da_pior = portao_por_equipe[pior] / receita_acumulada[pior].max(1.0) * 100.0;
     }
 
     r.receita_espalhada = receita_acumulada.iter().copied().fold(f64::MIN, f64::max)
@@ -1730,6 +2278,7 @@ fn medir_categoria_cenario(categoria: &'static str, cenario: &Cenario) -> Result
     r.saldo_por_equipe = saldo_acumulado.clone();
     r.pontos_acumulados = pontos_acumulados.clone();
     r.titulos = titulos.clone();
+    r.emprestimos_por_equipe = emprestimos_por_equipe.clone();
 
     r.nunca_apertadas = apertou.iter().filter(|a| !**a).count() as u32;
     r.ja_quebraram = quebrou.iter().filter(|q| **q).count() as u32;
@@ -2449,8 +2998,7 @@ fn combustivel_do_modelo_fisico(categoria: &'static str) -> f64 {
         .first()
         .and_then(|c| (!c.nome.is_empty()).then_some(c.nome));
     let entrada = crate::economia::tipos::EntradaDaEtapa::tipica(categoria, classe);
-    crate::economia::evento::fatura_da_etapa(&entrada)
-        .valor(crate::economia::evento::COMBUSTIVEL)
+    crate::economia::evento::fatura_da_etapa(&entrada).valor(crate::economia::evento::COMBUSTIVEL)
 }
 
 /// As intenções de design sobre as quais o critério 9 é avaliado, no modelo NOVO.
@@ -2781,7 +3329,12 @@ fn criterios_de_aceitacao() {
     // ── Uma passada pelas 9 categorias alimenta quase toda a tabela ──────────────────
     let medidas: Vec<(&'static str, Resultado)> = CATEGORIAS
         .iter()
-        .map(|&c| (c, medir_categoria_cenario(c, &cenario_novo(ParametrosDeReceita::default()))))
+        .map(|&c| {
+            (
+                c,
+                medir_categoria_cenario(c, &cenario_novo(ParametrosDeReceita::default())),
+            )
+        })
         .collect();
 
     let mut criterios: Vec<Criterio> = Vec::new();
@@ -2796,7 +3349,10 @@ fn criterios_de_aceitacao() {
     criterios.push(Criterio::novo(
         "receita ÷ despesa",
         "0,95 – 1,15 · toda cat.",
-        format!("{razao_pior:.2} – {razao_melhor:.2} · {} fora", razao_fora.len()),
+        format!(
+            "{razao_pior:.2} – {razao_melhor:.2} · {} fora",
+            razao_fora.len()
+        ),
         razao_fora.is_empty(),
     ));
 
@@ -2840,11 +3396,19 @@ fn criterios_de_aceitacao() {
     let folegos: Vec<(&str, f64)> = bandas.iter().map(|(c, b)| (*c, b.mediana)).collect();
     let derivas: Vec<(&str, f64)> = medidas
         .iter()
-        .map(|(c, r)| (*c, mediana(&r.caixa_fim) / mediana(&r.caixa_inicio).max(0.01)))
+        .map(|(c, r)| {
+            (
+                *c,
+                mediana(&r.caixa_fim) / mediana(&r.caixa_inicio).max(0.01),
+            )
+        })
         .collect();
     let (_, deriva_maxima, _) = faixa_e_fora(&derivas, |v| v < 1.3);
     let folego_pior = bandas.iter().map(|(_, b)| b.pior).fold(f64::MAX, f64::min);
-    let folego_melhor = bandas.iter().map(|(_, b)| b.melhor).fold(f64::MIN, f64::max);
+    let folego_melhor = bandas
+        .iter()
+        .map(|(_, b)| b.melhor)
+        .fold(f64::MIN, f64::max);
     let equipes_abaixo: usize = bandas.iter().map(|(_, b)| b.abaixo_do_piso).sum();
     let equipes_acima: usize = bandas.iter().map(|(_, b)| b.acima_do_teto).sum();
     let equipes_no_mundo: usize = medidas.iter().map(|(_, r)| r.meses_fim.len()).sum();
@@ -2882,8 +3446,7 @@ fn criterios_de_aceitacao() {
             .iter()
             .map(|(c, r)| (*c, f(r) / receita_total(r).max(1.0) * 100.0))
             .collect();
-        let mundo = medidas.iter().map(|(_, r)| f(r)).sum::<f64>() / receita_mundo.max(1.0)
-            * 100.0;
+        let mundo = medidas.iter().map(|(_, r)| f(r)).sum::<f64>() / receita_mundo.max(1.0) * 100.0;
         (por_cat, mundo)
     };
 
@@ -2944,20 +3507,22 @@ fn criterios_de_aceitacao() {
         .filter(|(c, v)| *v < alvo_campeao_lanterna(arena(*c).rodadas))
         .map(|(c, _)| *c)
         .collect();
-    criterios.push(Criterio::novo(
-        "campeão ÷ lanterna (receita de temporada)",
-        "≥2× até 6 · ≥3× de 8",
-        format!(
-            "{c_l_pior:.2} – {c_l_melhor:.2}× · {} fora (média {c_l_media:.2})",
-            c_l_fora.len()
-        ),
-        c_l_fora.is_empty(),
-    )
-    .porque(
-        Veredito::DefeitoConhecido,
-        "grid pequeno: com poucas etapas e poucas equipes o campeonato é ruído, e o campeão \
+    criterios.push(
+        Criterio::novo(
+            "campeão ÷ lanterna (receita de temporada)",
+            "≥2× até 6 · ≥3× de 8",
+            format!(
+                "{c_l_pior:.2} – {c_l_melhor:.2}× · {} fora (média {c_l_media:.2})",
+                c_l_fora.len()
+            ),
+            c_l_fora.is_empty(),
+        )
+        .porque(
+            Veredito::DefeitoConhecido,
+            "grid pequeno: com poucas etapas e poucas equipes o campeonato é ruído, e o campeão \
          termina perto do lanterna. γ foi varrido de 1 a 12 — subir mais mata o fundo do grid.",
-    ));
+        ),
+    );
 
     // 7. equipes em crise ou colapso → 8–15% NO MUNDO (a única métrica agregada que sobrou:
     // é propriedade da população inteira, não de um degrau da escada)
@@ -3013,7 +3578,10 @@ fn criterios_de_aceitacao() {
         .iter()
         .map(|(c, r)| {
             let grid = arena(c).equipes as f64;
-            (*c, r.vendas as f64 / (TEMPORADAS as f64 * grid.max(1.0)) * 100.0)
+            (
+                *c,
+                r.vendas as f64 / (TEMPORADAS as f64 * grid.max(1.0)) * 100.0,
+            )
         })
         .collect();
     // Só as categorias GRANDES entram na avaliação. As pequenas continuam impressas na
@@ -3052,18 +3620,20 @@ fn criterios_de_aceitacao() {
         .map(|(c, r)| (*c, r.portao_melhor / r.portao_pior.max(1.0)))
         .collect();
     let (esp_min, esp_max, esp_fora) = faixa_e_fora(&espalhamentos, |v| v >= 2.5);
-    criterios.push(Criterio::novo(
-        "11a · espalhamento da bilheteria (temporada)",
-        "melhor ÷ pior ≥ 2,5×",
-        format!("{esp_min:.2} – {esp_max:.2}× · {} fora", esp_fora.len()),
-        esp_fora.is_empty(),
-    )
-    .porque(
-        Veredito::DefeitoConhecido,
-        "o mesmo ruído de grid pequeno do critério 6: o espalhamento de ETAPA existe \
+    criterios.push(
+        Criterio::novo(
+            "11a · espalhamento da bilheteria (temporada)",
+            "melhor ÷ pior ≥ 2,5×",
+            format!("{esp_min:.2} – {esp_max:.2}× · {} fora", esp_fora.len()),
+            esp_fora.is_empty(),
+        )
+        .porque(
+            Veredito::DefeitoConhecido,
+            "o mesmo ruído de grid pequeno do critério 6: o espalhamento de ETAPA existe \
          (2,7–5,1× medido em produção) e se cancela no agregado do ano. Falha até na GT3 de 14 \
          etapas, e nenhum afrouxamento razoável salva.",
-    ));
+        ),
+    );
 
     // 11b. o portão SUSTENTA o fundo do grid → ≥ 10% da receita da equipe de PIOR atração.
     // Nasceu de uma medição lateral do critério 11a e virou critério próprio: a razão entre
@@ -3104,25 +3674,24 @@ fn criterios_de_aceitacao() {
         .first()
         .map(|(_, a)| piores_por_cenario.iter().all(|(_, b)| b == a))
         .unwrap_or(false);
-    let refem = piores_por_cenario
-        .first()
-        .map(|(_, a)| *a)
-        .unwrap_or("");
-    criterios.push(Criterio::novo(
-        "nenhuma categoria pior em todos os cenários",
-        "obrigatório",
-        if sempre_a_mesma {
-            format!("{refem} é a pior nos {}", piores_por_cenario.len())
-        } else {
-            "a pior muda de cenário".to_string()
-        },
-        !sempre_a_mesma,
-    )
-    .porque(
-        Veredito::Pendente,
-        "uma categoria é refém da calibração: ela é a mais sacrificada em toda intenção de \
+    let refem = piores_por_cenario.first().map(|(_, a)| *a).unwrap_or("");
+    criterios.push(
+        Criterio::novo(
+            "nenhuma categoria pior em todos os cenários",
+            "obrigatório",
+            if sempre_a_mesma {
+                format!("{refem} é a pior nos {}", piores_por_cenario.len())
+            } else {
+                "a pior muda de cenário".to_string()
+            },
+            !sempre_a_mesma,
+        )
+        .porque(
+            Veredito::Pendente,
+            "uma categoria é refém da calibração: ela é a mais sacrificada em toda intenção de \
          design testada, o que significa que a ordem não é consequência dos coeficientes.",
-    ));
+        ),
+    );
 
     // 10. linha de combustível de uma etapa → ≤ 10× a âncora física da seção 4.1
     // "Dentro de uma ordem de grandeza" = razão medido ÷ âncora até 10×, em toda categoria.
@@ -3134,7 +3703,12 @@ fn criterios_de_aceitacao() {
     // não uma tautologia.
     let razoes_combustivel: Vec<(&'static str, f64)> = CATEGORIAS
         .iter()
-        .map(|&c| (c, combustivel_do_modelo_fisico(c) / combustivel_ancora(c).max(1.0)))
+        .map(|&c| {
+            (
+                c,
+                combustivel_do_modelo_fisico(c) / combustivel_ancora(c).max(1.0),
+            )
+        })
         .collect();
     let (comb_min, comb_max, comb_fora) = faixa_e_fora(&razoes_combustivel, |v| v <= 10.0);
     criterios.push(Criterio::novo(
@@ -3377,11 +3951,7 @@ fn resumir_ralo(coef: CoeficientesDeReceita, ralo: Ralo) -> ResumoRalo {
     resumir_ralo_com(coef, ralo, Offseason::Producao)
 }
 
-fn resumir_ralo_com(
-    coef: CoeficientesDeReceita,
-    ralo: Ralo,
-    offseason: Offseason,
-) -> ResumoRalo {
+fn resumir_ralo_com(coef: CoeficientesDeReceita, ralo: Ralo, offseason: Offseason) -> ResumoRalo {
     let mut deriva = Vec::new();
     let mut dreno = Vec::new();
     let mut razao = Vec::new();
@@ -3492,7 +4062,9 @@ fn varrer_ralo() {
     println!("  A coluna 'dreno' é o que sai do caixa por equipe e por temporada, em % do");
     println!("  custo operacional ANUAL declarado da categoria. É a unidade da resposta.");
     println!("  'ok' = quantas das 9 categorias ficam com deriva < 1,3× (critério 2).");
-    println!("  VIÁVEL = as 9 no alvo + crise entre 8 e 15% + campeão/lanterna não pior que hoje.\n");
+    println!(
+        "  VIÁVEL = as 9 no alvo + crise entre 8 e 15% + campeão/lanterna não pior que hoje.\n"
+    );
 
     let base = resumir_ralo(coef, Ralo::default());
     let cl_ref = base.cl_pior;
@@ -3621,7 +4193,9 @@ fn varrer_ralo() {
              {:.1}% do operacional anual ({:.1}% na mais leve, {:.1}% na mais pesada).",
             r.dreno_medio, r.dreno_min, r.dreno_max
         ),
-        None => println!("  CONTROLE C: nenhuma magnitude testada é viável — o teto não é alcançável."),
+        None => {
+            println!("  CONTROLE C: nenhuma magnitude testada é viável — o teto não é alcançável.")
+        }
     }
 
     // ── E. O ralo muda a resposta da varredura de receita? ───────────────────────────
@@ -3763,7 +4337,8 @@ fn desenvolvimento_no_offseason() {
     for (rotulo, f) in [
         (
             "deriva na pior categoria",
-            Box::new(|r: &ResumoRalo| format!("{:.2}×", r.deriva_pior)) as Box<dyn Fn(&ResumoRalo) -> String>,
+            Box::new(|r: &ResumoRalo| format!("{:.2}×", r.deriva_pior))
+                as Box<dyn Fn(&ResumoRalo) -> String>,
         ),
         (
             "categorias com deriva < 1,3×",
@@ -4028,10 +4603,10 @@ fn resumir_receita(cenario: &Cenario) -> ResumoReceita {
     for &categoria in CATEGORIAS {
         let r = medir_categoria_cenario(categoria, cenario);
         let receita = receita_total(&r).max(1.0);
-        let equipe_temporada =
-            arena(categoria).equipes as f64 * TEMPORADAS as f64;
-        despesa_por_op
-            .push(despesa_total(&r) / equipe_temporada / ancora_da_categoria(categoria, cenario.ancora));
+        let equipe_temporada = arena(categoria).equipes as f64 * TEMPORADAS as f64;
+        despesa_por_op.push(
+            despesa_total(&r) / equipe_temporada / ancora_da_categoria(categoria, cenario.ancora),
+        );
         meses.push(mediana(&r.meses_fim));
         razao.push(receita / despesa_total(&r).max(1.0));
         corrida.push((r.linhas.bonus + r.linhas.premio_parcial) / receita * 100.0);
@@ -4046,13 +4621,13 @@ fn resumir_receita(cenario: &Cenario) -> ResumoReceita {
         colapsos += r.estados.get("crisis").copied().unwrap_or(0)
             + r.estados.get("collapse").copied().unwrap_or(0);
         so_colapso += r.estados.get("collapse").copied().unwrap_or(0);
-        vendas.push(
-            r.vendas as f64 / (TEMPORADAS as f64 * arena(categoria).equipes as f64) * 100.0,
-        );
+        vendas
+            .push(r.vendas as f64 / (TEMPORADAS as f64 * arena(categoria).equipes as f64) * 100.0);
         portao_da_pior.push(r.portao_pct_da_pior);
     }
 
-    let contar = |v: &[f64], dentro: &dyn Fn(f64) -> bool| v.iter().filter(|x| !dentro(**x)).count();
+    let contar =
+        |v: &[f64], dentro: &dyn Fn(f64) -> bool| v.iter().filter(|x| !dentro(**x)).count();
     // O critério 6 tem alvo POR CALENDÁRIO, então não cabe em `contar`.
     let campeao_fora = campeao
         .iter()
@@ -4208,7 +4783,10 @@ fn varrer_receita() {
     };
     println!("\n  Nível de calibração: despesa mediana {nivel:.2}× o operacional declarado.");
     cabecalho_receita();
-    linha_receita("economia::receita (base)", &resumir_receita(&com_ralo(Receita::Economia(base))));
+    linha_receita(
+        "economia::receita (base)",
+        &resumir_receita(&com_ralo(Receita::Economia(base))),
+    );
 
     // ── A AMARRA: γ contra o critério 6 relaxado E o critério 8 ─────────────────────
     // γ=5 foi calibrado contra um 3× fixo que não existe mais. As duas pontas do critério 8
@@ -4279,9 +4857,11 @@ fn varrer_receita() {
 
     // ── A busca final ───────────────────────────────────────────────────────────────
     println!("\n  ── busca: nível × patrocínio × γ × bilheteria ──");
-    println!("  Penalidade pesa o critério 1 três vezes e o critério 8 duas: o 8 é a amarra\n  \
+    println!(
+        "  Penalidade pesa o critério 1 três vezes e o critério 8 duas: o 8 é a amarra\n  \
               nova, e um conjunto que satisfaz cinco critérios matando o fundo do grid é\n  \
-              artefato de contagem, não candidato.\n");
+              artefato de contagem, não candidato.\n"
+    );
     cabecalho_receita();
     let penalidade = |r: &ResumoReceita| {
         r.razao_fora * 3
@@ -4350,7 +4930,14 @@ fn varrer_receita() {
     println!("\n  por categoria:");
     println!(
         "  {:<22} {:>8} {:>8} {:>8} {:>8} {:>8} {:>9} {:>8} {:>8}",
-        "categoria", "rec/desp", "corrida%", "portão%", "fecha%", "patroc%", "camp/lant", "alvo",
+        "categoria",
+        "rec/desp",
+        "corrida%",
+        "portão%",
+        "fecha%",
+        "patroc%",
+        "camp/lant",
+        "alvo",
         "vendas%"
     );
     for (i, &categoria) in CATEGORIAS.iter().enumerate() {
@@ -4445,7 +5032,11 @@ fn distribuicao(cenario: &Cenario, legado: bool) -> DistribuicaoDeEstados {
 
     for &categoria in CATEGORIAS {
         let r = medir_categoria_cenario(categoria, cenario);
-        let fonte = if legado { &r.estados_legado } else { &r.estados };
+        let fonte = if legado {
+            &r.estados_legado
+        } else {
+            &r.estados
+        };
         for (estado, n) in fonte {
             *contagem.entry(estado).or_insert(0) += n;
         }
@@ -4482,7 +5073,13 @@ fn distribuicao(cenario: &Cenario, legado: bool) -> DistribuicaoDeEstados {
 fn cabecalho_estados() {
     println!(
         "  {:<28} {:>7} {:>8} {:>7} {:>10} {:>7} {:>9} │ {:>8}",
-        "fronteiras (meses)", "elite", "healthy", "stable", "pressured", "crisis", "collapse",
+        "fronteiras (meses)",
+        "elite",
+        "healthy",
+        "stable",
+        "pressured",
+        "crisis",
+        "collapse",
         "crise %"
     );
 }
@@ -4901,7 +5498,9 @@ fn comparar_modelos_de_despesa() {
     // que foi calibrado contra a despesa VELHA. Serve para dizer de quanto é a recalibração
     // que a próxima rodada vai ter que fazer.
     println!("\n  ── CONTEXTO: o modelo NOVO INTEIRO (despesa + receita + offseason) ──");
-    println!("     A receita nova foi calibrada contra a despesa VELHA. Este bloco mede o desajuste.");
+    println!(
+        "     A receita nova foi calibrada contra a despesa VELHA. Este bloco mede o desajuste."
+    );
     println!(
         "  {:<22} {:>10} {:>10} {:>13} {:>12}",
         "categoria", "rec/desp", "meses", "crise+col %", "vendas %"
@@ -5077,9 +5676,7 @@ fn autopsia_do_colapso() {
 
     // ── 1. As duas âncoras ───────────────────────────────────────────────────────────
     println!("  ── AS DUAS ÂNCORAS ──");
-    println!(
-        "     A RECEITA é fração de `operating_cost_midpoint` (tabela velha). A DESPESA saiu"
-    );
+    println!("     A RECEITA é fração de `operating_cost_midpoint` (tabela velha). A DESPESA saiu");
     println!(
         "     de `economia::temporada` (modelo físico). A razão entre elas é o desalinhamento"
     );
@@ -5125,10 +5722,7 @@ fn autopsia_do_colapso() {
         .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(c, v)| (*c, *v))
         .unwrap_or(("", 0.0));
-    println!(
-        "\n     Pior desalinhamento: {} a {:.2}×.",
-        pior.0, pior.1
-    );
+    println!("\n     Pior desalinhamento: {} a {:.2}×.", pior.0, pior.1);
 
     // ── 2. A autópsia, nos dois modelos ──────────────────────────────────────────────
     println!("\n  ── A COMPOSIÇÃO DO ANO: quem quebrou × quem ficou de pé ──");
@@ -5423,12 +6017,13 @@ fn varrer_a_reserva_do_ralo() {
         (8.0, 0.45),
     ] {
         let r = resumir_receita(&com_ralo(meses, fracao));
-        linha_receita(&format!("reserva {meses:.0}m · {:.0}% do excedente", fracao * 100.0), &r);
+        linha_receita(
+            &format!("reserva {meses:.0}m · {:.0}% do excedente", fracao * 100.0),
+            &r,
+        );
         let melhora = melhor
             .as_ref()
-            .map(|(_, _, m)| {
-                (r.criterios_ok(), r.crise_ok()) > (m.criterios_ok(), m.crise_ok())
-            })
+            .map(|(_, _, m)| (r.criterios_ok(), r.crise_ok()) > (m.criterios_ok(), m.crise_ok()))
             .unwrap_or(true);
         if melhora {
             melhor = Some((meses, fracao, r));
@@ -5442,7 +6037,14 @@ fn varrer_a_reserva_do_ralo() {
         );
         println!(
             "  {:<24} {:>9} {:>9} {:>9} {:>9} {:>11} {:>9} {:>10}",
-            "categoria", "rec/desp", "meses", "corrida%", "portão%", "camp/lant", "vendas%", "11b portão"
+            "categoria",
+            "rec/desp",
+            "meses",
+            "corrida%",
+            "portão%",
+            "camp/lant",
+            "vendas%",
+            "11b portão"
         );
         for (i, &c) in CATEGORIAS.iter().enumerate() {
             println!(
@@ -5640,4 +6242,1333 @@ fn criterio_2_por_posicao_no_grid() {
          esgotada: γ nunca foi varrido por tamanho de grid, sempre como global. Se a\n  \
          concentração for parecida em toda a escada, é o alvo que precisa de faixa por degrau."
     );
+}
+
+// ===================== A8 — o laço dinheiro → índice → patrocínio → dinheiro =====================
+//
+// Roda com `cargo test --lib medir_realimentacao_do_orcamento -- --ignored --nocapture`.
+//
+// A pergunta: `budget_index` é derivado do dinheiro e volta como receita
+// (`race::financas`, o termo `plan.budget_index × round_operating_base × 0,002`). O laço
+// existe; falta o TAMANHO dele. Este bloco mede o mesmo mundo com o termo ligado e com ele
+// zerado, e nada mais mexido, em 1, 3 e 5 temporadas.
+
+/// Os horizontes pedidos. As 20 temporadas continuam rodando: a recuperação em H anos só é
+/// contável se houver ano seguinte para observar.
+const HORIZONTES: [usize; 3] = [1, 3, 5];
+
+/// Réplicas por (categoria × modelo). Colapso e recuperação são eventos raros; um mundo só
+/// não separa efeito de sorteio.
+const REPLICAS: u64 = 4;
+
+fn p_da_amostra(v: &[f64], p: f64) -> f64 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    let mut ordenado = v.to_vec();
+    ordenado.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let idx = (((ordenado.len() - 1) as f64) * p).round() as usize;
+    ordenado[idx]
+}
+
+fn media_de(v: &[f64]) -> f64 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    v.iter().sum::<f64>() / v.len() as f64
+}
+
+/// Coeficiente de variação: o espalhamento adimensional, que é o que permite comparar o
+/// grid da rookie com o do endurance.
+fn cv_de(v: &[f64]) -> f64 {
+    let m = media_de(v);
+    if m.abs() < 1e-9 {
+        return 0.0;
+    }
+    let var = v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64;
+    var.sqrt() / m.abs()
+}
+
+/// Gini do caixa líquido do grid. Zero é o grid perfeitamente igual, 1 é uma equipe com
+/// tudo. Valor negativo é grampeado em zero antes: dívida não é riqueza negativa para
+/// efeito de concentração, é ausência de riqueza.
+fn gini_de(v: &[f64]) -> f64 {
+    let mut ordenado: Vec<f64> = v.iter().map(|x| x.max(0.0)).collect();
+    if ordenado.is_empty() {
+        return 0.0;
+    }
+    ordenado.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = ordenado.len() as f64;
+    let soma: f64 = ordenado.iter().sum();
+    if soma <= 0.0 {
+        return 0.0;
+    }
+    let acumulado: f64 = ordenado
+        .iter()
+        .enumerate()
+        .map(|(i, x)| (i as f64 + 1.0) * x)
+        .sum();
+    (2.0 * acumulado / (n * soma) - (n + 1.0) / n).clamp(0.0, 1.0)
+}
+
+/// Fatia do caixa do grid que está na mão do quinto mais rico.
+fn topo20_de(v: &[f64]) -> f64 {
+    let mut ordenado: Vec<f64> = v.iter().map(|x| x.max(0.0)).collect();
+    if ordenado.is_empty() {
+        return 0.0;
+    }
+    ordenado.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    let soma: f64 = ordenado.iter().sum();
+    if soma <= 0.0 {
+        return 0.0;
+    }
+    let n = (ordenado.len() as f64 * 0.2).ceil().max(1.0) as usize;
+    ordenado[..n].iter().sum::<f64>() / soma * 100.0
+}
+
+fn de_pe(estado: &str) -> bool {
+    matches!(estado, "stable" | "healthy" | "elite")
+}
+
+fn doente(estado: &str) -> bool {
+    matches!(estado, "crisis" | "collapse")
+}
+
+/// Que recorte do grid entra na conta. Sem filtro é a categoria inteira.
+#[derive(Clone, Copy, Default)]
+struct Filtro {
+    /// Índice da classe em `Arena::classes`.
+    classe: Option<usize>,
+    /// Estado com que a equipe COMEÃ‡OU o mundo, antes da primeira corrida.
+    estado_inicial: Option<&'static str>,
+}
+
+impl Filtro {
+    fn aceita(&self, inicial: &FotoDaEquipe) -> bool {
+        self.classe.map_or(true, |c| inicial.classe == c)
+            && self.estado_inicial.map_or(true, |e| inicial.estado == e)
+    }
+}
+
+/// O que um horizonte produz, já agregado nas réplicas.
+#[derive(Default, Clone, Copy)]
+struct Medida {
+    /// Quantas equipes o recorte pegou, na média das réplicas.
+    equipes: f64,
+    /// Fôlego no fim da temporada H, em meses de operação.
+    meses_mediano: f64,
+    meses_p10: f64,
+    meses_p90: f64,
+    /// Concentração do caixa líquido do grid na temporada H.
+    gini: f64,
+    topo20: f64,
+    cv_meses: f64,
+    /// Patrocínio médio por equipe por ano nas H primeiras temporadas, em MESES de operação
+    /// da divisão da própria equipe. É a unidade que deixa rookie e LMP2 na mesma régua.
+    patrocinio_meses: f64,
+    /// Espalhamento do patrocínio dentro do grid: p90 ÷ p10.
+    patrocinio_p90_p10: f64,
+    /// `spending_power` em meses de operação.
+    poder_mediano: f64,
+    poder_p10: f64,
+    /// `budget_index` mediano do grid na temporada H.
+    indice_mediano: f64,
+    /// Observações (equipe × temporada) em cada estado, nas H primeiras temporadas, em %.
+    colapso_pct: f64,
+    crise_pct: f64,
+    /// Entre as equipes que fecharam uma temporada doentes, quantas estavam de pé H anos
+    /// depois. Varre todas as temporadas com H anos de sobra.
+    recuperacao_pct: f64,
+    recuperacao_casos: f64,
+}
+
+fn medir_horizonte(replicas: &[Resultado], h: usize, filtro: Filtro) -> Medida {
+    let mut m = Medida::default();
+    let mut amostras = 0.0f64;
+    let (mut obs, mut obs_colapso, mut obs_crise) = (0.0f64, 0.0f64, 0.0f64);
+    let (mut casos, mut recuperou) = (0.0f64, 0.0f64);
+
+    for r in replicas {
+        if r.serie.len() < h {
+            continue;
+        }
+        let equipes: Vec<usize> = (0..r.foto_inicial.len())
+            .filter(|i| filtro.aceita(&r.foto_inicial[*i]))
+            .collect();
+        if equipes.is_empty() {
+            continue;
+        }
+        let foto = &r.serie[h - 1];
+
+        let meses: Vec<f64> = equipes.iter().map(|&i| foto[i].meses).collect();
+        let liquido: Vec<f64> = equipes
+            .iter()
+            .map(|&i| foto[i].caixa - foto[i].divida)
+            .collect();
+        let poder: Vec<f64> = equipes
+            .iter()
+            .map(|&i| foto[i].poder_de_gasto / foto[i].mensal.max(1.0))
+            .collect();
+        let indice: Vec<f64> = equipes.iter().map(|&i| foto[i].indice).collect();
+        let patrocinio: Vec<f64> = equipes
+            .iter()
+            .map(|&i| {
+                let soma: f64 = (0..h).map(|t| r.serie[t][i].patrocinio_do_ano).sum();
+                soma / h as f64 / foto[i].mensal.max(1.0)
+            })
+            .collect();
+
+        m.equipes += equipes.len() as f64;
+        m.meses_mediano += p_da_amostra(&meses, 0.5);
+        m.meses_p10 += p_da_amostra(&meses, 0.10);
+        m.meses_p90 += p_da_amostra(&meses, 0.90);
+        m.gini += gini_de(&liquido);
+        m.topo20 += topo20_de(&liquido);
+        m.cv_meses += cv_de(&meses);
+        m.patrocinio_meses += media_de(&patrocinio);
+        m.patrocinio_p90_p10 +=
+            p_da_amostra(&patrocinio, 0.90) / p_da_amostra(&patrocinio, 0.10).max(1e-6);
+        m.poder_mediano += p_da_amostra(&poder, 0.5);
+        m.poder_p10 += p_da_amostra(&poder, 0.10);
+        m.indice_mediano += p_da_amostra(&indice, 0.5);
+        amostras += 1.0;
+
+        // Estados nas H primeiras temporadas.
+        for t in 0..h {
+            for &i in &equipes {
+                obs += 1.0;
+                match r.serie[t][i].estado {
+                    "collapse" => obs_colapso += 1.0,
+                    "crisis" => obs_crise += 1.0,
+                    _ => {}
+                }
+            }
+        }
+
+        // Recuperação em H anos: doente no fim de t, de pé no fim de t+H.
+        for t in 0..r.serie.len().saturating_sub(h) {
+            for &i in &equipes {
+                if doente(r.serie[t][i].estado) {
+                    casos += 1.0;
+                    if de_pe(r.serie[t + h][i].estado) {
+                        recuperou += 1.0;
+                    }
+                }
+            }
+        }
+    }
+
+    if amostras > 0.0 {
+        m.equipes /= amostras;
+        m.meses_mediano /= amostras;
+        m.meses_p10 /= amostras;
+        m.meses_p90 /= amostras;
+        m.gini /= amostras;
+        m.topo20 /= amostras;
+        m.cv_meses /= amostras;
+        m.patrocinio_meses /= amostras;
+        m.patrocinio_p90_p10 /= amostras;
+        m.poder_mediano /= amostras;
+        m.poder_p10 /= amostras;
+        m.indice_mediano /= amostras;
+    }
+    m.colapso_pct = obs_colapso / obs.max(1.0) * 100.0;
+    m.crise_pct = obs_crise / obs.max(1.0) * 100.0;
+    m.recuperacao_pct = recuperou / casos.max(1.0) * 100.0;
+    m.recuperacao_casos = casos;
+    m
+}
+
+fn rodar_replicas(categoria: &'static str, realimentacao: Realimentacao) -> Vec<Resultado> {
+    (0..REPLICAS)
+        .map(|semente| {
+            medir_categoria_cenario(
+                categoria,
+                &Cenario {
+                    realimentacao,
+                    semente,
+                    ..Cenario::default()
+                },
+            )
+        })
+        .collect()
+}
+
+/// Variação percentual do atual contra o contrafactual.
+fn delta_pct(atual: f64, zerado: f64) -> f64 {
+    if zerado.abs() < 1e-9 {
+        return 0.0;
+    }
+    (atual - zerado) / zerado.abs() * 100.0
+}
+
+fn cabecalho_realimentacao() {
+    println!(
+        "\n{:<24} {:>2} | {:>22} | {:>15} | {:>20} | {:>17} | {:>16}",
+        "categoria",
+        "H",
+        "patrocinio (meses/ano)",
+        "folego mediano",
+        "gini do caixa",
+        "colapso %",
+        "recuperacao %"
+    );
+    println!(
+        "{:<24} {:>2} | {:>7} {:>6} {:>7} | {:>7} {:>7} | {:>6} {:>6} {:>6} | {:>5} {:>5} {:>5} | {:>4} {:>4} {:>5}",
+        "", "", "atual", "zero", "achat", "atual", "zero", "atual", "zero", "achat", "atual",
+        "zero", "achat", "atu", "zero", "achat"
+    );
+    println!("{}", "-".repeat(135));
+}
+
+/// Uma linha do relatório: os três braços lado a lado.
+///
+/// `zero` mostra o valor ABSOLUTO onde o nível importa e o DELTA onde a comparação é o que
+/// interessa. `achat` é sempre o braço de nível preservado — a coluna que responde pelo laço
+/// sozinho.
+fn linha_realimentacao(rotulo: &str, h: usize, a: &Medida, z: &Medida, f: &Medida) {
+    println!(
+        "{:<24} {:>2} | {:>7.2} {:>5.1}% {:>6.1}% | {:>7.1} {:>7.1} | {:>6.3} {:>+6.3} {:>+6.3} | {:>5.1} {:>5.1} {:>5.1} | {:>3.0}% {:>3.0}% {:>4.0}%",
+        rotulo,
+        h,
+        a.patrocinio_meses,
+        delta_pct(a.patrocinio_meses, z.patrocinio_meses),
+        delta_pct(a.patrocinio_meses, f.patrocinio_meses),
+        a.meses_mediano,
+        z.meses_mediano,
+        a.gini,
+        a.gini - z.gini,
+        a.gini - f.gini,
+        a.colapso_pct,
+        z.colapso_pct,
+        f.colapso_pct,
+        a.recuperacao_pct,
+        z.recuperacao_pct,
+        f.recuperacao_pct,
+    );
+}
+
+#[test]
+#[ignore = "harness de medicao, nao e teste de comportamento"]
+fn medir_realimentacao_do_orcamento() {
+    println!(
+        "\n===== A8 - REALIMENTACAO DO ORCAMENTO =====\n\
+         O laco: caixa - divida -> meses de operacao -> meses projetados -> escada de estados\n\
+         -> budget_index (0-100) -> patrocinio (+ indice x base_da_rodada x {COEF_DO_INDICE})\n\
+         -> caixa. {REPLICAS} replicas por categoria por modelo, {TEMPORADAS} temporadas cada,\n\
+         tudo o mais identico.\n"
+    );
+
+    // ── BLOCO 0: o tamanho estático do termo ─────────────────────────────────────────
+    println!("-- BLOCO 0 - o termo, antes de qualquer simulacao --");
+    println!(
+        "  patrocinio = base x (0,270 + 0,004.reputacao + {:.3}.indice + 0,004.fama)",
+        COEF_DO_INDICE
+    );
+    let patro_de = |indice: f64, rep: f64, fama: f64| {
+        0.27 + 0.004 * rep + COEF_DO_INDICE * indice + 0.004 * fama
+    };
+    for (nome, rep, fama) in [
+        ("equipe de fundo  (rep 25, fama 32)", 25.0, 32.0),
+        ("equipe mediana   (rep 55, fama 40)", 55.0, 40.0),
+        ("equipe de ponta  (rep 85, fama 48)", 85.0, 48.0),
+    ] {
+        let (p0, p50, p100) = (
+            patro_de(0.0, rep, fama),
+            patro_de(50.0, rep, fama),
+            patro_de(100.0, rep, fama),
+        );
+        println!(
+            "  {nome}: indice 0 -> {p0:.3}xbase | 50 -> {p50:.3} | 100 -> {p100:.3}   \
+             (do colapso ao topo: {:+.1}% de patrocinio)",
+            (p100 - p0) / p0 * 100.0
+        );
+    }
+    println!(
+        "  O termo vale de 0 a 0,200xbase. A base e o custo operacional de UMA rodada, e a\n  \
+         receita total de uma rodada vive perto de 1xbase - o teto do termo e ~20% dela."
+    );
+
+    // ── BLOCO 1: por categoria e horizonte ───────────────────────────────────────────
+    println!("\n-- BLOCO 1 - por categoria e horizonte --");
+    println!(
+        "  patrocinio(mes) = patrocinio medio por equipe por ano, em meses de operacao da\n  \
+         divisao dela. concentracao = Gini do caixa liquido do grid. colapso/crise = % das\n  \
+         observacoes (equipe x temporada) nas H primeiras temporadas. recuperacao = % das\n  \
+         equipes que fecharam um ano doentes e estavam de pe H anos depois."
+    );
+    cabecalho_realimentacao();
+
+    let mut acumulado: Vec<(usize, Medida, Medida, Medida)> = HORIZONTES
+        .iter()
+        .map(|h| (*h, Medida::default(), Medida::default(), Medida::default()))
+        .collect();
+
+    for categoria in ARENAS_VARREDURA {
+        let atual = rodar_replicas(categoria, Realimentacao::Atual);
+        let zerado = rodar_replicas(categoria, Realimentacao::Zerada);
+        let achatado = rodar_replicas(categoria, Realimentacao::Achatada);
+
+        for (slot, h) in HORIZONTES.iter().enumerate() {
+            let a = medir_horizonte(&atual, *h, Filtro::default());
+            let z = medir_horizonte(&zerado, *h, Filtro::default());
+            let f = medir_horizonte(&achatado, *h, Filtro::default());
+            linha_realimentacao(categoria, *h, &a, &z, &f);
+
+            let dest = &mut acumulado[slot];
+            for (destino, origem) in [(&mut dest.1, &a), (&mut dest.2, &z), (&mut dest.3, &f)] {
+                destino.patrocinio_meses += origem.patrocinio_meses;
+                destino.meses_mediano += origem.meses_mediano;
+                destino.meses_p10 += origem.meses_p10;
+                destino.meses_p90 += origem.meses_p90;
+                destino.gini += origem.gini;
+                destino.topo20 += origem.topo20;
+                destino.cv_meses += origem.cv_meses;
+                destino.patrocinio_p90_p10 += origem.patrocinio_p90_p10;
+                destino.poder_mediano += origem.poder_mediano;
+                destino.poder_p10 += origem.poder_p10;
+                destino.indice_mediano += origem.indice_mediano;
+                destino.colapso_pct += origem.colapso_pct;
+                destino.crise_pct += origem.crise_pct;
+                destino.recuperacao_pct += origem.recuperacao_pct;
+            }
+        }
+
+        // ── Classes, onde elas existem ───────────────────────────────────────────────
+        let arena = arena(categoria);
+        if arena.multi_classe {
+            for (ic, classe) in arena.classes.iter().enumerate() {
+                let filtro = Filtro {
+                    classe: Some(ic),
+                    ..Filtro::default()
+                };
+                for h in HORIZONTES {
+                    let a = medir_horizonte(&atual, h, filtro);
+                    let z = medir_horizonte(&zerado, h, filtro);
+                    let f = medir_horizonte(&achatado, h, filtro);
+                    linha_realimentacao(&format!("  classe {}", classe.nome), h, &a, &z, &f);
+                }
+            }
+        }
+
+        // ── Estados de partida ───────────────────────────────────────────────────────
+        for estado in ESTADOS {
+            let filtro = Filtro {
+                estado_inicial: Some(estado),
+                ..Filtro::default()
+            };
+            let teve = atual
+                .iter()
+                .any(|r| r.foto_inicial.iter().any(|f| f.estado == *estado));
+            if !teve {
+                continue;
+            }
+            for h in HORIZONTES {
+                let a = medir_horizonte(&atual, h, filtro);
+                let z = medir_horizonte(&zerado, h, filtro);
+                let f = medir_horizonte(&achatado, h, filtro);
+                linha_realimentacao(&format!("  partiu {estado}"), h, &a, &z, &f);
+            }
+        }
+        println!("{}", "-".repeat(118));
+    }
+
+    // ── BLOCO 2: o mundo inteiro ─────────────────────────────────────────────────────
+    let n = ARENAS_VARREDURA.len() as f64;
+    println!(
+        "\n-- BLOCO 2 - media das {} categorias --",
+        ARENAS_VARREDURA.len()
+    );
+    println!(
+        "  atual / zerado (delta%) / achatado (delta%). O delta contra ACHATADO e o efeito do\n  \
+         laco sozinho: mesmo dinheiro no canal, so sem diferenciar rica de pobre.\n"
+    );
+    let linha = |rotulo: &str, campo: &dyn Fn(&Medida) -> f64, unidade: &str| {
+        let mut celulas = String::new();
+        for (h, a, z, f) in &acumulado {
+            let (va, vz, vf) = (campo(a) / n, campo(z) / n, campo(f) / n);
+            celulas.push_str(&format!(
+                " | H{h}: {va:>7.2} z {vz:>7.2} ({:+5.1}%) a {vf:>7.2} ({:+5.1}%)",
+                delta_pct(va, vz),
+                delta_pct(va, vf)
+            ));
+        }
+        println!("{rotulo:<21}{celulas}   {unidade}");
+    };
+    linha(
+        "patrocinio/ano",
+        &|m| m.patrocinio_meses,
+        "meses de operacao",
+    );
+    linha("folego mediano", &|m| m.meses_mediano, "meses de operacao");
+    linha("folego p10", &|m| m.meses_p10, "meses de operacao");
+    linha("folego p90", &|m| m.meses_p90, "meses de operacao");
+    linha("gini do caixa", &|m| m.gini, "0 = grid igual");
+    linha("topo 20% do caixa", &|m| m.topo20, "% do caixa do grid");
+    linha("CV do folego", &|m| m.cv_meses, "adimensional");
+    linha(
+        "patrocinio p90/p10",
+        &|m| m.patrocinio_p90_p10,
+        "razao no grid",
+    );
+    linha("poder de gasto", &|m| m.poder_mediano, "meses (mediana)");
+    linha("poder de gasto p10", &|m| m.poder_p10, "meses (p10)");
+    linha("budget_index", &|m| m.indice_mediano, "0-100 (mediana)");
+    linha("colapso", &|m| m.colapso_pct, "% equipe x temporada");
+    linha("crise", &|m| m.crise_pct, "% equipe x temporada");
+    linha("recuperacao", &|m| m.recuperacao_pct, "% dos doentes");
+
+    println!(
+        "\n-- COMO LER --\n\
+         O contrafactual TIRA receita de todo mundo, entao o folego cair no zerado e\n\
+         aritmetica, nao descoberta. O que responde a pergunta do laco e a DIFERENCA de\n\
+         diferenca: gini, CV, p90/p10 e a distancia entre p10 e p90. Se elas nao se movem, o\n\
+         termo e um nivel uniforme com nome de realimentacao; se elas encolhem no zerado, o\n\
+         laco concentra de verdade e o tamanho esta medido acima."
+    );
+}
+
+/// **O guarda da cópia.** `COEF_DO_INDICE` é um literal repetido do módulo de produção, e
+/// contrafactual construído sobre um coeficiente desatualizado mede a coisa errada em
+/// silêncio.
+///
+/// A conta é uma derivada: duas equipes idênticas exceto pelo CAIXA, medidas pela função de
+/// produção. Reputação e fama entram fixas, então a única coisa que o caixa move dentro do
+/// patrocínio é o `budget_index` — e a razão entre o degrau de patrocínio e o degrau de
+/// índice é o coeficiente, isolado.
+#[test]
+fn o_coeficiente_do_indice_ainda_e_o_da_producao() {
+    let monta = |caixa: f64| {
+        let mut team = placeholder_team_from_db(
+            "guarda-do-indice".to_string(),
+            "Guarda".to_string(),
+            "gt4".to_string(),
+            "2026-01-01".to_string(),
+        );
+        team.ativa = true;
+        team.cash_balance = caixa;
+        team.debt_balance = 0.0;
+        team.reputacao = 50.0;
+        team.engineering = 50.0;
+        team.facilities = 50.0;
+        team.pit_crew_quality = 50.0;
+        team.car_performance = 0.0;
+        team.financial_state = "stable".to_string();
+        team
+    };
+    let saude = global_economic_health_for_season(1);
+    let rodadas = 10.0;
+    let patrocinio = |team: &Team| {
+        calculate_team_round_finance_context_modelo(
+            team,
+            40.0,
+            10.0,
+            0,
+            0,
+            0,
+            99,
+            0.0,
+            rodadas,
+            saude,
+            0.0,
+            RoundOperationContext::default(),
+            EtapaFisica::de_referencia(&team.categoria, team.classe.as_deref()),
+            50.0,
+            100.0,
+            10.0,
+            CoeficientesDeReceita::default(),
+            despesa_da_rodada,
+        )
+        .sponsorship_income
+    };
+
+    let escala = category_finance_scale_for("gt4", None);
+    let base = escala.operating_cost_midpoint() / rodadas;
+    let pobre = monta(escala.cash_min);
+    let rico = monta(escala.cash_max * 4.0);
+
+    let d_indice = derive_budget_index_from_money(&rico) - derive_budget_index_from_money(&pobre);
+    assert!(
+        d_indice > 5.0,
+        "o caso precisa de dois indices bem distintos para a derivada significar algo; \
+         medido delta indice = {d_indice:.3}"
+    );
+
+    let d_patrocinio = patrocinio(&rico) - patrocinio(&pobre);
+    let coef_medido = d_patrocinio / (d_indice * base * economy_income_modifier(saude));
+
+    assert!(
+        (coef_medido - COEF_DO_INDICE).abs() < 1e-9,
+        "o coeficiente do indice no patrocinio de producao mudou: medido {coef_medido:.6}, \
+         copia do harness {COEF_DO_INDICE:.6}. Atualize COEF_DO_INDICE e refaca a medicao \
+         do laco - o contrafactual estava zerando o termo errado."
+    );
+}
+
+// ===================== B47 / B50 / B52 — a escala absoluta =====================
+
+/// A escada de divisões, na ordem, com a classe onde ela existe. É a lista contra a qual a
+/// escala absoluta é lida: as tabelas de `finance::events` são indexadas pela CATEGORIA, e
+/// nos dois campeonatos multi-classe a categoria não nomeia uma operação.
+const DIVISOES: &[(&str, Option<&str>)] = &[
+    ("mazda_rookie", None),
+    ("toyota_rookie", None),
+    ("mazda_amador", None),
+    ("toyota_amador", None),
+    ("bmw_m2", None),
+    ("production_challenger", Some("mazda")),
+    ("production_challenger", Some("toyota")),
+    ("production_challenger", Some("bmw")),
+    ("gt4", None),
+    ("gt3", None),
+    ("lmp2", None),
+    ("endurance", Some("gt4")),
+    ("endurance", Some("gt3")),
+    ("endurance", Some("lmp2")),
+];
+
+/// Uma equipe neutra da divisão: reputação 55, sem dívida, caixa zero. Serve para ler as
+/// funções de produção que dependem de `Team` sem que o resultado misture o estado da
+/// equipe com a escala da divisão.
+fn equipe_neutra(categoria: &str, classe: Option<&str>) -> Team {
+    let mut team = placeholder_team_from_db(
+        "escala".to_string(),
+        "Equipe Neutra".to_string(),
+        categoria.to_string(),
+        "2026-01-01".to_string(),
+    );
+    team.ativa = true;
+    team.classe = classe.map(str::to_string);
+    team.reputacao = 55.0;
+    team.cash_balance = 0.0;
+    team.debt_balance = 0.0;
+    team
+}
+
+fn rodadas_de(categoria: &str) -> f64 {
+    get_category_config(categoria)
+        .map(|c| c.corridas_por_temporada.max(1) as f64)
+        .unwrap_or(12.0)
+}
+
+/// **BLOCO ESTÁTICO.** Cada número absoluto de `finance::events` e de `race::financas`
+/// convertido para a única unidade em que o resto do jogo mede fôlego: meses de operação da
+/// divisão. Não simula nada — é a leitura dimensional, e é ela que separa bug de calibração.
+#[test]
+#[ignore = "harness de medicao, nao e teste de comportamento"]
+fn medir_escala_absoluta_do_socorro() {
+    println!(
+        "\n===== B47 / B50 - A ESCALA RELATIVA, LIDA EM MESES DE OPERACAO =====\n\
+         Equipe neutra (reputacao 55, sem divida). O custo mensal e o da DIVISAO, com classe.\n\
+         DEPOIS de B47/B50: os dois canais decidem em meses de operacao da divisao.\n\
+         paraquedas   = {PARAQUEDAS_MESES:.0} meses (parachute_payment_for_relegation)\n\
+         parcela      = total / rodadas da temporada (race::financas)\n\
+         emprestimo   = {SOCORRO_PRINCIPAL_MESES:.0} meses x (0,85 + rep/500)\n\
+         gate caixa   = -{SOCORRO_GATE_CAIXA_MESES:.0} meses | TETO de divida = \
+{SOCORRO_TETO_DIVIDA_MESES:.0} meses | max {SOCORROS_MAX_POR_TEMPORADA}/temporada\n\
+         As colunas 'meses' tem que ficar CONSTANTES na escada - e esse o teste da correcao.\n"
+    );
+    println!(
+        "{:<26} {:>10} | {:>10} {:>7} {:>7} {:>7} {:>7} | {:>8} {:>7} {:>7} | {:>10} {:>6} {:>7} | {:>7} {:>7}",
+        "divisao",
+        "mes (R$)",
+        "paraq (R$)",
+        "meses",
+        "%anual",
+        "rodadas",
+        "temps",
+        "parcela",
+        "meses",
+        "%rodad",
+        "emprest R$",
+        "meses",
+        "%anual",
+        "gt caixa",
+        "gt divida"
+    );
+    println!("{}", "-".repeat(152));
+
+    for (categoria, classe) in DIVISOES {
+        let team = equipe_neutra(categoria, *classe);
+        let mensal = custo_operacional_mensal(categoria, *classe);
+        let rodadas = rodadas_de(categoria);
+        let paraquedas = crate::finance::events::parachute_payment_for_relegation(&team);
+        // O saldo é consumido pela PARCELA da divisão: quantas rodadas até secar (tem que dar
+        // exatamente o calendário da categoria), e quanto isso vale por rodada.
+        let parcela = crate::finance::events::parcela_de_paraquedas(categoria, *classe, rodadas);
+        let rodadas_ate_secar = paraquedas / parcela.max(1.0);
+        let custo_da_rodada = mensal * 12.0 / rodadas;
+        // O empréstimo é lido com a equipe FORÇADA ao gatilho — o valor não depende do
+        // estado, só a elegibilidade depende.
+        let mut afogada = team.clone();
+        afogada.financial_state = "collapse".to_string();
+        afogada.cash_balance = -1_000_000.0;
+        let emprestimo =
+            crate::finance::events::emergency_loan_amount_na_temporada(&afogada, 1).unwrap_or(0.0);
+
+        let rotulo = match classe {
+            Some(c) => format!("{categoria}:{c}"),
+            None => (*categoria).to_string(),
+        };
+        println!(
+            "{:<26} {:>10.0} | {:>10.0} {:>7.2} {:>6.1}% {:>7.1} {:>7.2} | {:>8.0} {:>7.3} {:>6.1}% | {:>10.0} {:>6.2} {:>6.1}% | {:>7.2} {:>7.2}",
+            rotulo,
+            mensal,
+            paraquedas,
+            paraquedas / mensal,
+            paraquedas / (mensal * 12.0) * 100.0,
+            rodadas_ate_secar,
+            rodadas_ate_secar / rodadas,
+            parcela.min(paraquedas),
+            parcela.min(paraquedas) / mensal,
+            parcela.min(paraquedas) / custo_da_rodada * 100.0,
+            emprestimo,
+            emprestimo / mensal,
+            emprestimo / (mensal * 12.0) * 100.0,
+            SOCORRO_GATE_CAIXA_MESES,
+            SOCORRO_TETO_DIVIDA_MESES,
+        );
+    }
+
+    println!(
+        "\n-- COMO LER --\n\
+         'meses' e o mesmo dinheiro dividido pelo custo de operar um mes DAQUELA divisao. Se a\n\
+         coluna nao for aproximadamente constante na escada, o numero absoluto vale coisas\n\
+         diferentes em cada degrau - e ai a diferenca nao e balanceamento, e dimensao.\n\
+         'rodadas' e quantas etapas o paraquedas leva para secar; DEPOIS de B47 ele tem que\n\
+         bater exatamente com o calendario da categoria, em qualquer divisao.\n\
+         '%rodad' e a parcela contra o custo de operar UMA rodada: e o alivio real por etapa."
+    );
+
+    // ── A escada de destino: quem é rebaixado desce de divisão ───────────────────────
+    println!(
+        "\n-- O paraquedas na divisao de DESTINO (quem e rebaixado desce um degrau) --\n\
+         DEPOIS de B47 o total e lido na divisao de DESTINO, que e onde o dinheiro e gasto:\n\
+         'meses dest' tem que dar 3,00 em toda a escada. 'meses orig' fica abaixo disso, e e\n\
+         a leitura de quanto o rebaixamento barateia a operacao.\n"
+    );
+    let escada: &[(&str, Option<&str>)] = &[
+        ("mazda_rookie", None),
+        ("mazda_amador", None),
+        ("bmw_m2", None),
+        ("gt4", None),
+        ("gt3", None),
+        ("lmp2", None),
+        ("endurance", Some("lmp2")),
+    ];
+    println!(
+        "{:<24} {:>12} {:>10} | {:>10} {:>10}",
+        "origem -> destino", "paraq (R$)", "rodadas", "meses orig", "meses dest"
+    );
+    println!("{}", "-".repeat(74));
+    for janela in escada.windows(2) {
+        let (destino, cl_destino) = janela[0];
+        let (origem, cl_origem) = janela[1];
+        // A equipe que recebe o paraquedas JÁ está na divisão de destino: `promotion::pipeline`
+        // troca categoria e classe antes de aplicar os deltas do movimento.
+        let team = equipe_neutra(destino, cl_destino);
+        let paraquedas = crate::finance::events::parachute_payment_for_relegation(&team);
+        let mes_origem = custo_operacional_mensal(origem, cl_origem);
+        let mes_destino = custo_operacional_mensal(destino, cl_destino);
+        let parcela =
+            crate::finance::events::parcela_de_paraquedas(destino, cl_destino, rodadas_de(destino));
+        println!(
+            "{:<24} {:>12.0} {:>10.1} | {:>10.2} {:>10.2}",
+            format!("{origem} -> {destino}"),
+            paraquedas,
+            paraquedas / parcela.max(1.0),
+            paraquedas / mes_origem,
+            paraquedas / mes_destino,
+        );
+    }
+}
+
+/// **B52 estático.** Onde os dois limiares caem na régua de meses, divisão por divisão, e o
+/// que a escala cega à classe faz com eles.
+#[test]
+#[ignore = "harness de medicao, nao e teste de comportamento"]
+fn medir_limiares_da_estrategia_na_regua() {
+    println!(
+        "\n===== B52 - OS LIMIARES {LIMIAR_ALL_IN:.2} / {LIMIAR_AUSTERIDADE:.2} NA REGUA DE HOJE =====\n\
+         choose_season_strategy compara spending_power (grandeza ANUAL) contra fracoes do\n\
+         operating_cost_midpoint ANUAL. Em meses de operacao, {LIMIAR_ALL_IN:.2} do anual sao\n\
+         {:.1} meses e {LIMIAR_AUSTERIDADE:.2} sao {:.1} meses. A faixa declarada de folego do\n\
+         mundo vai de 1 a 11 meses (economia::temporada::faixa_de_caixa).\n\
+         O gate de survival compara debt_pressure contra {LIMIAR_SURVIVAL:.2} x expected_cash_\n\
+         midpoint, que hoje vale {:.1} meses de operacao.\n",
+        LIMIAR_ALL_IN * 12.0,
+        LIMIAR_AUSTERIDADE * 12.0,
+        LIMIAR_SURVIVAL * crate::economia::temporada::caixa_meses_de_referencia(),
+    );
+
+    println!(
+        "{:<26} {:>12} {:>12} | {:>12} {:>12} | {:>12}",
+        "divisao", "all_in (R$)", "austerid R$", "divisor cat", "divisor cls", "erro do cego"
+    );
+    println!("{}", "-".repeat(94));
+    for (categoria, classe) in DIVISOES {
+        let cego = category_finance_scale(categoria).operating_cost_midpoint();
+        let certo = category_finance_scale_for(categoria, *classe).operating_cost_midpoint();
+        let rotulo = match classe {
+            Some(c) => format!("{categoria}:{c}"),
+            None => (*categoria).to_string(),
+        };
+        println!(
+            "{:<26} {:>12.0} {:>12.0} | {:>12.0} {:>12.0} | {:>11.2}x",
+            rotulo,
+            certo * LIMIAR_ALL_IN,
+            certo * LIMIAR_AUSTERIDADE,
+            cego,
+            certo,
+            cego / certo.max(1.0),
+        );
+    }
+    println!(
+        "\n'erro do cego' e o divisor que choose_season_strategy usa de fato (categoria) dividido\n\
+         pelo que a divisao da equipe custa (classe). 1,00 e monoclasse; longe de 1 e a mesma\n\
+         equipe sendo julgada contra o orcamento de outra classe."
+    );
+}
+
+// ===================== Os braços dinâmicos =====================
+
+/// Um recorte do mundo simulado, para pôr os braços lado a lado.
+#[derive(Default, Clone, Copy)]
+struct Saude {
+    meses_mediano: f64,
+    meses_p10: f64,
+    colapso_pct: f64,
+    crise_pct: f64,
+    recuperacao_pct: f64,
+    vendas: f64,
+    emprestimos: f64,
+    emprestimo_valor_meses: f64,
+    elegiveis_pct: f64,
+    ajuda_meses: f64,
+    /// Juros pagos em caixa na simulação inteira, em meses de operação. No braço amortizado
+    /// inclui a taxa do empréstimo, que ali é despesa de caixa em vez de dívida no ato.
+    juros_meses: f64,
+    /// Dívida criada pelos socorros na simulação inteira, em meses de operação.
+    divida_criada_meses: f64,
+    /// % das equipes do grid que tomaram ao menos um socorro.
+    tomadores_pct: f64,
+    /// % das equipes do grid que tomaram DOIS ou mais — a reincidência.
+    reincidentes_pct: f64,
+    /// Socorros por equipe socorrida.
+    socorros_por_tomador: f64,
+    /// Estrutura média no fim (engenharia + instalações, 0–200): o eixo de performance.
+    estrutura_fim: f64,
+    nivel_medio: f64,
+}
+
+fn resumir_saude(replicas: &[Resultado], mensal_medio: f64) -> Saude {
+    let mut s = Saude::default();
+    let n = replicas.len().max(1) as f64;
+    for r in replicas {
+        let h = r.serie.len();
+        if h == 0 {
+            continue;
+        }
+        let meses: Vec<f64> = r.serie[h - 1].iter().map(|f| f.meses).collect();
+        s.meses_mediano += p_da_amostra(&meses, 0.5);
+        s.meses_p10 += p_da_amostra(&meses, 0.10);
+
+        let obs: f64 = r.estados.values().map(|v| *v as f64).sum();
+        s.colapso_pct += *r.estados.get("collapse").unwrap_or(&0) as f64 / obs.max(1.0) * 100.0;
+        s.crise_pct += *r.estados.get("crisis").unwrap_or(&0) as f64 / obs.max(1.0) * 100.0;
+        s.elegiveis_pct += r.elegiveis as f64 / obs.max(1.0) * 100.0;
+        s.vendas += r.vendas as f64;
+        s.emprestimos += r.emprestimos as f64;
+        s.emprestimo_valor_meses += r.emprestimo_valor / mensal_medio.max(1.0);
+        s.ajuda_meses += r.ajuda_paga / mensal_medio.max(1.0);
+        s.juros_meses += r.linhas.juros / mensal_medio.max(1.0);
+        s.divida_criada_meses += r.divida_criada / mensal_medio.max(1.0);
+        {
+            let grid = r.emprestimos_por_equipe.len().max(1) as f64;
+            let tomadores = r.emprestimos_por_equipe.iter().filter(|c| **c >= 1).count() as f64;
+            let reincidentes = r.emprestimos_por_equipe.iter().filter(|c| **c >= 2).count() as f64;
+            s.tomadores_pct += tomadores / grid * 100.0;
+            s.reincidentes_pct += reincidentes / grid * 100.0;
+            s.socorros_por_tomador += r.emprestimos as f64 / tomadores.max(1.0);
+        }
+        s.estrutura_fim += media_de(&r.estrutura_fim);
+        s.nivel_medio += r.nivel_medio;
+
+        // Recuperação em 3 anos, sobre a série de fotos.
+        let (mut casos, mut recuperou) = (0.0f64, 0.0f64);
+        for t in 0..h.saturating_sub(3) {
+            for i in 0..r.serie[t].len() {
+                if doente(r.serie[t][i].estado) {
+                    casos += 1.0;
+                    if de_pe(r.serie[t + 3][i].estado) {
+                        recuperou += 1.0;
+                    }
+                }
+            }
+        }
+        s.recuperacao_pct += recuperou / casos.max(1.0) * 100.0;
+    }
+    for campo in [
+        &mut s.meses_mediano,
+        &mut s.meses_p10,
+        &mut s.colapso_pct,
+        &mut s.crise_pct,
+        &mut s.recuperacao_pct,
+        &mut s.vendas,
+        &mut s.emprestimos,
+        &mut s.emprestimo_valor_meses,
+        &mut s.elegiveis_pct,
+        &mut s.ajuda_meses,
+        &mut s.juros_meses,
+        &mut s.divida_criada_meses,
+        &mut s.tomadores_pct,
+        &mut s.reincidentes_pct,
+        &mut s.socorros_por_tomador,
+        &mut s.estrutura_fim,
+        &mut s.nivel_medio,
+    ] {
+        *campo /= n;
+    }
+    s
+}
+
+fn rodar_braco(categoria: &'static str, cenario: Cenario) -> Vec<Resultado> {
+    (0..REPLICAS)
+        .map(|semente| medir_categoria_cenario(categoria, &Cenario { semente, ..cenario }))
+        .collect()
+}
+
+fn cabecalho_saude() {
+    println!(
+        "\n{:<34} | {:>7} {:>7} | {:>6} {:>6} {:>6} | {:>6} {:>6} {:>7} {:>7} | {:>7} {:>7} {:>6} {:>6} {:>6} | {:>7} {:>6} {:>6}",
+        "categoria / braco",
+        "meses",
+        "p10",
+        "colap%",
+        "crise%",
+        "recup%",
+        "vendas",
+        "empr",
+        "empr(m)",
+        "elegiv%",
+        "divida_m",
+        "juros_m",
+        "tomad%",
+        "reinc%",
+        "por_tom",
+        "ajuda_m",
+        "estrut",
+        "nivel"
+    );
+    println!("{}", "-".repeat(178));
+}
+
+fn linha_saude(rotulo: &str, s: &Saude) {
+    println!(
+        "{:<34} | {:>7.2} {:>7.2} | {:>6.2} {:>6.2} {:>6.1} | {:>6.1} {:>6.1} {:>7.2} {:>7.2} | {:>7.2} {:>7.2} {:>6.1} {:>6.1} {:>6.2} | {:>7.2} {:>6.1} {:>6.2}",
+        rotulo,
+        s.meses_mediano,
+        s.meses_p10,
+        s.colapso_pct,
+        s.crise_pct,
+        s.recuperacao_pct,
+        s.vendas,
+        s.emprestimos,
+        s.emprestimo_valor_meses,
+        s.elegiveis_pct,
+        s.divida_criada_meses,
+        s.juros_meses,
+        s.tomadores_pct,
+        s.reincidentes_pct,
+        s.socorros_por_tomador,
+        s.ajuda_meses,
+        s.estrutura_fim,
+        s.nivel_medio,
+    );
+}
+
+/// Média de um conjunto de recortes — a linha do mundo.
+fn media_da_saude(itens: &[Saude]) -> Saude {
+    let n = itens.len().max(1) as f64;
+    let mut m = Saude::default();
+    for s in itens {
+        m.meses_mediano += s.meses_mediano / n;
+        m.meses_p10 += s.meses_p10 / n;
+        m.colapso_pct += s.colapso_pct / n;
+        m.crise_pct += s.crise_pct / n;
+        m.recuperacao_pct += s.recuperacao_pct / n;
+        m.vendas += s.vendas / n;
+        m.emprestimos += s.emprestimos / n;
+        m.emprestimo_valor_meses += s.emprestimo_valor_meses / n;
+        m.elegiveis_pct += s.elegiveis_pct / n;
+        m.juros_meses += s.juros_meses / n;
+        m.divida_criada_meses += s.divida_criada_meses / n;
+        m.tomadores_pct += s.tomadores_pct / n;
+        m.reincidentes_pct += s.reincidentes_pct / n;
+        m.socorros_por_tomador += s.socorros_por_tomador / n;
+        m.ajuda_meses += s.ajuda_meses / n;
+        m.estrutura_fim += s.estrutura_fim / n;
+        m.nivel_medio += s.nivel_medio / n;
+    }
+    m
+}
+
+/// **B50 dinâmico.** O empréstimo de emergência: taxa de elegibilidade, quanto ele injeta,
+/// e o que o mundo faz sem ele e com ele reancorado em meses.
+#[test]
+#[ignore = "harness de medicao, nao e teste de comportamento"]
+fn medir_emprestimo_de_emergencia() {
+    println!(
+        "\n===== B50 - EMPRESTIMO DE EMERGENCIA, DEPOIS DA CORRECAO =====\n\
+         {REPLICAS} replicas x {TEMPORADAS} temporadas por braco. 'empr(m)' e o principal somado\n\
+         da simulacao inteira em meses de operacao da divisao; 'elegiv%' e a fracao das\n\
+         (equipe x temporada) em que o gatilho de PRODUCAO esteve aberto em alguma rodada -\n\
+         medida igual nos quatro bracos, para o eixo ser o socorro e nao o termometro.\n\
+         'producao' e a politica NOVA: caixa < -{SOCORRO_GATE_CAIXA_MESES:.0} meses E divida < \
+{SOCORRO_TETO_DIVIDA_MESES:.0} meses (TETO) E no maximo\n\
+         {SOCORROS_MAX_POR_TEMPORADA} socorros na temporada; principal de \
+{SOCORRO_PRINCIPAL_MESES:.0} meses de operacao.\n\
+         'absoluta (a antiga)' e a politica de ate 12/08/2026, congelada: -75.000 OU 750.000,\n\
+         tabela por categoria, sem teto e sem limite. E o ANTES.\n\
+         'taxa amortizada' usa os gates e o principal NOVOS e muda so QUANDO a taxa de 18%\n\
+         entra: em vez de virar divida no ato, e cobrada em caixa ao longo da temporada.\n\
+         'divida_m' e a divida CRIADA pelos socorros, em meses; 'juros_m' e o juro pago em\n\
+         caixa na simulacao inteira (no braco amortizado inclui a taxa); 'tomad%'/'reinc%' sao\n\
+         as equipes do grid que tomaram um e dois ou mais socorros; 'por_tom' e socorros por\n\
+         equipe socorrida - e a coluna que mostrava dezenas por tomador."
+    );
+    cabecalho_saude();
+
+    let bracos: &[(&str, Socorro)] = &[
+        ("producao (2/4/2)", Socorro::Producao),
+        ("sem socorro", Socorro::Sem),
+        ("absoluta (a antiga)", Socorro::Absoluta),
+        ("taxa amortizada", Socorro::Amortizada),
+        (
+            "principal 1 mes",
+            Socorro::Variante {
+                principal: 1.0,
+                taxa: 1.18,
+            },
+        ),
+        (
+            "taxa 1,08",
+            Socorro::Variante {
+                principal: 2.0,
+                taxa: 1.08,
+            },
+        ),
+        (
+            "taxa 1,00 (sem taxa)",
+            Socorro::Variante {
+                principal: 2.0,
+                taxa: 1.00,
+            },
+        ),
+        (
+            "1 mes + taxa 1,08",
+            Socorro::Variante {
+                principal: 1.0,
+                taxa: 1.08,
+            },
+        ),
+    ];
+    let mut por_braco: Vec<Vec<Saude>> = vec![Vec::new(); bracos.len()];
+
+    for categoria in ARENAS_VARREDURA {
+        let mensal = custo_operacional_mensal(categoria, None);
+        for (k, (nome, socorro)) in bracos.iter().enumerate() {
+            let replicas = rodar_braco(
+                categoria,
+                Cenario {
+                    socorro: *socorro,
+                    ..Cenario::default()
+                },
+            );
+            let s = resumir_saude(&replicas, mensal);
+            linha_saude(&format!("{categoria} / {nome}"), &s);
+            por_braco[k].push(s);
+        }
+        println!("{}", "-".repeat(140));
+    }
+
+    println!("\n-- media das {} categorias --", ARENAS_VARREDURA.len());
+    for (k, (nome, _)) in bracos.iter().enumerate() {
+        linha_saude(&format!("MUNDO / {nome}"), &media_da_saude(&por_braco[k]));
+    }
+    println!(
+        "\n-- COMO LER --\n\
+         'sem socorro' e o piso: a diferenca contra 'producao' e tudo que o emprestimo segura.\n\
+         Se colapso e venda quase nao se movem entre os dois, o canal e decorativo no agregado\n\
+         e o que ele faz e adiar caso a caso. 'em meses' responde se a diferenca entre degraus\n\
+         some quando o valor e os gates passam a ser lidos na unidade da ancora."
+    );
+}
+
+/// **B47 dinâmico.** O paraquedas com a coorte sintética de rebaixadas.
+#[test]
+#[ignore = "harness de medicao, nao e teste de comportamento"]
+fn medir_paraquedas() {
+    println!(
+        "\n===== B47 - PARAQUEDAS DE REBAIXAMENTO, DEPOIS DA CORRECAO =====\n\
+         A ultima colocada de cada classe fecha o ano recebendo o saldo de paraquedas. Ela NAO\n\
+         desce de divisao (o harness nao tem escada), entao o alivio aqui e cota INFERIOR.\n\
+         'ajuda_m' e a ajuda paga na simulacao inteira, em meses de operacao da divisao.\n\
+         'producao' e a politica NOVA: total de {PARAQUEDAS_MESES:.0} meses de operacao da\n\
+         divisao de destino, em parcelas iguais que secam na ultima etapa da temporada.\n\
+         'absoluta' e a politica de ate 12/08/2026: tabela por categoria (120 mil na rookie,\n\
+         700 mil no endurance) e parcela fixa de {PARCELA_DE_AJUDA:.0} por rodada, que no\n\
+         Endurance arrastava o saldo por ate ~4,6 temporadas. E o ANTES."
+    );
+    cabecalho_saude();
+
+    let bracos: &[(&str, Paraquedas)] = &[
+        ("sem rebaixamento", Paraquedas::Nenhum),
+        ("producao (3 meses)", Paraquedas::Producao),
+        ("absoluta (tabela+25k)", Paraquedas::Absoluta),
+    ];
+    let mut por_braco: Vec<Vec<Saude>> = vec![Vec::new(); bracos.len()];
+
+    for categoria in ARENAS_VARREDURA {
+        let mensal = custo_operacional_mensal(categoria, None);
+        for (k, (nome, paraquedas)) in bracos.iter().enumerate() {
+            let replicas = rodar_braco(
+                categoria,
+                Cenario {
+                    paraquedas: *paraquedas,
+                    ..Cenario::default()
+                },
+            );
+            let s = resumir_saude(&replicas, mensal);
+            linha_saude(&format!("{categoria} / {nome}"), &s);
+            por_braco[k].push(s);
+        }
+        println!("{}", "-".repeat(140));
+    }
+
+    println!("\n-- media das {} categorias --", ARENAS_VARREDURA.len());
+    for (k, (nome, _)) in bracos.iter().enumerate() {
+        linha_saude(&format!("MUNDO / {nome}"), &media_da_saude(&por_braco[k]));
+    }
+}
+
+/// **B52 dinâmico.** Varredura dos dois limiares: distribuição de estratégias e efeito em
+/// falência e em performance.
+#[test]
+#[ignore = "harness de medicao, nao e teste de comportamento"]
+fn varrer_limiares_de_estrategia() {
+    println!(
+        "\n===== B52 - VARREDURA DOS LIMIARES DE choose_season_strategy =====\n\
+         Producao usa all_in < {LIMIAR_ALL_IN:.2} x operacional anual e austeridade <\n\
+         {LIMIAR_AUSTERIDADE:.2} x, lidos contra a escala da DIVISAO (B52 corrigido). Os\n\
+         bracos abaixo separam as duas suspeitas originais: o VALOR do limiar e a ESCALA\n\
+         contra a qual ele e lido - 'por classe' agora coincide com 'producao'.\n\
+         {REPLICAS} replicas x {TEMPORADAS} temporadas por braco."
+    );
+
+    let bracos: &[(&str, Estrategia)] = &[
+        ("producao", Estrategia::Producao),
+        (
+            "limiares 0,10 / 0,25",
+            Estrategia::Limiares {
+                all_in: 0.10,
+                austeridade: 0.25,
+            },
+        ),
+        (
+            "limiares 0,40 / 1,00",
+            Estrategia::Limiares {
+                all_in: 0.40,
+                austeridade: 1.00,
+            },
+        ),
+        (
+            "por classe 0,20 / 0,50",
+            Estrategia::PorClasse {
+                all_in: LIMIAR_ALL_IN,
+                austeridade: LIMIAR_AUSTERIDADE,
+            },
+        ),
+    ];
+
+    let rotulos = ["survival", "all_in", "austerity", "expansion", "balanced"];
+    println!(
+        "\n{:<38} | {:>8} {:>8} {:>9} {:>9} {:>9} | {:>7} {:>6} {:>6} {:>6}",
+        "categoria / braco",
+        "surviv%",
+        "all_in%",
+        "austerid%",
+        "expansao%",
+        "balance%",
+        "meses",
+        "colap%",
+        "estrut",
+        "nivel"
+    );
+    println!("{}", "-".repeat(140));
+
+    for categoria in ARENAS_VARREDURA {
+        let mensal = custo_operacional_mensal(categoria, None);
+        for (nome, estrategia) in bracos {
+            let replicas = rodar_braco(
+                categoria,
+                Cenario {
+                    estrategia: *estrategia,
+                    ..Cenario::default()
+                },
+            );
+            let s = resumir_saude(&replicas, mensal);
+            let mut pct = [0.0f64; 5];
+            let mut total = 0.0f64;
+            for r in &replicas {
+                for v in r.estrategias.values() {
+                    total += *v as f64;
+                }
+                for (k, rotulo) in rotulos.iter().enumerate() {
+                    pct[k] += *r.estrategias.get(rotulo).unwrap_or(&0) as f64;
+                }
+            }
+            for p in pct.iter_mut() {
+                *p = *p / total.max(1.0) * 100.0;
+            }
+            println!(
+                "{:<38} | {:>7.1}% {:>7.1}% {:>8.1}% {:>8.1}% {:>8.1}% | {:>7.2} {:>6.2} {:>6.1} {:>6.2}",
+                format!("{categoria} / {nome}"),
+                pct[0],
+                pct[1],
+                pct[2],
+                pct[3],
+                pct[4],
+                s.meses_mediano,
+                s.colapso_pct,
+                s.estrutura_fim,
+                s.nivel_medio,
+            );
+        }
+        println!("{}", "-".repeat(140));
+    }
+
+    println!(
+        "\n-- COMO LER --\n\
+         Se a distribuicao de estrategias nao se move entre 'producao' e os limiares extremos,\n\
+         os dois numeros nao sao o que decide - quem decide e a banda de estado (pressured ->\n\
+         all_in, crisis/collapse -> survival), e os limiares sao decoracao. Se ela se move mas\n\
+         colapso e estrutura nao, o eixo e cosmetico. 'por classe' isola o erro dimensional."
+    );
+}
+
+// ===================== Os guards das cópias =====================
+
+/// **Guarda das cópias de `finance::events`.** O contrafactual do socorro é construído sobre
+/// números que moram na produção sem nome. Se eles mudarem, a medição passa a comparar o
+/// braço novo contra uma produção que não existe mais.
+#[test]
+fn os_numeros_do_socorro_ainda_sao_os_da_producao() {
+    // A parcela de ajuda: uma equipe com saldo de paraquedas gigante recebe exatamente o teto.
+    let mut team = equipe_neutra("gt3", None);
+    team.parachute_payment_remaining = 10_000_000.0;
+    let ctx = calculate_team_round_finance_context_modelo(
+        &team,
+        40.0,
+        10.0,
+        0,
+        0,
+        0,
+        99,
+        0.0,
+        10.0,
+        global_economic_health_for_season(1),
+        0.0,
+        RoundOperationContext::default(),
+        EtapaFisica::de_referencia(&team.categoria, team.classe.as_deref()),
+        50.0,
+        100.0,
+        10.0,
+        CoeficientesDeReceita::default(),
+        despesa_da_rodada,
+    );
+    // A parcela do paraquedas: total da divisão dividido pelas rodadas da temporada. O harness
+    // passa `rounds_in_season = 10`, então é o mesmo divisor dos dois lados.
+    let parcela_esperada = crate::finance::events::parcela_de_paraquedas("gt3", None, 10.0);
+    assert!(
+        (ctx.aid_income - parcela_esperada).abs() < 1.0,
+        "a parcela de ajuda por rodada mudou: producao paga {:.0}, esperado {parcela_esperada:.0}",
+        ctx.aid_income
+    );
+
+    // A taxa sobre o principal: a dívida cresce `SOCORRO_TAXA` vezes o caixa injetado.
+    let mut afogada = equipe_neutra("gt4", None);
+    afogada.financial_state = "collapse".to_string();
+    let mensal_gt4 = custo_operacional_mensal("gt4", None);
+    afogada.cash_balance = -3.0 * mensal_gt4;
+    afogada.debt_balance = 0.0;
+    let antes = (afogada.cash_balance, afogada.debt_balance);
+    let evento = apply_crisis_event_if_needed(&mut afogada, 1).expect("gatilho deveria abrir");
+    let taxa = (afogada.debt_balance - antes.1) / (afogada.cash_balance - antes.0);
+    assert!(
+        (taxa - SOCORRO_TAXA).abs() < 1e-6,
+        "a taxa do emprestimo mudou: producao cobra {taxa:.4}, copia do harness {SOCORRO_TAXA:.4}"
+    );
+    assert!(evento.cash_delta > 0.0);
+
+    // Os gates RELATIVOS, na unidade da âncora. Dentro do gate de caixa não abre; fora, abre.
+    let mut folgada = equipe_neutra("gt4", None);
+    folgada.financial_state = "collapse".to_string();
+    folgada.cash_balance = -(SOCORRO_GATE_CAIXA_MESES - 0.1) * mensal_gt4;
+    folgada.debt_balance = 0.0;
+    assert!(
+        crate::finance::events::emergency_loan_amount_na_temporada(&folgada, 1).is_none(),
+        "o gate de caixa mudou: dentro dele o gatilho abriu"
+    );
+    folgada.cash_balance = -(SOCORRO_GATE_CAIXA_MESES + 0.1) * mensal_gt4;
+    assert!(
+        crate::finance::events::emergency_loan_amount_na_temporada(&folgada, 1).is_some(),
+        "o gate de caixa mudou: fora dele o gatilho nao abriu"
+    );
+    // E a dívida é TETO: acima dele o socorro fecha, em vez de abrir como antes.
+    folgada.debt_balance = (SOCORRO_TETO_DIVIDA_MESES + 0.1) * mensal_gt4;
+    assert!(
+        crate::finance::events::emergency_loan_amount_na_temporada(&folgada, 1).is_none(),
+        "a divida voltou a LIBERAR socorro em vez de barrar"
+    );
+}
+
+/// **Guarda da cópia de `choose_season_strategy`.** [`escolher_estrategia`] reproduz a forma
+/// da produção com os limiares abertos; nos limiares de produção as duas têm que concordar
+/// em toda a escada e em todas as bandas de estado.
+#[test]
+fn os_limiares_da_estrategia_ainda_sao_os_da_producao() {
+    for (categoria, classe) in DIVISOES {
+        for (caixa, divida) in [
+            (0.0, 0.0),
+            (500_000.0, 0.0),
+            (5_000_000.0, 0.0),
+            (50_000_000.0, 0.0),
+            (-200_000.0, 3_000_000.0),
+            (100_000.0, 30_000_000.0),
+        ] {
+            for carro in [-4.0, 0.0, 8.0, 15.0] {
+                let mut team = equipe_neutra(categoria, *classe);
+                team.cash_balance = caixa;
+                team.debt_balance = divida;
+                team.car_performance = carro;
+                crate::finance::state::refresh_team_financial_state(&mut team);
+
+                let producao = choose_season_strategy(&team);
+                let copia = escolher_estrategia(
+                    &team,
+                    Estrategia::Limiares {
+                        all_in: LIMIAR_ALL_IN,
+                        austeridade: LIMIAR_AUSTERIDADE,
+                    },
+                );
+                assert_eq!(
+                    producao, copia,
+                    "{categoria}:{classe:?} caixa {caixa} divida {divida} carro {carro}: a copia \
+                     do harness divergiu da producao - choose_season_strategy mudou de forma e o \
+                     contrafactual de B52 esta medindo outra coisa"
+                );
+            }
+        }
+    }
 }

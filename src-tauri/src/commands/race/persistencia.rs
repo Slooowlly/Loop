@@ -32,6 +32,10 @@ pub(crate) fn persist_race_result_tx(
     rng: &mut impl rand::Rng,
 ) -> Result<Vec<Injury>, String> {
     let mut new_injuries_out: Vec<Injury> = Vec::new();
+    // Identidade do save, lida do caminho do banco (`<saves>/<career_id>/career.db`) ANTES de
+    // abrir a transação — dentro do closure o `db` já está emprestado mutável. É ela que semeia
+    // em que temporada do ciclo caem a recessão e o boom (ver `global_economic_health_do_save`).
+    let career_id = career_id_from_db(db);
     db.transaction(|tx| {
         // 0. Guarda de idempotência: o status foi checado fora da transação,
         // então uma invocação concorrente do mesmo comando pode ter concluído
@@ -56,7 +60,8 @@ pub(crate) fn persist_race_result_tx(
         crate::evolution::injury::process_injury_recovery(tx, &race_entry.categoria)?;
 
         // 2. Aplica pontuações normais
-        let economic_health = global_economic_health_for_season(active_season.numero as i32);
+        let economic_health =
+            global_economic_health_do_save(&career_id, active_season.numero as i32);
         // Próximas pistas da categoria (após esta rodada) — o cérebro do carro corta pelo
         // horizonte de cada time. Computado aqui e passado adiante.
         let upcoming_track_ids: Vec<u32> =
@@ -86,17 +91,17 @@ pub(crate) fn persist_race_result_tx(
             humidity,
             wind_kmh,
         };
-        // Duração da corrida (min) — acima do gate de enduro, o desgaste de peça sobe pra grade
+        // Duração da corrida — acima do gate de enduro, o desgaste de peça sobe pra grade
         // toda. Fonte de verdade = a duração REAL desta etapa (`CalendarEntry`), não a constante
         // da categoria: no Endurance ela vale 0 e quem sorteia entre 120/180/240/360 por etapa é
-        // `resolve_race_duration`. Com a constante, `is_enduro_duration(0)` dava falso e a ÚNICA
-        // categoria que deveria disparar o enduro nunca disparava. Etapa sem duração gravada
-        // (save antigo) → cai na constante da categoria; sem categoria → 30 (sprint/neutro).
-        let duracao_min: u16 = race_entry.duracao_efetiva_min();
+        // `resolve_race_duration`. Com a constante, o gate dava falso e a ÚNICA categoria que
+        // deveria disparar o enduro nunca disparava. Etapa sem duração gravada (save antigo) →
+        // cai na constante da categoria; sem categoria → 30 (sprint/neutro).
+        let duracao = race_entry.duracao_efetiva();
         let wear_conditions = crate::market::car_maintenance::WearConditions::from_race(
             race_entry.track_id,
             weather,
-            duracao_min,
+            duracao,
         );
         // Time do JOGADOR (só se há estilo capturado) — o estilo modula o desgaste só do carro
         // dele. Piloto → contrato ativo → equipe.
@@ -699,8 +704,7 @@ pub(super) fn apply_race_result_to_database(
     let posicoes = crate::public_presence::atracao::posicoes_por_pontos(teams);
     let mut team_presences: std::collections::HashMap<String, f64> =
         std::collections::HashMap::new();
-    let mut team_appeals: std::collections::HashMap<String, f64> =
-        std::collections::HashMap::new();
+    let mut team_appeals: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
     for team in teams.iter() {
         let medias = team_queries::get_team_lineup_medias(tx, &team.id).unwrap_or_default();
         team_presences.insert(
@@ -838,7 +842,7 @@ pub(super) fn apply_race_result_to_database(
 
         let mut updated_team = team.clone();
         let cashflow_summary = apply_round_cashflow(&mut updated_team, finance_context);
-        apply_crisis_event_if_needed(&mut updated_team);
+        apply_crisis_event_if_needed(&mut updated_team, season_number);
         refresh_team_financial_state(&mut updated_team);
         team_queries::update_team_finance_snapshot(tx, &updated_team)?;
         // Grava a divisão REAL da rodada (as 9 linhas) no histórico — fonte única do

@@ -155,9 +155,7 @@ fn chave_projecao(atual: i32, projetada: i32) -> Option<String> {
         // primeiro" seria a forma burocrática de dizê-la.
         Ordering::Less if projetada == 1 => Some("camp_proj_lidera".to_string()),
         Ordering::Less if projetada <= MAX_POSICAO => Some(format!("camp_proj_sobe_{projetada}")),
-        Ordering::Greater if projetada <= MAX_POSICAO => {
-            Some(format!("camp_proj_cai_{projetada}"))
-        }
+        Ordering::Greater if projetada <= MAX_POSICAO => Some(format!("camp_proj_cai_{projetada}")),
         _ => None,
     }
 }
@@ -239,7 +237,11 @@ pub fn apendice(c: &Contexto) -> Vec<String> {
         return v;
     }
 
-    let margem = if c.posicao == 1 { c.folga } else { c.para_o_proximo };
+    let margem = if c.posicao == 1 {
+        c.folga
+    } else {
+        c.para_o_proximo
+    };
     if let Some(p) = margem {
         if p <= AO_ALCANCE {
             if let Some(n) = inteiro(p) {
@@ -263,7 +265,10 @@ pub fn linhas(c: &Contexto) -> Vec<String> {
     if c.posicao == 1 {
         v.push("Campeonato: você LIDERA a temporada".to_string());
     } else {
-        v.push(format!("Campeonato: você está em {}º na temporada", c.posicao));
+        v.push(format!(
+            "Campeonato: você está em {}º na temporada",
+            c.posicao
+        ));
     }
     if let Some(p) = c.para_o_proximo {
         v.push(format!(

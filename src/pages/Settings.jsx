@@ -4,14 +4,14 @@ import GlassSelect from "../components/ui/GlassSelect";
 import GlassButton from "../components/ui/GlassButton";
 import LoadingOverlay from "../components/ui/LoadingOverlay";
 import ParticleBackdrop from "../components/ui/ParticleBackdrop";
-import RivalryPerceptionPanel from "../components/iracing/RivalryPerceptionPanel";
+import DebugMenu from "../components/iracing/DebugMenu";
+import IracingDesfazerPanel from "../components/iracing/IracingDesfazerPanel";
 import IracingDiagnosticoPanel from "../components/iracing/IracingDiagnosticoPanel";
 import PttEngenheiroSettings from "../components/iracing/PttEngenheiroSettings";
 import { useOverlayFlags } from "../overlay/useOverlayFlags";
 import { estaLigada as vozSpotterLigada, falar as falarSpotter, ligar as ligarVozSpotter } from "../lib/spotterVoice";
 import { definirVolume, volumeRadio } from "../lib/volumeRadio";
 import useConfiguracaoDoApp from "../hooks/useConfiguracaoDoApp";
-import useFerramentasDeDebug from "../hooks/useFerramentasDeDebug";
 import useRaceControl from "../hooks/useRaceControl";
 import useSaves from "../hooks/useSaves";
 import useSpotterNativo from "../hooks/useSpotterNativo";
@@ -25,8 +25,10 @@ function Settings() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  // Os três blocos de dados da tela vivem em hooks próprios: config do app, Race Control
-  // e as ferramentas de bancada. O componente ficou com o desenho e com o que é só dele.
+  // Os dois blocos de dados da tela vivem em hooks próprios: config do app e Race Control.
+  // As ferramentas de bancada foram junto com o Menu Debug para `DebugMenu`, que é dono
+  // do interruptor e do próprio estado. O componente ficou com o desenho e com o que é só
+  // dele.
   const {
     config,
     setConfig,
@@ -34,6 +36,8 @@ function Settings() {
     saving,
     errorMessage,
     setErrorMessage,
+    falhaAoCarregar,
+    loadConfig,
     handleToggle,
     handleChange,
   } = useConfiguracaoDoApp();
@@ -50,20 +54,8 @@ function Settings() {
     chatBusy,
     sendChatTest,
   } = useRaceControl(t);
-  const {
-    capture,
-    captureMsg,
-    toggleCapture,
-    radioDemo,
-    toggleRadioDemo,
-    armBusy,
-    armMsg,
-    armBreakdown,
-    armBreakdownGrid,
-  } = useFerramentasDeDebug(t);
 
   const [navigating, setNavigating] = useState(false);
-  const [debugMenuOpen, setDebugMenuOpen] = useState(false);
 
   // Estado AO VIVO do pipeline de overlay — o que diz se o iRacing está em VR agora.
   const overlayFlags = useOverlayFlags();
@@ -107,7 +99,38 @@ function Settings() {
     return () => clearTimeout(id);
   }, [loading, location.state]);
 
-  if (loading || !config) {
+  // O config não veio e a leitura já terminou. Sem isto a tela ficava no fundo vazio para
+  // sempre, com o mesmo desenho de "ainda carregando" — e o caminho de volta ao menu, que é
+  // um botão do cabeçalho, morria junto. Aqui a falha é dita, o retorno continua de pé e o
+  // jogador pode tentar de novo sem fechar o app.
+  if (!config && falhaAoCarregar) {
+    return (
+      <div className="entry-shell !block !h-full px-4 py-12">
+        <div className="entry-backdrop" />
+        <div className="entry-glow left-[5%] top-[10%] h-80 w-80 bg-blue-500/10" />
+        <div className="entry-glow bottom-[5%] right-[5%] h-96 w-96 bg-cyan-500/10" />
+
+        <div className="page-in relative z-10 mx-auto flex max-w-xl flex-col items-center gap-4 pt-24 text-center">
+          <p className="text-sm text-status-red" role="alert">
+            {t("settings.loadError")}
+          </p>
+          <div className="flex items-center gap-3">
+            <GlassButton onClick={loadConfig} disabled={loading}>
+              {t("settings.retry")}
+            </GlassButton>
+            <button
+              onClick={() => navigate(location.state?.from ?? "/menu")}
+              className="rounded-xl border border-white/15 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.22em] text-text-secondary transition-glass hover:text-text-primary"
+            >
+              {t("settings.back")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!config) {
     // Só o fundo (tela cheia, sem texto piscando nem colapsar) até o config carregar.
     return (
       <div className="entry-shell !block !h-full px-4 py-12">
@@ -365,6 +388,12 @@ function Settings() {
             </div>
           </div>
 
+          {/* O caminho de volta dos dois arquivos que o Loop escreve na pasta do iRacing
+              sem perguntar. Fica logo abaixo do interruptor da pintura porque os dois são
+              a mesma conversa vista de lados opostos: o interruptor impede as próximas,
+              este devolve as que já foram escritas. */}
+          <IracingDesfazerPanel />
+
           {/* Voz do spotter + botão de ouvir agora. O teste automático sai ao sentar no
               carro, mas quem quer conferir a saída de áudio ANTES de abrir o simulador
               não deveria ter que entrar numa sessão pra isso. */}
@@ -472,193 +501,14 @@ function Settings() {
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-4 border-t border-white/10 px-5 py-3.5">
-            <div className="min-w-0 pr-4">
-              <p className="text-[13px] font-medium text-text-primary">{t("settings.debug.menuLabel")}</p>
-              <p className="text-[11px] text-text-secondary">
-                {t("settings.debug.menuDesc")}
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-label={t("settings.debug.menuLabel")}
-              aria-checked={debugMenuOpen}
-              onClick={() => setDebugMenuOpen((open) => !open)}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-glass ${
-                debugMenuOpen ? "bg-status-green/70" : "bg-white/15"
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
-                  debugMenuOpen ? "left-[22px]" : "left-0.5"
-                }`}
-              />
-            </button>
-          </div>
-
-          {debugMenuOpen && (
-            <>
-          {/* Detalhes técnicos — escondidos por padrão */}
-          <details className="group border-t border-white/10">
-            <summary className="flex cursor-pointer list-none items-center gap-1 px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-secondary transition-glass hover:text-text-primary [&::-webkit-details-marker]:hidden">
-              {t("settings.debug.techDetails")}
-              <span className="transition-transform group-open:rotate-90">›</span>
-            </summary>
-            <div className="space-y-1 px-5 pb-4">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="uppercase tracking-[0.1em] text-text-muted">app.ini</span>
-                <span className={`font-semibold ${yellowStatus?.app_ini_found ? "text-status-green" : "text-status-red"}`}>
-                  {yellowStatus?.app_ini_found ? t("settings.debug.appIniFound") : t("settings.debug.appIniNotFound")}
-                </span>
-              </div>
-              {yellowStatus?.app_ini_path && (
-                <p className="truncate font-mono text-[9px] text-text-muted">{yellowStatus.app_ini_path}</p>
-              )}
-              {yellowStatus?.slot != null && (
-                <div className="flex items-center justify-between text-[10px] text-text-muted">
-                  <span>{t("settings.debug.slot", { slot: yellowStatus.slot })}</span>
-                  <span className="font-mono">
-                    {t("settings.debug.slotValues", { original: yellowStatus.original, current: yellowStatus.current_value })}
-                  </span>
-                </div>
-              )}
-              <p className="pt-1 text-[9px] leading-snug text-text-muted">
-                {t("settings.debug.macroNote1")}<span className="font-mono">!y$</span>{t("settings.debug.macroNote2")}<span className="font-mono">app.ini.iracerapp.bak</span>{t("settings.debug.macroNote3")}
-              </p>
-            </div>
-          </details>
-
-          {/* Teste de comando de chat livre (ex.: !black #1 20) — caminho parametrizado, sem macro */}
-          <div className="border-t border-white/10 px-5 py-3.5">
-            <p className="text-[13px] font-medium text-text-primary">{t("settings.debug.chatTitle")}</p>
-            <p className="pb-2.5 text-[11px] text-text-secondary">
-              {t("settings.debug.chatDesc")}
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={chatText}
-                onChange={(e) => setChatText(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && sendChatTest()}
-                spellCheck={false}
-                placeholder="!black #1 20"
-                className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-[12px] text-text-primary outline-none transition-glass focus:border-white/25"
-              />
-              <button
-                type="button"
-                onClick={sendChatTest}
-                disabled={chatBusy || !chatText.trim()}
-                className={`shrink-0 rounded-lg px-4 py-2 text-[12px] font-semibold transition-glass ${
-                  chatBusy || !chatText.trim()
-                    ? "cursor-default bg-white/5 text-text-muted"
-                    : "cursor-pointer bg-status-yellow/20 text-text-primary hover:bg-status-yellow/30"
-                }`}
-              >
-                {chatBusy ? t("settings.debug.sending") : t("settings.debug.send")}
-              </button>
-            </div>
-            {chatMsg && (
-              <p className="mt-2.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-[11px] text-text-secondary">{chatMsg}</p>
-            )}
-          </div>
-
-          {/* Teste do disparo AO VIVO da quebra (arma o carro do jogador pra próxima volta) */}
-          <div className="border-t border-white/10 px-5 py-3.5">
-            <p className="text-[13px] font-medium text-text-primary">{t("settings.debug.breakdownTitle")}</p>
-            <p className="pb-2.5 text-[11px] text-text-secondary">
-              {t("settings.debug.breakdownDesc1")}<span className="font-mono">!black</span>/<span className="font-mono">!dq</span>{t("settings.debug.breakdownDesc2")}
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={armBreakdown}
-                disabled={armBusy}
-                className={`rounded-lg px-4 py-2 text-[12px] font-semibold transition-glass ${
-                  armBusy
-                    ? "cursor-default bg-white/5 text-text-muted"
-                    : "cursor-pointer bg-status-red/20 text-text-primary hover:bg-status-red/30"
-                }`}
-              >
-                {armBusy ? t("settings.debug.arming") : t("settings.debug.armMyCar")}
-              </button>
-              <button
-                type="button"
-                onClick={armBreakdownGrid}
-                disabled={armBusy}
-                className={`rounded-lg px-4 py-2 text-[12px] font-semibold transition-glass ${
-                  armBusy
-                    ? "cursor-default bg-white/5 text-text-muted"
-                    : "cursor-pointer bg-status-red/20 text-text-primary hover:bg-status-red/30"
-                }`}
-              >
-                {armBusy ? t("settings.debug.arming") : t("settings.debug.armGrid")}
-              </button>
-            </div>
-            {armMsg && (
-              <p className="mt-2.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-[11px] text-text-secondary">{armMsg}</p>
-            )}
-          </div>
-
-          {/* Demo do overlay de rádio: card de exemplo ciclando, pra achar/posicionar o overlay */}
-          <div className="flex items-center justify-between border-t border-white/10 px-5 py-3.5">
-            <div className="min-w-0 pr-4">
-              <p className="text-[13px] font-medium text-text-primary">{t("settings.debug.radioTitle")}</p>
-              <p className="text-[11px] text-text-secondary">
-                {t("settings.debug.radioDesc")}
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-label={t("settings.debug.radioTitle")}
-              aria-checked={radioDemo}
-              onClick={toggleRadioDemo}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-glass ${
-                radioDemo ? "bg-status-green/70" : "bg-white/15"
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
-                  radioDemo ? "left-[22px]" : "left-0.5"
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* Gravador de corrida (DEBUG): salva a telemetria real pra calibração */}
-          <div className="border-t border-white/10 px-5 py-3.5">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[13px] font-medium text-text-primary">{t("settings.debug.captureTitle")}</p>
-                <p className="text-[11px] text-text-secondary">
-                  {t("settings.debug.captureDesc")}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={toggleCapture}
-                className={`shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-[12px] font-semibold transition-glass ${
-                  capture.active
-                    ? "cursor-pointer bg-status-red/25 text-text-primary hover:bg-status-red/35"
-                    : "cursor-pointer bg-white/10 text-text-primary hover:bg-white/15"
-                }`}
-              >
-                {capture.active ? t("settings.debug.captureStop", { frames: capture.frames }) : t("settings.debug.captureStart")}
-              </button>
-            </div>
-            {captureMsg && (
-              <p className="mt-2.5 break-all rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-[11px] text-text-secondary">{captureMsg}</p>
-            )}
-            {capture.dir && (
-              <p className="mt-1 break-all text-[10px] text-text-muted">{t("settings.debug.captureFolder", { dir: capture.dir })}</p>
-            )}
-          </div>
-
-          {/* Explicador de rivalidades percebidas (debug/calibração) */}
-          <RivalryPerceptionPanel />
-            </>
-          )}
+          <DebugMenu
+            yellowStatus={yellowStatus}
+            chatText={chatText}
+            setChatText={setChatText}
+            chatMsg={chatMsg}
+            chatBusy={chatBusy}
+            sendChatTest={sendChatTest}
+          />
         </div>
 
         <div className="flex flex-col items-center gap-4 pt-8">

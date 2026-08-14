@@ -6,17 +6,28 @@
 //!   - % de quebras por corrida (por tier: rico / médio / pobre / jogador);
 //!   - chance por peça (qual peça mais quebra);
 //!   - a condição das peças na hora (histograma do desgaste na falha);
-//!   - o PORQUÊ (rastros de exemplo: entrou a X%, cruzou 95% na volta N, quebrou…);
+//!   - o PORQUÊ (rastros de exemplo: entrou a X%, cruzou a abertura da janela, quebrou…);
 //!   - mix de severidade (leve / grave / DNF) + exemplos de comando (!black / !dq);
 //!   - varredura do botão global (para escolher o alvo olhando os resultados);
 //!   - efeito do TAMANHO da corrida (sprint vs enduro).
 //!
-//! MODELO (do design travado):
-//!   - desgaste sobe % FIXO por volta (corrida longa desgasta mais) + ruído de sorte;
-//!   - risco só ABRE a 95% de desgaste; abaixo disso a peça é confiável;
-//!   - dentro de [95%, 105%] cada volta é uma rolagem de SORTE (sobe rumo aos 105%);
-//!   - 105% é a PAREDE (falha forçada); >100% não quebra automático — aguenta até 105%;
-//!   - carro do jicador quebra um pouco menos (mais manutenção + desconto no risco).
+//! ## O MODELO É O DE PRODUÇÃO, e isso é o contrato deste arquivo
+//!
+//! Nada de curva, constante ou tabela de severidade mora aqui. Desgaste por volta, janela de
+//! risco, parede, hazard, sorteio de severidade e piso de manutenção saem todos de
+//! [`crate::car::breakdown`] e [`crate::car::wear`]. O que é do HARNESS é só a encenação: os
+//! tiers de diligência, o sorteio do tamanho da corrida, o intervalo das paradas de enduro, o
+//! botão `global` da varredura e a coleta de estatística.
+//!
+//! Isto não era assim. Até 12/08/2026 o arquivo carregava uma CÓPIA dos parâmetros — janela
+//! abrindo a 95%, parede em 105%, hazard linear de 0.05 a 0.28 — que era o retrato do sistema
+//! em 2026-07-18 e envelheceu calada quando a produção passou a 90%/120% com dois regimes. O
+//! relatório continuou saindo bonito, medindo um jogo que não existe mais. O guard
+//! `o_harness_retrata_a_producao_e_nao_uma_copia` é o que impede a divergência de voltar.
+//!
+//! O único desvio DELIBERADO é o botão `global`, e ele é explícito: a §6 do relatório varre
+//! `global` em 0.5/1.0/2.0/4.0 para mostrar o efeito de mexer no risco. `global = 1.0` é a
+//! produção; os outros valores são o CONTRAFACTUAL da varredura, e nada mais no arquivo os usa.
 //!
 //! Rodar (debug):  cargo test -p loop breakdown_sim -- --nocapture
 //! A aleatoriedade é semeada (StdRng) só para o EXPERIMENTO ser reproduzível; no jogo
@@ -25,44 +36,38 @@
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+use crate::car::breakdown as prod;
 use crate::car::parts::PartType;
 
 // ───────────────────────── Parâmetros (os botões de calibração) ─────────────────────────
 
+/// Os botões do experimento. **Nenhum deles é um valor novo**: cada um espelha a fonte de
+/// produção, e o único que o relatório varre para longe dela é o `global`.
 #[derive(Clone, Copy)]
 struct Params {
     /// Comprimento de corrida em VOLTAS que ancora a durabilidade (que é "em corridas").
-    /// vida_em_voltas(peça) = durability(peça) * ref_race_laps. Sprint típico.
+    /// Espelha [`crate::car::wear::REF_RACE_LAPS`].
     ref_race_laps: f64,
-    /// Onde o risco ABRE (fração de desgaste).
+    /// Onde o risco ABRE (fração de desgaste). Espelha `breakdown::WEAR_RISK_OPEN`.
     risk_open: f64,
-    /// A PAREDE: falha forçada ao atingir/passar isto.
+    /// A PAREDE: falha forçada ao atingir/passar isto. Espelha `breakdown::WEAR_HARD_WALL`.
     hard_wall: f64,
-    /// Risco por volta na borda de baixo da janela (em risk_open).
-    hazard_at_open: f64,
-    /// Risco por volta na borda de cima (perto da parede). Sobe linear entre as bordas.
-    hazard_at_wall: f64,
-    /// Ruído de sorte no desgaste por volta (±fração): volta "puxada" desgasta mais.
+    /// Ruído de sorte no desgaste por volta (±fração). Espelha `breakdown::WEAR_RUIDO`.
     wear_noise: f64,
-    /// Botão GLOBAL: multiplica todo o risco da janela. É o alvo principal a calibrar.
+    /// Botão GLOBAL: multiplica todo o risco da janela. **É o único desvio deliberado do
+    /// harness** — `1.0` é a produção, e a §6 do relatório varre o resto de propósito.
     global: f64,
 }
 
 impl Default for Params {
+    /// O retrato da PRODUÇÃO. Toda linha aqui é uma referência, não um número: é isso que
+    /// impede o harness de voltar a medir o sistema de uma versão anterior.
     fn default() -> Self {
         Params {
-            // Desgaste LENTO (decisão de design): a peça leva muitas voltas para atravessar
-            // a janela [95%,105%] → a parede quase nunca é atingida numa corrida só; sorte e
-            // fim da corrida é que decidem. vida_em_voltas = durability * ref_race_laps.
-            // ROTA B (teste): ref ≈ tamanho típico de sprint → cadência de troca IGUAL à
-            // economia de hoje (~3 corridas). Janela curta → risco por volta INTENSO pra
-            // ainda dar dominância de sorte.
-            ref_race_laps: 18.0,
-            risk_open: 0.95,
-            hard_wall: 1.05,
-            hazard_at_open: 0.050,
-            hazard_at_wall: 0.280,
-            wear_noise: 0.30,
+            ref_race_laps: crate::car::wear::REF_RACE_LAPS,
+            risk_open: prod::WEAR_RISK_OPEN,
+            hard_wall: prod::WEAR_HARD_WALL,
+            wear_noise: prod::WEAR_RUIDO,
             global: 1.0,
         }
     }
@@ -115,74 +120,37 @@ impl Tier {
 
 // ───────────────────────── Peça: desgaste por volta, fragilidade, severidade ─────────────────────────
 
-/// % de desgaste que uma peça acumula por VOLTA (fixo — corrida longa desgasta mais).
+/// % de desgaste que uma peça acumula por VOLTA.
+///
+/// Com `ref_race_laps` no valor de produção isto é exatamente
+/// [`crate::car::wear::wear_per_lap`] — o guard cobra a igualdade. A fórmula fica escrita
+/// porque `ref_race_laps` é um botão do experimento e a função precisa responder a ele.
 fn wear_per_lap(pt: PartType, p: &Params) -> f64 {
     let life_laps = pt.durability() as f64 * p.ref_race_laps;
     1.0 / life_laps
 }
 
-/// Fragilidade relativa da peça: peça de vida curta falha mais (∝ 1/durabilidade,
-/// normalizada para a mais durável = 0.5). Motor/câmbio/asas/freios/suspensão (vida 3)
-/// = 1.0; eletrônica (vida 6) = 0.5.
-fn fragility(pt: PartType) -> f64 {
-    let min_dur = 3.0; // a menor durabilidade do catálogo
-    (min_dur / pt.durability() as f64).clamp(0.5, 1.0)
-}
-
-/// Risco POR VOLTA de a peça quebrar, dado o desgaste dentro da janela [open, wall].
+/// Risco POR VOLTA de a peça quebrar — a curva de PRODUÇÃO, com o botão `global` por cima.
+///
+/// A fragilidade da peça e os dois regimes (em serviço / sobreuso) já estão dentro de
+/// `prod::hazard_por_volta`. O harness tinha uma segunda curva, linear, de uma versão anterior
+/// do sistema, e era ela que fazia o relatório mentir.
 fn per_lap_hazard(pt: PartType, wear: f64, tier: Tier, p: &Params) -> f64 {
-    if wear < p.risk_open {
-        return 0.0;
-    }
-    let t = ((wear - p.risk_open) / (p.hard_wall - p.risk_open)).clamp(0.0, 1.0);
-    let base = p.hazard_at_open + (p.hazard_at_wall - p.hazard_at_open) * t;
-    (base * fragility(pt) * p.global * tier.hazard_mult()).clamp(0.0, 1.0)
+    (prod::hazard_por_volta(pt, wear) * p.global * tier.hazard_mult()).clamp(0.0, 1.0)
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Severity {
-    Light, // leve → !black #N (2-6s)
-    Heavy, // grave → !black #N (8-15s)
-    Dnf,   // terminal → !dq #N
-}
+/// A severidade é a de produção — enum, tabela por peça e regra da parede inclusive.
+///
+/// O harness mantinha uma cópia dos pesos de antes de a fatia de DNF das peças estruturais ser
+/// cortada pela metade, e promovia `Grave→DNF` na parede, coisa que a produção deixou de fazer
+/// justamente porque esvaziava a grade. `is_enduro = false` aqui: o cenário longo do relatório
+/// é "corrida de 40-60 voltas", e não o enduro com o abrandamento do §7 do design.
+use prod::Severity;
 
-/// Distribuição de severidade por peça (prob. de leve, grave; o resto é DNF).
-fn severity_weights(pt: PartType) -> (f64, f64) {
-    // Suavizado: menos peças terminam em DNF; a maioria vira penalidade (leve/grave).
-    match pt {
-        PartType::Engine => (0.20, 0.42), // resto 0.38 DNF (o mais terminal)
-        PartType::Gearbox => (0.22, 0.44), // 0.34
-        PartType::Suspension => (0.28, 0.47), // 0.25
-        PartType::Chassis => (0.25, 0.45), // 0.30
-        PartType::Brakes => (0.45, 0.45), // 0.10
-        PartType::Cooling => (0.50, 0.42), // 0.08
-        PartType::FrontWing => (0.60, 0.35), // 0.05
-        PartType::RearWing => (0.60, 0.35), // 0.05
-        PartType::Underbody => (0.72, 0.25), // 0.03
-        PartType::Sidepods => (0.78, 0.20), // 0.02
-        PartType::Electronics => (0.72, 0.25), // 0.03
-    }
-}
-
-/// Sorteia a severidade. Falha FORÇADA na parede (105%) sobe um degrau (a peça foi ao limite).
-fn sample_severity(pt: PartType, forced: bool, rng: &mut StdRng) -> Severity {
-    let (light, heavy) = severity_weights(pt);
-    let roll: f64 = rng.gen();
-    let base = if roll < light {
-        Severity::Light
-    } else if roll < light + heavy {
-        Severity::Heavy
-    } else {
-        Severity::Dnf
-    };
-    if !forced {
-        return base;
-    }
-    match base {
-        Severity::Light => Severity::Heavy,
-        Severity::Heavy => Severity::Dnf,
-        Severity::Dnf => Severity::Dnf,
-    }
+/// Recebe a rolagem em vez do `rng` para o guard poder varrer `r` de 0 a 1 e comparar a REGRA,
+/// não a fonte do número.
+fn sample_severity(pt: PartType, forced: bool, r: f64) -> Severity {
+    prod::severidade_da_falha(pt, forced, r, false)
 }
 
 /// Comando de exemplo que a severidade viraria no iRacing.
@@ -220,7 +188,7 @@ fn maintain(wear: &mut [f64], laps: u32, tier: Tier, p: &Params, rng: &mut StdRn
 }
 
 /// Roda uma corrida volta a volta. Cada peça acumula desgaste (com ruído); ao entrar na
-/// janela, cada volta é uma rolagem de sorte; na parede (105%) a falha é forçada. Uma peça
+/// janela, cada volta é uma rolagem de sorte; na parede a falha é forçada. Uma peça
 /// que já quebrou para de rodar. Devolve as falhas ocorridas nesta corrida.
 fn run_race(
     wear: &mut [f64],
@@ -240,7 +208,9 @@ fn run_race(
     // longa = DNF absurdo. Sprint é curto demais pra parar.
     const ENDURO_SERVICE_MIN: u32 = 30; // só corridas longas param
     const SERVICE_INTERVAL: u32 = 20; // voltas entre paradas
-    const SERVICE_WEAR_FLOOR: f64 = 0.80; // só troca peça JÁ bem gasta (deixa a de meia-vida)
+                                      // O piso é o de PRODUÇÃO (`LiveBreakdown::service_pit`), não um número do harness: o 0.80
+                                      // que estava aqui deixava passar a faixa que a produção troca.
+    const SERVICE_WEAR_FLOOR: f64 = prod::WEAR_PISO_DE_SERVICO;
 
     for lap in 1..=laps {
         if laps >= ENDURO_SERVICE_MIN && lap % SERVICE_INTERVAL == 0 && lap < laps {
@@ -270,7 +240,7 @@ fn run_race(
             }
             if failed {
                 broken[i] = true;
-                let severity = sample_severity(pt, forced, rng);
+                let severity = sample_severity(pt, forced, rng.gen::<f64>());
                 failures.push(Failure {
                     part: pt,
                     tier,
@@ -317,8 +287,24 @@ struct Stats {
     sev_light: u64,
     sev_heavy: u64,
     sev_dnf: u64,
-    // Histograma do desgaste na falha.
-    wear_bucket: [u64; 6], // <0.95 | 0.95-0.97 | 0.97-1.00 | 1.00-1.03 | 1.03-1.05 | =1.05(parede)
+    /// Histograma do desgaste na falha. As faixas saem de [`bordas_do_histograma`].
+    wear_bucket: [u64; 6],
+}
+
+/// Bordas do histograma de desgaste na falha, DERIVADAS dos marcos de produção: a abertura da
+/// janela, o meio do regime em serviço, o fim da vida nominal, o meio do sobreuso e a parede.
+///
+/// Estavam cravadas em 0.95/0.97/1.00/1.03/1.05 — a mesma cópia defasada dos parâmetros, só
+/// que na saída: com a janela real indo de 90% a 120%, o relatório carimbava metade das falhas
+/// na coluna "=105% (parede)" que já não era parede nenhuma.
+fn bordas_do_histograma() -> [f64; 5] {
+    [
+        prod::WEAR_RISK_OPEN,
+        (prod::WEAR_RISK_OPEN + prod::WEAR_OVERUSE) / 2.0,
+        prod::WEAR_OVERUSE,
+        (prod::WEAR_OVERUSE + prod::WEAR_HARD_WALL) / 2.0,
+        prod::WEAR_HARD_WALL,
+    ]
 }
 
 impl Stats {
@@ -343,19 +329,9 @@ impl Stats {
                 }
             }
             let w = f.wear_at_fail;
-            let b = if w < 0.95 {
-                0
-            } else if w < 0.97 {
-                1
-            } else if w < 1.00 {
-                2
-            } else if w < 1.03 {
-                3
-            } else if w < 1.05 {
-                4
-            } else {
-                5
-            };
+            // Quantas bordas este desgaste já passou = o balde. Abaixo da primeira → 0
+            // ("não deveria"); acima da última → 5 (a parede).
+            let b = bordas_do_histograma().iter().filter(|&&e| w >= e).count();
             self.wear_bucket[b] += 1;
         }
     }
@@ -402,9 +378,13 @@ fn report() {
     println!("║  EXPERIMENTO: sistema de QUEBRA — Monte Carlo (throwaway)          ║");
     println!("╚══════════════════════════════════════════════════════════════════╝");
     println!(
-        "Parâmetros: ref_race_laps={} risco@{:.0}% parede@{:.0}% hazard[{:.2}→{:.2}]/volta ruído±{:.0}% GLOBAL={}",
-        p.ref_race_laps, p.risk_open * 100.0, p.hard_wall * 100.0,
-        p.hazard_at_open, p.hazard_at_wall, p.wear_noise * 100.0, p.global
+        "Parâmetros (os de PRODUÇÃO): ref_race_laps={} risco@{:.0}% nominal@{:.0}% parede@{:.0}% ruído±{:.0}% GLOBAL={}",
+        p.ref_race_laps,
+        p.risk_open * 100.0,
+        prod::WEAR_OVERUSE * 100.0,
+        p.hard_wall * 100.0,
+        p.wear_noise * 100.0,
+        p.global
     );
     println!("Amostra: {cars} carros × {races} corridas (sprint 14-22 voltas) por tier\n");
 
@@ -449,13 +429,15 @@ fn report() {
     }
 
     println!("\n── 3) CONDIÇÃO DA PEÇA NA FALHA (tier Pobre) ──────────────────────────");
+    let b = bordas_do_histograma();
+    let pct = |x: f64| (x * 100.0).round() as i64;
     let labels = [
-        "<95% (não deveria)",
-        "95-97%",
-        "97-100%",
-        "100-103%",
-        "103-105%",
-        "=105% (parede)",
+        format!("<{}% (não deveria)", pct(b[0])),
+        format!("{}-{}%", pct(b[0]), pct(b[1])),
+        format!("{}-{}%", pct(b[1]), pct(b[2])),
+        format!("{}-{}%", pct(b[2]), pct(b[3])),
+        format!("{}-{}%", pct(b[3]), pct(b[4])),
+        format!("≥{}% (parede)", pct(b[4])),
     ];
     for (i, lbl) in labels.iter().enumerate() {
         let pct = poor.wear_bucket[i] as f64 / poor.total_failures.max(1) as f64 * 100.0;
@@ -463,7 +445,8 @@ fn report() {
         println!("{:<20} {:>6.1}%  {}", lbl, pct, bar);
     }
     println!(
-        "Forçadas na parede (105%): {:.1}%  |  por SORTE na janela: {:.1}%",
+        "Forçadas na parede ({:.0}%): {:.1}%  |  por SORTE na janela: {:.1}%",
+        prod::WEAR_HARD_WALL * 100.0,
         poor.forced as f64 / poor.total_failures.max(1) as f64 * 100.0,
         (poor.total_failures - poor.forced) as f64 / poor.total_failures.max(1) as f64 * 100.0
     );
@@ -489,7 +472,7 @@ fn report() {
 
     // ── 6) Varredura do GLOBAL ──
     println!("\n── 6) VARREDURA DO BOTÃO GLOBAL (quebra/corr, tier Pobre) ──────────────");
-    println!("(muda só QUANDO/SE quebra por sorte na janela; a parede 105% é sempre certa)");
+    println!("(muda só QUANDO/SE quebra por sorte na janela; a parede é sempre certa)");
     println!("{:>8} {:>14} {:>12}", "GLOBAL", "quebra/corr", "DNF/corr");
     for &g in &[0.5, 1.0, 2.0, 4.0] {
         let mut pg = p;
@@ -557,9 +540,9 @@ fn print_traces(tier: Tier, p: &Params) {
                     Severity::Dnf => "DNF",
                 };
                 let cmd = example_command(f.severity, car % 60 + 1, &mut rng);
-                let how = if f.forced { "parede 105%" } else { "sorte" };
+                let how = if f.forced { "parede" } else { "sorte" };
                 println!(
-                    "• {:<11} entrou {:>5.0}% · cruzou 95% e quebrou na volta {:>2}/{:<2} a {:>5.0}% ({}, {}) → {}",
+                    "• {:<11} entrou {:>5.0}% · entrou na janela e quebrou na volta {:>2}/{:<2} a {:>5.0}% ({}, {}) → {}",
                     f.part.as_str(),
                     entered[i] * 100.0,
                     f.lap,
@@ -572,6 +555,107 @@ fn print_traces(tier: Tier, p: &Params) {
                 shown += 1;
             }
             car += 1;
+        }
+    }
+}
+
+// ───────────────────────── Guard: o harness retrata a produção ─────────────────────────
+
+/// **O harness não pode voltar a ter uma cópia dos parâmetros.**
+///
+/// Este arquivo carregou, de 2026-07-18 a 12/08/2026, uma segunda versão do modelo: janela
+/// abrindo a 95%, parede em 105% e um hazard linear. A produção mudou para 90%/120% em dois
+/// regimes e ninguém tocou aqui — o relatório continuou saindo, bonito e errado, medindo um
+/// sistema que já não existia. O modo de falha é esse: não há sintoma, só um número que descreve
+/// outro jogo.
+///
+/// O guard confere as três frentes por onde a cópia voltaria: os marcos do desgaste, a curva de
+/// risco e a fórmula de desgaste por volta. O único desvio autorizado é o botão `global` da §6,
+/// e ele aparece aqui como a exigência de que `1.0` seja a produção.
+#[test]
+fn o_harness_retrata_a_producao_e_nao_uma_copia() {
+    let p = Params::default();
+
+    assert_eq!(p.risk_open, prod::WEAR_RISK_OPEN, "janela de risco");
+    assert_eq!(p.hard_wall, prod::WEAR_HARD_WALL, "parede");
+    assert_eq!(p.wear_noise, prod::WEAR_RUIDO, "ruído de desgaste");
+    assert_eq!(
+        p.ref_race_laps,
+        crate::car::wear::REF_RACE_LAPS,
+        "corrida de referência"
+    );
+    assert_eq!(p.global, 1.0, "o retrato de produção não é a varredura");
+
+    for &pt in PartType::ALL.iter() {
+        // Desgaste por volta: a fórmula do harness responde a `ref_race_laps`, mas no valor de
+        // produção ela tem de dar exatamente o mesmo número da economia.
+        assert!(
+            (wear_per_lap(pt, &p) - crate::car::wear::wear_per_lap(pt)).abs() < 1e-12,
+            "desgaste por volta divergiu em {}",
+            pt.as_str()
+        );
+
+        // A curva inteira, e não só as pontas: 60 amostras de antes da janela até depois da
+        // parede. Um regime a menos aqui é o defeito que existia.
+        for k in 0..=60 {
+            let wear = 0.80 + k as f64 * 0.01;
+            let esperado = prod::hazard_por_volta(pt, wear).clamp(0.0, 1.0);
+            let obtido = per_lap_hazard(pt, wear, Tier::Mid, &p);
+            assert!(
+                (obtido - esperado).abs() < 1e-12,
+                "hazard divergiu em {} a {wear:.2}: harness {obtido} × produção {esperado}",
+                pt.as_str()
+            );
+        }
+    }
+
+    // O piso de manutenção do enduro também é o de produção — ver `run_race`.
+    assert_eq!(prod::WEAR_PISO_DE_SERVICO, 0.60);
+
+    // O histograma acompanha os marcos. Se a parede subir de novo, a última coluna sobe junto,
+    // em vez de virar uma faixa que nunca é atingida.
+    let b = bordas_do_histograma();
+    assert_eq!(b[0], prod::WEAR_RISK_OPEN);
+    assert_eq!(b[2], prod::WEAR_OVERUSE);
+    assert_eq!(b[4], prod::WEAR_HARD_WALL);
+    assert!(b.windows(2).all(|w| w[0] < w[1]), "bordas fora de ordem");
+}
+
+/// **A severidade também é a de produção.** O harness promovia `Grave→DNF` na parede e usava a
+/// tabela de pesos de antes de a fatia de DNF das estruturais ser cortada pela metade — as duas
+/// coisas que a produção desfez porque esvaziavam a grade.
+///
+/// Varre a rolagem inteira em vez de sortear: uma tabela local reintroduzida aqui divergiria em
+/// alguma faixa de `r`, e sorteando é possível não cair nela.
+#[test]
+fn a_severidade_do_harness_e_a_de_producao() {
+    let mut divergiu = Vec::new();
+    for &pt in PartType::ALL.iter() {
+        for forced in [false, true] {
+            for k in 0..1000 {
+                let r = k as f64 / 1000.0;
+                if sample_severity(pt, forced, r) != prod::severidade_da_falha(pt, forced, r, false)
+                {
+                    divergiu.push(format!("{} forced={forced} r={r}", pt.as_str()));
+                }
+            }
+        }
+    }
+    assert!(divergiu.is_empty(), "severidade divergiu em: {divergiu:?}");
+
+    // E a regra que o harness tinha invertida: a parede sobe Leve→Grave e PARA aí. Um `Grave`
+    // que virasse `DNF` por ter batido na parede é o que esvaziava a grade.
+    for &pt in PartType::ALL.iter() {
+        for k in 0..1000 {
+            let r = k as f64 / 1000.0;
+            if sample_severity(pt, false, r) == Severity::Heavy {
+                assert_eq!(
+                    sample_severity(pt, true, r),
+                    Severity::Heavy,
+                    "a parede promoveu Grave→DNF em {} (r={r})",
+                    pt.as_str()
+                );
+            }
         }
     }
 }

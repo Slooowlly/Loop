@@ -11,8 +11,8 @@
 // ela deixa o engenheiro falando enquanto o piloto entra na curva.
 //
 // A leitura é por seek, não por `readFileSync`. Não é zelo prematuro: `analise-radio.mjs`
-// percorre o acervo inteiro a cada rodada, e ler 3.994 arquivos por inteiro para extrair
-// 16 bytes de cada é o tipo de custo que só aparece quando o acervo dobra.
+// percorre o acervo inteiro a cada rodada, e ler milhares de arquivos por inteiro para
+// extrair 16 bytes de cada é o tipo de custo que só aparece quando o acervo dobra.
 
 import fs from "node:fs";
 

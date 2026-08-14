@@ -205,6 +205,331 @@ fn test_player_reserved_seats_holds_multiple_for_free_agent() {
     );
 }
 
+/// Mundo mínimo da garantia de porta: uma temporada, um time vazio da categoria e o
+/// jogador agente livre. Devolve a conexão e o id do time.
+///
+/// `financas` fixa a saúde da equipe em MESES de operação (B22), como `(caixa, dívida)`
+/// — o estado sai daí pela fonte canônica (`refresh_team_financial_state`), em vez de uma
+/// string escrita à mão que poderia não bater com o caixa. `None` deixa o template.
+fn fixture_garantia_de_porta(
+    categoria: &str,
+    team_id: &str,
+    skill: f64,
+    midia: f64,
+    licenca: Option<u8>,
+    financas: Option<(f64, f64)>,
+) -> (Connection, String) {
+    let conn = Connection::open_in_memory().expect("db");
+    migrations::run_all(&conn).expect("schema");
+    conn.execute(
+        "UPDATE meta SET value = '10' WHERE key = 'next_contract_id'",
+        [],
+    )
+    .expect("contract counter");
+    season_queries::insert_season(&conn, &Season::new("S002".to_string(), 2, 2025))
+        .expect("season");
+
+    let mut rng = StdRng::seed_from_u64(4242);
+    let mut team = sample_team(categoria, team_id, &mut rng);
+    if let Some((caixa, divida)) = financas {
+        let mensal = crate::finance::state::custo_operacional_mensal(
+            &team.categoria,
+            team.classe.as_deref(),
+        );
+        team.cash_balance = caixa * mensal;
+        team.debt_balance = divida * mensal;
+        crate::finance::state::refresh_team_financial_state(&mut team);
+    }
+    team_queries::insert_team(&conn, &team).expect("team");
+
+    let mut player = sample_driver(
+        "P001",
+        "Jogador",
+        Some(categoria),
+        skill,
+        DriverStatus::Ativo,
+    );
+    player.is_jogador = true;
+    player.atributos.midia = midia;
+    driver_queries::insert_driver(&conn, &player).expect("player");
+    if let Some(nivel) = licenca {
+        conn.execute(
+            "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
+             VALUES ('P001', ?1, ?2, '2024-12-31T00:00:00', 2)",
+            params![nivel.to_string(), categoria],
+        )
+        .expect("license");
+    }
+    (conn, team.id)
+}
+
+/// O que a Janela MOSTRA para o assento em que o jogador acabou sentando, e o que ficou
+/// PERSISTIDO no contrato. Os dois têm que ser o mesmo número.
+fn mostrado_e_persistido(conn: &Connection) -> (f64, f64, bool) {
+    let ofertas = player_market_offers(conn, 2).expect("ofertas");
+    ensure_player_seated(conn, 2).expect("garantia de porta");
+    let contrato = contract_queries::get_active_regular_contract_for_pilot(conn, "P001")
+        .expect("contrato")
+        .expect("a garantia de porta tem que sentar o jogador");
+    let assento = format!("{}#{}", contrato.equipe_id, contrato.papel.as_str());
+    let oferta = ofertas
+        .iter()
+        .find(|oferta| oferta.seat_id == assento)
+        .unwrap_or_else(|| panic!("assento {assento} tinha que estar ofertado: {ofertas:?}"));
+    (
+        oferta.salary,
+        contrato.salario_anual,
+        matches!(contrato.papel, TeamRole::Numero1),
+    )
+}
+
+#[test]
+fn garantia_de_porta_paga_o_mesmo_que_a_oferta_no_rookie() {
+    // A3: a garantia de porta usava fórmula própria (`12k + skill*1.8k`), que ignora a
+    // categoria — no rookie ela prometia ~111k onde a faixa paga ~5k–21k. Agora o valor
+    // sai da MESMA fonte da oferta mostrada na Janela.
+    let (conn, team_id) = fixture_garantia_de_porta("mazda_rookie", "TROOK", 55.0, 0.0, None, None);
+    let (mostrado, persistido, is_n1) = mostrado_e_persistido(&conn);
+
+    assert!(
+        (mostrado - persistido).abs() < 1e-6,
+        "oferta mostrada ({mostrado}) e contrato ({persistido}) têm que coincidir"
+    );
+    assert!(
+        (persistido - player_offer_salary(0, is_n1, 55.0, &team_id)).abs() < 1e-6,
+        "o valor tem que sair da fonte de oferta do tier 0, sem prêmio (fama 0)"
+    );
+    let formula_antiga = 12_000.0 + 55.0 * 1_800.0;
+    assert!(
+        persistido < formula_antiga * 0.5,
+        "o rookie não pode assinar no valor da fórmula antiga ({formula_antiga}): saiu {persistido}"
+    );
+    assert!(persistido >= 5_000.0, "piso salarial preservado");
+}
+
+#[test]
+fn garantia_de_porta_paga_o_mesmo_que_a_oferta_na_categoria_alta() {
+    // Mesma fonte no topo da escada, e com o prêmio de interesse ativo aplicado: um
+    // jogador de fama alta é cobiçado pelo time da categoria, então a oferta mostrada já
+    // vem com o prêmio — o contrato tem que trazer o mesmo número, não a base.
+    // Caixa de sobra (24 meses de operação): o teto financeiro do B22 fica acima do valor
+    // de mercado, então este caso mede a fórmula e o prêmio, sem o teto no meio.
+    let (conn, team_id) =
+        fixture_garantia_de_porta("gt3", "TGT3", 88.0, 95.0, Some(3), Some((24.0, 0.0)));
+    let interessados = player_active_interest_teams(
+        &conn,
+        &driver_queries::get_player_driver(&conn).expect("player"),
+    )
+    .expect("interesse");
+    assert!(
+        interessados.iter().any(|(id, _, _)| id == &team_id),
+        "fama 95 tem que gerar interesse ativo do time gt3"
+    );
+
+    let (mostrado, persistido, is_n1) = mostrado_e_persistido(&conn);
+    assert!(
+        (mostrado - persistido).abs() < 1e-6,
+        "oferta mostrada ({mostrado}) e contrato ({persistido}) têm que coincidir"
+    );
+    let base_sem_premio = player_offer_salary(4, is_n1, 88.0, &team_id);
+    assert!(
+        (persistido - base_sem_premio * crate::fame::ACTIVE_INTEREST_SALARY_PREMIUM).abs() < 1e-6,
+        "o prêmio de interesse ativo tem que estar no contrato: base={base_sem_premio}, contrato={persistido}"
+    );
+}
+
+// ── B22: o teto financeiro das ofertas ao jogador ────────────────────────────
+//
+// A oferta passiva e a assinatura na tela usavam faixa por tier/skill/equipe sem olhar o
+// caixa, enquanto a proposta formal da MESMA equipe passava pelo teto financeiro
+// (`calculate_offer_salary_from_money` fecha em `calculate_salary_ceiling`). Aqui se mede
+// o teto entrando no caminho do jogador, e o da IA seguindo intacto.
+//
+// Onde o teto MORDE, medido no gt3 com skill 88 (valor de mercado ~378k, ~491k com o
+// prêmio de interesse): saudável ~815k, pressionada ~540k, crise ~495k, colapso ~293k.
+// Isto é, sem prêmio o corte só aparece no colapso; com prêmio ele já aparece na crise.
+// O teto é o LIMITE de sustentação, não o preço — a IA continua pagando menos que ele.
+
+/// Um caso financeiro do B22, medido no MESMO assento que a Janela ofertou.
+struct CasoB22 {
+    estado: String,
+    /// Valor de mercado do jogador: fórmula-base × prêmio de interesse, sem teto.
+    mercado: f64,
+    teto: f64,
+    interesse_ativo: bool,
+    mostrado: f64,
+    assinado: f64,
+}
+
+/// Roda o caminho inteiro do jogador numa equipe gt3 com `(caixa, dívida)` em MESES de
+/// operação: lê a oferta passiva, assina por `sign_player_to_vacancy` e devolve os
+/// números do assento. Mercado e teto saem da vaga ANTES da assinatura — depois dela o
+/// assento não é mais vaga.
+fn caso_b22(caixa: f64, divida: f64, midia: f64) -> CasoB22 {
+    const SKILL: f64 = 88.0;
+    let (conn, _) =
+        fixture_garantia_de_porta("gt3", "TGT3", SKILL, midia, Some(3), Some((caixa, divida)));
+    let oferta = player_market_offers(&conn, 2)
+        .expect("ofertas")
+        .first()
+        .cloned()
+        .expect("o mundo mínimo tem uma oferta");
+    let vaga = find_vacancies(&conn)
+        .expect("vagas")
+        .into_iter()
+        .find(|v| format!("{}#{}", v.team_id, v.papel_necessario.as_str()) == oferta.seat_id)
+        .expect("a vaga ofertada tem que existir");
+
+    let time = crate::market::team_ai::vacancy_as_finance_team(&vaga);
+    let is_n1 = matches!(vaga.papel_necessario, TeamRole::Numero1);
+    let base = player_offer_salary(vaga.category_tier, is_n1, SKILL, &vaga.team_id);
+    let interesse_ativo = player_active_interest_teams(
+        &conn,
+        &driver_queries::get_player_driver(&conn).expect("player"),
+    )
+    .expect("interesse")
+    .iter()
+    .any(|(id, _, _)| id == &vaga.team_id);
+    let mercado = if interesse_ativo {
+        base * crate::fame::ACTIVE_INTEREST_SALARY_PREMIUM
+    } else {
+        base
+    };
+
+    sign_player_to_vacancy(&conn, 2, &oferta.seat_id).expect("assinatura");
+    let contrato = contract_queries::get_active_regular_contract_for_pilot(&conn, "P001")
+        .expect("contrato")
+        .expect("o jogador tem que ter assinado");
+
+    CasoB22 {
+        estado: time.financial_state.clone(),
+        mercado,
+        teto: crate::finance::salary::calculate_salary_ceiling(&time),
+        interesse_ativo,
+        mostrado: oferta.salary,
+        assinado: contrato.salario_anual,
+    }
+}
+
+#[test]
+fn oferta_passiva_ao_jogador_respeita_o_teto_financeiro_da_equipe() {
+    // Os quatro degraus de saúde financeira, do caixa cheio ao buraco. Em todos, o que a
+    // Janela mostra é o que o contrato grava, e nenhum contrato passa do teto da equipe.
+    let mut assinados: Vec<f64> = Vec::new();
+    for (caixa, divida, estado) in [
+        (18.0, 0.0, "healthy"),
+        (4.0, 0.0, "pressured"),
+        (2.0, 1.5, "crisis"),
+        (0.0, 24.0, "collapse"),
+    ] {
+        let caso = caso_b22(caixa, divida, 0.0);
+        let (mercado, teto, mostrado, assinado) =
+            (caso.mercado, caso.teto, caso.mostrado, caso.assinado);
+        assert_eq!(
+            caso.estado, estado,
+            "caixa={caixa} dívida={divida} tinha que cair no estado {estado}"
+        );
+        assert!(
+            (mostrado - assinado).abs() < 1e-6,
+            "{estado}: mostrado ({mostrado}) e assinado ({assinado}) têm que coincidir"
+        );
+        assert!(
+            (assinado - mercado.clamp(5_000.0, teto)).abs() < 1e-6,
+            "{estado}: o salário tem que ser o valor de mercado ({mercado}) limitado pelo teto ({teto}), e saiu {assinado}"
+        );
+        assert!(
+            assinado <= teto + 1e-6,
+            "{estado}: nenhuma equipe assina acima do próprio teto ({teto}): saiu {assinado}"
+        );
+        assert!(assinado >= 5_000.0, "{estado}: piso salarial preservado");
+        assinados.push(assinado);
+    }
+
+    let (saudavel, pressionada, crise, colapso) =
+        (assinados[0], assinados[1], assinados[2], assinados[3]);
+    assert!(
+        saudavel >= pressionada && pressionada >= crise && crise >= colapso,
+        "menos caixa não pode pagar mais: saudável={saudavel}, pressionada={pressionada}, crise={crise}, colapso={colapso}"
+    );
+    assert!(
+        colapso < saudavel,
+        "a equipe sem caixa tem que assinar por MENOS que a saudável: colapso={colapso}, saudável={saudavel}"
+    );
+}
+
+#[test]
+fn equipe_saudavel_continua_pagando_o_valor_de_mercado_ao_jogador() {
+    // O teto não pode virar corte geral: com caixa, a fórmula-base chega inteira.
+    let caso = caso_b22(18.0, 0.0, 0.0);
+    let (mercado, teto, assinado) = (caso.mercado, caso.teto, caso.assinado);
+
+    assert_eq!(caso.estado, "healthy");
+    assert!(
+        teto > mercado,
+        "equipe com 18 meses de caixa tem que ter teto ({teto}) acima do valor de mercado ({mercado})"
+    );
+    assert!(
+        (assinado - mercado).abs() < 1e-6,
+        "sem aperto financeiro o valor de mercado ({mercado}) tem que chegar inteiro ao contrato: saiu {assinado}"
+    );
+}
+
+#[test]
+fn equipe_em_crise_apara_ate_o_premio_de_interesse_do_jogador() {
+    // O prêmio de interesse ativo é parte do valor de mercado, e o teto vem DEPOIS dele:
+    // quem cobiça o nome mas não tem caixa não passa a assinar acima do que sustenta.
+    let caso = caso_b22(2.0, 1.5, 95.0);
+    let (mercado, teto, mostrado, assinado) =
+        (caso.mercado, caso.teto, caso.mostrado, caso.assinado);
+
+    assert_eq!(caso.estado, "crisis");
+    assert!(
+        caso.interesse_ativo,
+        "fama 95 tem que gerar interesse ativo do time gt3"
+    );
+    assert!(
+        (mostrado - assinado).abs() < 1e-6,
+        "mostrado ({mostrado}) e assinado ({assinado}) têm que coincidir também com prêmio"
+    );
+    assert!(
+        mercado > teto,
+        "o caso só mede o corte se o valor com prêmio ({mercado}) passar do teto ({teto})"
+    );
+    assert!(
+        (assinado - teto).abs() < 1e-6,
+        "a equipe em crise tem que parar no próprio teto ({teto}), e saiu {assinado}"
+    );
+}
+
+#[test]
+fn ia_contra_ia_nao_sente_o_teto_do_jogador() {
+    // Controle do B22: a proposta de uma equipe a um piloto da IA continua saindo só da
+    // fonte de sempre (`calculate_offer_salary_from_money` ± a variação de 15%), com
+    // caixa ou sem caixa. O teto do jogador não entrou nesse caminho.
+    for (caixa, divida) in [(18.0, 0.0), (0.0, 24.0)] {
+        let (conn, _) =
+            fixture_garantia_de_porta("gt3", "TGT3", 88.0, 0.0, Some(3), Some((caixa, divida)));
+        let vaga = find_vacancies(&conn)
+            .expect("vagas")
+            .into_iter()
+            .next()
+            .expect("vaga");
+        let piloto = sample_driver("IA01", "Piloto IA", Some("gt3"), 76.0, DriverStatus::Ativo);
+        let esperado = crate::finance::salary::calculate_offer_salary_from_money(
+            &crate::market::team_ai::vacancy_as_finance_team(&vaga),
+            piloto.atributos.skill,
+        );
+        let mut rng = StdRng::seed_from_u64(7);
+        for _ in 0..25 {
+            let oferta = calculate_offer_salary(&vaga, &piloto, &mut rng);
+            assert!(
+                oferta >= (esperado * 0.85).max(5_000.0) - 1e-6 && oferta <= esperado * 1.15 + 1e-6,
+                "caixa={caixa} dívida={divida}: a oferta da IA ({oferta}) saiu da banda da fonte de dinheiro ({esperado})"
+            );
+        }
+    }
+}
+
 #[test]
 fn test_pedigree_boost_is_bounded_and_monotonic() {
     // Rookie (índice 0) não ganha nada; boost cresce com o índice e satura no teto.
@@ -704,4 +1029,3 @@ fn interactive_window_persists_and_closes() {
         .expect("janela existe");
     assert!(loaded.is_closed(), "janela deve estar fechada após o ciclo");
 }
-

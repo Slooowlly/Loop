@@ -19,6 +19,12 @@ mod grade;
 mod integridade;
 /// A janela pelo lado do jogador: propostas, assentos reservados, prazos.
 mod janela_jogador;
+/// A penalidade de motivação por perder a vaga: quem fica sem assento e quem não.
+mod perda_de_vaga;
+/// O bônus de motivação da renovação (B35): quem renova de verdade e quem não.
+mod renovacao;
+/// Temporadas de dois dígitos nas colunas TEXT de vigência de contrato.
+mod temporada_texto;
 
 use rand::{rngs::StdRng, SeedableRng};
 use rusqlite::Connection;
@@ -28,7 +34,7 @@ use super::*;
 use crate::constants::teams::get_team_templates;
 use crate::db::migrations;
 use crate::db::queries::seasons as season_queries;
-use crate::models::license::driver_has_required_license_for_category;
+use crate::licensing::driver_has_required_license_for_category;
 use crate::models::season::Season;
 
 fn setup_market_fixture() -> Connection {

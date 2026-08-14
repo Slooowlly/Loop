@@ -174,7 +174,11 @@ pub(crate) fn display_date_for_weekday(year: i32, week: i32, weekday: Weekday) -
 /// Deriva uma data visual a partir da régua 9D (season_week) em vez de week_of_year.
 /// Resolve o ano civil correto via season_week_to_calendar_year antes de delegar
 /// a display_date_for_weekday — necessário porque sw 1–4 pertencem ao ano anterior.
-#[allow(dead_code)]
+///
+/// Tem consumidor de PRODUÇÃO nos dois lados da régua: a data visual da pré-temporada
+/// (`market::preseason::plano::compute_preseason_display_date`) e a data inferida da semana
+/// anterior a um evento (`db::queries::calendar::temporal::infer_pre_event_display_date`).
+/// Carregava um `#[allow(dead_code)]` que já não valia.
 pub(crate) fn display_date_for_season_week(
     season_week: u8,
     season_year: i32,

@@ -10,9 +10,9 @@ use crate::db::queries::{
     teams as team_queries,
 };
 use crate::generators::ids::IdType;
+use crate::licensing::driver_has_required_license_for_category;
 use crate::models::driver::Driver;
 use crate::models::enums::{SeasonPhase, TeamRole};
-use crate::models::license::driver_has_required_license_for_category;
 use crate::promotion::standings::calculate_constructor_standings;
 
 use super::eligibility::{coletar_candidatos, FonteConvocacao};

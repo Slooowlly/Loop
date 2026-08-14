@@ -333,7 +333,9 @@ pub(super) fn load_archive_rows(
 
 /// Loads all-time constructor title counts for every team that ever won a band in
 /// `family_def`, WITHOUT a year filter. The result is a map from `team_id` to a
-/// `Vec<TeamTitleCount>` ordered by band index (lowest level first).
+/// `Vec<TeamTitleCount>` ordered by band index — and the bands of a family are
+/// declared top-down in `familias.rs`, so index 0 is the HIGHEST band (e.g. Mazda
+/// Production before Mazda Championship before Mazda Rookie).
 ///
 /// Querying all years (not the display window) keeps title counts stable as the user
 /// scrolls the timeline.  Titles for bands whose `classe` was NULL in the archive

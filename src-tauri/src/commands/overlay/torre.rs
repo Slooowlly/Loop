@@ -672,9 +672,7 @@ pub(crate) fn montar_grade(
                         None
                     },
                     player: is_focused,
-                    rival_role: identidade
-                        .and_then(|i| i.rival_role)
-                        .map(|s| s.to_string()),
+                    rival_role: identidade.and_then(|i| i.rival_role).map(|s| s.to_string()),
                     alert,
                     pit_secs,
                     pit_icons,
@@ -718,7 +716,9 @@ pub(crate) fn finalizar_classes(
     let mut ids_das_classes: Vec<i64> = por_classe.keys().copied().collect();
     ids_das_classes.sort_unstable();
     for class_id in ids_das_classes {
-        let mut linhas = por_classe.remove(&class_id).expect("id veio do próprio mapa");
+        let mut linhas = por_classe
+            .remove(&class_id)
+            .expect("id veio do próprio mapa");
         // Ordem de ANTES do tempo (campeonato / expectativa de pré-temporada): é o
         // desempate de todo mundo que ainda não marcou volta — sem ela a torre da
         // classificatória começa numa fila por número de carro.

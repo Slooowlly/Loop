@@ -1,3 +1,6 @@
+// i18n-ignore-file — bancada da POC de TTS, alcançada só pelo painel de laboratório
+// (TtsPocPage, que já carrega a mesma marca). As falas daqui são material de medição de
+// latência, e não copy de jogo.
 // Etapa 3 — as falas do teste, em três categorias de comprimento crescente.
 //
 // Cada categoria tem DEZ variantes de tamanho parecido, e não uma frase repetida dez

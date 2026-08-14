@@ -328,7 +328,10 @@ mod tests {
 
     /// Todas as etapas da temporada, varrendo divisão por divisão (não existe uma
     /// consulta "calendário inteiro" — a produção sempre lê por categoria).
-    fn calendario_inteiro(conn: &Connection, season_id: &str) -> Vec<crate::calendar::CalendarEntry> {
+    fn calendario_inteiro(
+        conn: &Connection,
+        season_id: &str,
+    ) -> Vec<crate::calendar::CalendarEntry> {
         get_all_categories()
             .iter()
             .flat_map(|categoria| {

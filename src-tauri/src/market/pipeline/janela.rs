@@ -254,7 +254,7 @@ pub(super) fn apply_signings(
         let duration = if vac.category_tier >= 4 { 3 } else { 2 };
         // PROMOÇÃO: concede a licença da categoria/classe se faltar (a janela aceita
         // subir 1 tier; a licença é dada aqui, igual ao ladder fill).
-        let _ = crate::models::license::grant_driver_license_for_division_if_needed(
+        let _ = crate::licensing::grant_driver_license_for_division_if_needed(
             conn,
             &driver.id,
             &vac.categoria,

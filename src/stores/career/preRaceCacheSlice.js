@@ -1,10 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { buildBriefingContext } from "../../pages/tabs/nextRaceContext";
+import { cacheEhDaEtapaAtual } from "./helpers";
 import { buscarDadosDaPreCorrida } from "./preRaceFetch";
 
 // Slice de CACHE PRÉ-CORRIDA: prévia por IA (`preRaceAi`) e standings da etapa
-// (`preRaceStandings`), ambos chaveados por `raceId`.
+// (`preRaceStandings`), ambos chaveados pelo par `careerId` + `raceId`. O `careerId` faz
+// parte da chave porque as etapas se chamam R001, R002... em TODA carreira: só com o
+// `raceId` o cache da carreira anterior batia na nova e a Sala de Estratégia abria com os
+// favoritos e a prévia do outro save.
 export const createPreRaceCacheSlice = (set, get) => ({
   // Pré-busca a prévia por IA da próxima corrida ENQUANTO o calendário avança (a
   // animação dá tempo de sobra). Monta os mesmos fatos da Sala de Estratégia, gera
@@ -17,8 +21,14 @@ export const createPreRaceCacheSlice = (set, get) => ({
       get();
     const raceId = nextRace?.id;
     if (!careerId || !raceId || !playerTeam?.categoria) return;
+    const chave = { careerId, raceId };
     // Já temos IA E os standings desta etapa em cache → nada a buscar.
-    if (preRaceAi?.raceId === raceId && preRaceStandings?.raceId === raceId) return;
+    if (cacheEhDaEtapaAtual(preRaceAi, chave) && cacheEhDaEtapaAtual(preRaceStandings, chave)) {
+      return;
+    }
+    // Geração do save no momento do disparo: o prefetch roda durante a animação de avanço e
+    // o jogador pode sair para o menu e abrir outra carreira antes de ele terminar.
+    const geracao = get().careerGeneration;
 
     try {
       // A lista de comandos mora em `preRaceFetch` — a Sala de Estratégia lê a mesma, e
@@ -29,16 +39,16 @@ export const createPreRaceCacheSlice = (set, get) => ({
       });
       const { driverStandings, teamStandings, phraseHistory, breakdownForecast } = retrato;
 
-      // Outra etapa pode ter virado a corrente enquanto buscávamos — aborta se mudou.
-      if (get().nextRace?.id !== raceId) return;
+      // Outra etapa (ou outra CARREIRA) pode ter virado a corrente enquanto buscávamos.
+      if (get().careerGeneration !== geracao || get().nextRace?.id !== raceId) return;
 
       // Guarda o retrato INTEIRO da etapa para a Sala de Estratégia abrir na hora, sem
       // re-disparar nenhum dos comandos ao montar. Guardar só parte dele era o que
       // deixava o marcador de quebra e o balão de modificadores chegando depois da tela.
-      set({ preRaceStandings: { raceId, ...retrato } });
+      set({ preRaceStandings: { careerId, raceId, ...retrato } });
 
       // A IA já pode estar em cache desta etapa (só faltavam os standings): não regenera.
-      if (preRaceAi?.raceId === raceId) return;
+      if (cacheEhDaEtapaAtual(preRaceAi, chave)) return;
 
       const { aiFacts } = buildBriefingContext({
         player,
@@ -55,10 +65,11 @@ export const createPreRaceCacheSlice = (set, get) => ({
       if (!aiFacts || !aiFacts.trim()) return;
 
       const res = await invoke("pre_race_briefing_ai", { careerId, raceId, facts: aiFacts });
-      if (get().nextRace?.id !== raceId) return;
+      if (get().careerGeneration !== geracao || get().nextRace?.id !== raceId) return;
       if (res?.narrative && res?.team_voice) {
         set({
           preRaceAi: {
+            careerId,
             raceId,
             headline: res.headline ?? null,
             narrative: res.narrative,

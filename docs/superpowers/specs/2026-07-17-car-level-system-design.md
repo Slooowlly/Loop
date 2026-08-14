@@ -173,10 +173,20 @@ spread **dentro** da categoria que faz o carro decidir corridas.
 
 ## 7. Cérebro de estratégia do time
 
-Um brain por time (evolução de [`market/car_build_strategy.rs`](../../../src-tauri/src/market/car_build_strategy.rs))
-decide, a cada corrida, para cada peça: trocar / esticar / degradar — dentro do
+Um brain por time decide, a cada corrida, para cada peça: trocar / esticar / degradar — dentro do
 orçamento e olhando o calendário à frente. **O jogador não participa; seu time roda
 no mesmo brain, limitado pelo seu caixa.**
+
+> ⚠️ **Substituído — o alvo desta seção mudou de nome e de desenho.** O texto original dizia
+> "evolução de `market/car_build_strategy.rs`" e apontava para esse arquivo. **Ele não existe mais no
+> crate**: o `car_build_strategy` era o perfil discreto (o dropdown balanced / aceleração / potência /
+> handling que o princípio 4 da §1 mandava aposentar), e foi substituído, não evoluído. O brain que está no ar é
+> [`market/car_maintenance.rs`](../../../src-tauri/src/market/car_maintenance.rs) mais
+> `market/car_maintenance/` (`dna`, `horizonte`, `plano`, `semeadura`, `tick_corrida`), com o tick
+> pós-corrida já ligado em `commands/race/despesa.rs`, `commands/career/lifecycle.rs` e
+> `commands/iracing/roster.rs`. O que sobrou com o nome antigo é `market/pit_strategy.rs`, que é
+> outra coisa: o risco de estratégia de box (`pit_strategy_risk`). Leia daqui para baixo como a
+> intenção de desenho, e o código de `car_maintenance/` como o que ela virou.
 
 ### Horizonte de planejamento (traço por time, varia por temporada)
 

@@ -1,3 +1,4 @@
+import { cacheEhDaEtapaAtual } from "../../../stores/career/helpers";
 import useCareerStore from "../../../stores/useCareerStore";
 
 // Chave de "já vi o tutorial do iRacing" (mostrado só na 1ª ida ao iRacing).
@@ -29,23 +30,24 @@ export function getDisplayError(error, fallback) {
   return fallback;
 }
 
-// Carro do iRacing correspondente à categoria da equipe (mazda MX-5 é o padrão).
-export function carKeyForCategory(categoria) {
-  const cat = (categoria ?? "").toLowerCase();
-  return cat.includes("gr86") || cat.includes("toyota")
-    ? "gr86"
-    : cat.includes("bmw") || cat.includes("m2")
-    ? "bmwm2"
-    : "mx5"; // mazda e padrão
-}
+// `carKeyForCategory` foi REMOVIDA em 11/08/2026. Ela adivinhava o carro do iRacing por
+// substring da categoria e terminava num `else → mx5`: qualquer categoria não reconhecida
+// (GT4, GT3, Production Challenger, Endurance) era exportada como Mazda MX-5 em silêncio.
+// Quem decide o carro agora é o backend, em `commands/iracing/exportavel.rs`, a partir da
+// identidade da categoria — o frontend manda a categoria e não adivinha nada.
 
 // Lê o cache de standings pré-buscado na store (preenchido pelo prefetch durante a
-// animação de avanço), mas SÓ se for da corrida atual. A pré-corrida é estática até a
-// corrida rodar, então quando o cache bate a Sala abre os Favoritos na hora — sem
-// re-disparar get_drivers_by_category/get_teams_standings (os comandos que faziam o
+// animação de avanço), mas SÓ se for da corrida atual DESTA carreira. A pré-corrida é
+// estática até a corrida rodar, então quando o cache bate a Sala abre os Favoritos na hora
+// — sem re-disparar get_drivers_by_category/get_teams_standings (os comandos que faziam o
 // "Montando análise" demorar toda vez que se volta à Sala). Cache miss → busca normal.
+//
+// A conferência inclui o `careerId` porque R001 é a primeira etapa de qualquer carreira:
+// com a chave só na corrida, o cache do save anterior valia aqui.
 export function readCachedPreRaceStandings() {
   const state = useCareerStore.getState();
   const cache = state.preRaceStandings;
-  return cache && cache.raceId && cache.raceId === state.nextRace?.id ? cache : null;
+  return cacheEhDaEtapaAtual(cache, { careerId: state.careerId, raceId: state.nextRace?.id })
+    ? cache
+    : null;
 }

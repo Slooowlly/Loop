@@ -1,9 +1,9 @@
 //! Testes do renderizador de peças. O mais importante é o de cobertura: ele é o que
 //! garante que o app nunca peça um `.wav` que o gerador não vai produzir.
 
-use crate::engenheiro::intencao::Intencao;
 use crate::engenheiro::catalogo;
 use crate::engenheiro::fala::renderizar;
+use crate::engenheiro::intencao::Intencao;
 use crate::iracing_sdk::race_monitor::EstadoAgora;
 
 use super::{estado_base, vizinho};
@@ -358,7 +358,11 @@ fn o_ritmo_responde_com_o_tempo_e_com_o_quanto_falta() {
     let e = estado_base();
     assert_eq!(
         renderizar(&e, Intencao::Ritmo),
-        Some(vec!["tv_volta_em".into(), "t_928".into(), "tv_faltam_8".into()]),
+        Some(vec![
+            "tv_volta_em".into(),
+            "t_928".into(),
+            "tv_faltam_8".into()
+        ]),
     );
 }
 
@@ -452,6 +456,29 @@ fn fora_de_corrida_o_acervo_se_cala() {
     assert_eq!(
         renderizar(&e, Intencao::Posicao),
         Some(vec!["sem_telemetria".into()])
+    );
+}
+
+#[test]
+fn a_bandeira_branca_responde_pelo_acervo_e_nao_pelo_modelo() {
+    // O rótulo "Última volta" é o que o monitor produz para a bandeira BRANCA, e a peça
+    // `ultima_volta` já existe: ela vem emprestada do spotter e a pergunta do RESTANTE já a
+    // emitia. Só a pergunta sobre BANDEIRA não a alcançava — caía no braço desconhecido e ia
+    // ao modelo, na última volta da corrida, que é onde o rádio menos pode ficar devendo
+    // ~2,9 s por uma frase que estava gravada.
+    let mut e = estado_base();
+    e.bandeira = "Última volta".to_string();
+    assert_eq!(
+        renderizar(&e, Intencao::Bandeira),
+        Some(vec!["ultima_volta".to_string()])
+    );
+    // E a mesma peça continua saindo pela outra porta, com a mesma redação.
+    let mut r = estado_base();
+    r.voltas_restantes = 0; // nenhuma DEPOIS desta: é a última
+    r.voltas_restantes_estimadas = false;
+    assert_eq!(
+        renderizar(&r, Intencao::Restante),
+        Some(vec!["ultima_volta".to_string()])
     );
 }
 
@@ -898,10 +925,17 @@ fn toda_peca_gravada_e_alcancavel_por_alguma_situacao() {
         };
         // As seis despedidas, uma por tentativa — o rodízio é por sessão.
         for _ in 0..6 {
-            if let Some(f) = o.observar(cl::Momento { ate_a_linha_s: cl::DESPEDIDA_MAX_S, ..base }) {
+            if let Some(f) = o.observar(cl::Momento {
+                ate_a_linha_s: cl::DESPEDIDA_MAX_S,
+                ..base
+            }) {
                 emitidas.extend(f.pecas);
             }
-            o.observar(cl::Momento { em_preparacao: false, voando: true, ..base });
+            o.observar(cl::Momento {
+                em_preparacao: false,
+                voando: true,
+                ..base
+            });
             o.observar(base);
         }
         // A volta morta, varrendo o tempo que sobra: pega as três redações de reconhecimento,
@@ -937,39 +971,41 @@ fn toda_peca_gravada_e_alcancavel_por_alguma_situacao() {
         for peca in PECAS {
             for sev in ["light", "heavy", "dnf"] {
                 for variante in 0..3 {
-                  // Os dois lados do limiar de atrito: abaixo dele sai a coda de GANHO, no
-                  // cruzamento exato sai a de ATRITO. Sem varrer os dois, metade das codas
-                  // ficaria inalcançável — e o teste diria que elas são órfãs.
-                  for abandonos in [0, crate::engenheiro::quebra::ABANDONOS_PARA_COMENTAR + 1] {
-                    for (nem, riv, comp, lider, delta, assento, nome) in [
-                        (true, false, false, false, None, 1, "James Cooper"),
-                        (false, true, false, false, None, 2, "James Cooper"),
-                        (false, false, true, false, None, 1, "James Cooper"),
-                        (false, false, false, true, None, 2, "James Cooper"),
-                        (false, false, false, false, Some(4), 1, "James Cooper"),
-                        (false, false, false, false, Some(-4), 2, "James Cooper"),
-                        // Sem gravação do sobrenome: é o caminho que produz as duas aberturas
-                        // de assento e as 102 equipes.
-                        (false, false, false, false, None, 1, "Carlos Magnossilva"),
-                        (false, false, false, false, None, 2, "Carlos Magnossilva"),
-                    ] {
-                        emitidas.extend(montar(&Contexto {
-                            nome_completo: nome.into(),
-                            equipe: Some("Kitsune".into()),
-                            assento,
-                            e_nemesis: nem,
-                            e_rival: riv,
-                            e_companheiro: comp,
-                            lidera_campeonato: lider,
-                            delta_pontos: delta,
-                            peca: peca.into(),
-                            severidade: sev.into(),
-                            variante,
-                            abandonos_ate_aqui: abandonos,
-                        })
-                        .pecas);
+                    // Os dois lados do limiar de atrito: abaixo dele sai a coda de GANHO, no
+                    // cruzamento exato sai a de ATRITO. Sem varrer os dois, metade das codas
+                    // ficaria inalcançável — e o teste diria que elas são órfãs.
+                    for abandonos in [0, crate::engenheiro::quebra::ABANDONOS_PARA_COMENTAR + 1] {
+                        for (nem, riv, comp, lider, delta, assento, nome) in [
+                            (true, false, false, false, None, 1, "James Cooper"),
+                            (false, true, false, false, None, 2, "James Cooper"),
+                            (false, false, true, false, None, 1, "James Cooper"),
+                            (false, false, false, true, None, 2, "James Cooper"),
+                            (false, false, false, false, Some(4), 1, "James Cooper"),
+                            (false, false, false, false, Some(-4), 2, "James Cooper"),
+                            // Sem gravação do sobrenome: é o caminho que produz as duas aberturas
+                            // de assento e as 102 equipes.
+                            (false, false, false, false, None, 1, "Carlos Magnossilva"),
+                            (false, false, false, false, None, 2, "Carlos Magnossilva"),
+                        ] {
+                            emitidas.extend(
+                                montar(&Contexto {
+                                    nome_completo: nome.into(),
+                                    equipe: Some("Kitsune".into()),
+                                    assento,
+                                    e_nemesis: nem,
+                                    e_rival: riv,
+                                    e_companheiro: comp,
+                                    lidera_campeonato: lider,
+                                    delta_pontos: delta,
+                                    peca: peca.into(),
+                                    severidade: sev.into(),
+                                    variante,
+                                    abandonos_ate_aqui: abandonos,
+                                })
+                                .pecas,
+                            );
+                        }
                     }
-                  }
                 }
             }
         }
@@ -1004,38 +1040,42 @@ fn toda_peca_gravada_e_alcancavel_por_alguma_situacao() {
 
         // As 102 equipes e os 355 sobrenomes só saem variando o piloto, não o cenário.
         for (catalogo_nome, _) in crate::engenheiro::nomes::EQUIPES_FALADAS {
-            emitidas.extend(montar(&Contexto {
-                nome_completo: "Carlos Magnossilva".into(),
-                equipe: Some((*catalogo_nome).into()),
-                assento: 1,
-                e_nemesis: false,
-                e_rival: false,
-                e_companheiro: false,
-                lidera_campeonato: false,
-                delta_pontos: None,
-                peca: "engine".into(),
-                severidade: "heavy".into(),
-                variante: 0,
-                abandonos_ate_aqui: 0,
-            })
-            .pecas);
+            emitidas.extend(
+                montar(&Contexto {
+                    nome_completo: "Carlos Magnossilva".into(),
+                    equipe: Some((*catalogo_nome).into()),
+                    assento: 1,
+                    e_nemesis: false,
+                    e_rival: false,
+                    e_companheiro: false,
+                    lidera_campeonato: false,
+                    delta_pontos: None,
+                    peca: "engine".into(),
+                    severidade: "heavy".into(),
+                    variante: 0,
+                    abandonos_ate_aqui: 0,
+                })
+                .pecas,
+            );
         }
         for sobrenome in crate::engenheiro::nomes::sobrenomes() {
-            emitidas.extend(montar(&Contexto {
-                nome_completo: sobrenome.into(),
-                equipe: Some("Kitsune".into()),
-                assento: 1,
-                e_nemesis: false,
-                e_rival: true,
-                e_companheiro: false,
-                lidera_campeonato: false,
-                delta_pontos: None,
-                peca: "engine".into(),
-                severidade: "heavy".into(),
-                variante: 0,
-                abandonos_ate_aqui: 0,
-            })
-            .pecas);
+            emitidas.extend(
+                montar(&Contexto {
+                    nome_completo: sobrenome.into(),
+                    equipe: Some("Kitsune".into()),
+                    assento: 1,
+                    e_nemesis: false,
+                    e_rival: true,
+                    e_companheiro: false,
+                    lidera_campeonato: false,
+                    delta_pontos: None,
+                    peca: "engine".into(),
+                    severidade: "heavy".into(),
+                    variante: 0,
+                    abandonos_ate_aqui: 0,
+                })
+                .pecas,
+            );
         }
     }
 
@@ -1063,8 +1103,7 @@ fn toda_peca_gravada_e_alcancavel_por_alguma_situacao() {
                         folga: Some(f64::from(p)),
                         projecao,
                     };
-                    if let Some(pecas) = responder::renderizar(&e, Some(&c), Intencao::Campeonato)
-                    {
+                    if let Some(pecas) = responder::renderizar(&e, Some(&c), Intencao::Campeonato) {
                         emitidas.extend(pecas);
                     }
                 }

@@ -18,8 +18,10 @@ pub fn update_team_finance_snapshot(conn: &Connection, team: &Team) -> Result<()
              last_round_income = ?5,
              last_round_expenses = ?6,
              last_round_net = ?7,
-             parachute_payment_remaining = ?8
-         WHERE id = ?9",
+             parachute_payment_remaining = ?8,
+             socorros_na_temporada = ?9,
+             socorros_temporada_ref = ?10
+         WHERE id = ?11",
         params![
             team.cash_balance,
             team.debt_balance,
@@ -29,6 +31,11 @@ pub fn update_team_finance_snapshot(conn: &Connection, team: &Team) -> Result<()
             team.last_round_expenses,
             team.last_round_net,
             team.parachute_payment_remaining,
+            // O contador do socorro vem no snapshot da RODADA de propósito: é ali que o
+            // empréstimo acontece (`commands::race::persistencia`), e um socorro que não
+            // fosse persistido junto do caixa que ele injetou seria um socorro sem memória.
+            team.socorros_na_temporada,
+            team.socorros_temporada_ref,
             &team.id,
         ],
     )?;

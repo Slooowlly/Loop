@@ -33,7 +33,7 @@ function OpeningWeekCount({ totalOffers, forecast, playerSignedThisWindow, t }) 
         {t("preSeason.forecast.seatCount", { count: totalOffers })}
       </p>
       {forecastLabel && (
-        <p className="mt-3 border-t border-white/8 pt-3 text-body-sm text-[color:var(--text-secondary)]">
+        <p className="mt-3 border-t border-white/[0.08] pt-3 text-body-sm text-[color:var(--text-secondary)]">
           {forecastLabel}
         </p>
       )}
@@ -205,7 +205,7 @@ export default function DecisionsPanel({
 
       <div
         data-testid="weekly-closing-market"
-        className="mt-4 rounded-xl border border-white/8 bg-black/18 px-4 py-4"
+        className="mt-4 rounded-xl border border-white/[0.08] bg-black/[0.18] px-4 py-4"
       >
         <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[color:var(--text-muted)]">
           {t("preSeason.weeklyClosing.title")}

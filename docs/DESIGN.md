@@ -5,13 +5,14 @@
 > modelo de domínio, mecânicas, banco de dados, ponte IPC e frontend. É um retrato do código
 > atual. Quando este texto divergir do código, o **código é a fonte de verdade**.
 
-Data do retrato: 2026-08-11 · Versão do app: **0.14.0** · Schema do banco: **v63** (baseline v53)
-· Categorias: **9** · Comandos IPC registrados: **201**
+Data do retrato: 2026-08-11 · Versão do app: **0.14.0** · Schema do banco: **v64** (baseline v53)
+· Categorias: **9** · Comandos IPC registrados: **ver o guard** (§24 — o total em prosa envelhece no
+primeiro comando novo, e envelheceu duas vezes aqui)
 
 **Histórico deste arquivo:** a versão anterior era o retrato de 2026-06-15 e descrevia o Loop como
 "simulador offline de carreira". Essa identidade foi aposentada por decisão do dono do projeto em
 2026-07-27 (§19). O cabeçalho velho seguia contradizendo o próprio capítulo de iRacing do mesmo
-arquivo, e o corpo apontava schema v34 com o banco já em v63. Esta revisão refaz o documento
+arquivo, e o corpo apontava schema v34 com o banco já na casa dos v60. Esta revisão refaz o documento
 inteiro contra o código.
 
 ---
@@ -77,7 +78,7 @@ conexão SQLite, roda a lógica em transação e devolve DTO serializado (serde)
 │  React (Vite): páginas, abas, overlays, slices Zustand     │
 │      │  @tauri-apps/api  invoke(cmd, args)                  │
 └──────┼───────────────────────────────────────────────────┘
-       ▼  IPC (201 comandos registrados em lib.rs)
+       ▼  IPC (comandos registrados em lib.rs — total no guard, §24)
 ┌──────────────────────────────────────────────────────────┐
 │  Rust: commands/ → módulos de domínio                      │
 │  simulation · car · evolution · market · promotion         │
@@ -112,7 +113,7 @@ pilotagem).
 | `config/` | `AppConfig` (config.json: idioma, autosave, janela, caminho do iRacing, consentimentos) |
 | `constants/` | Dados estáticos: categorias, pistas, carros, pontuação, equipes, linha do tempo histórica, faixas de skill |
 | `models/` | Entidades de domínio: driver, team, contract, season, license, injury, rivalry, enums, temporal, tags |
-| `db/` | `connection`, `migrations` (baseline v53 + incrementais até v63), `queries/` (um módulo por área) |
+| `db/` | `connection`, `migrations` (baseline v53 + incrementais até v64), `queries/` (um módulo por área) |
 | `generators/` | Geração de mundo: nomes, nacionalidades, ids, pilotos, `world` (bootstrap) |
 | `calendar/` | Geração de calendário (janelas mensais, multiclasse, slots temáticos, temporada cheia e parcial) |
 | `simulation/` | Motor de corrida: `qualifying`, `race/` (motor, tráfego, estratégia, danos, pontuação), `incidents`, `forma`, `profile`, `track_profile`, `calibracao`, `batch` |
@@ -144,10 +145,10 @@ pilotagem).
 | Pasta | Conteúdo |
 |---|---|
 | `pages/` | `MainMenu`, `NewCareer`, `LoadSave`, `Settings`, `Dashboard` |
-| `pages/tabs/` | Abas do Dashboard: `NextRaceTab`, `StandingsTab`, `CalendarTabRedesign`, `NewsMagazineTab`, `GlobalDriversTab`, `GlobalTeamsTab`, `MyTeamTab`, `TeamRecordsTab`, mais as versões V2 em `tabs/atlas/` e `tabs/myteam/` |
+| `pages/tabs/` | Abas do Dashboard: `NextRaceTab`, `StandingsTab`, `CalendarTabRedesign`, `NewsMagazineTab`, `GlobalDriversTab`, `TeamRecordsTab`, mais `CarreiraTab` em `tabs/carreira/`. Equipe e atlas existem **só** na V2, em `tabs/myteam/MyTeamTabV2` e `tabs/atlas/GlobalTeamsTabV2` (o `index.js` de cada pasta é o que o `Dashboard` importa como `MyTeamTab` e `GlobalTeamsTab`) |
 | `components/calendar/` | Calendário: célula do dia, mini mês, linha de evento, tooltip de bilhete |
-| `components/driver/` | Ficha e dossiê de piloto (v1 e `v2/`), mini card, ranking global, marcador de rival |
-| `components/team/` | Equipe: histórico (v1 e `v2/`), logo, mini card, grade mundial, finanças, `myteam/` |
+| `components/driver/` | Ficha e dossiê de piloto em `v2/` (o v1 saiu em 11/08/2026; `index.js` é só o reexport que mantém o nome `DriverDetailModal`), mais `detalhes/`, mini card, ranking global, marcador de rival |
+| `components/team/` | Equipe: histórico e atlas em `v2/` (o v1 saiu em 11/08/2026; `history/index.js` é só o reexport de `TeamHistoryDrawer`), logo, mini card, grade mundial, finanças, `myteam/` |
 | `components/race/` | Fim de semana: briefing do engenheiro, resultado V2, gráficos (traçado, ritmo, volta, clima), cockpit de telemetria, risco de quebra |
 | `components/season/` | Pré-temporada (`preseason/`), convocação (`convocacao/`), fim de temporada, leilão de assédio, overlay de campeão |
 | `components/standings/` | Tabelas de classificação, escada de categorias, navegador de série, selo de troféu |
@@ -157,8 +158,8 @@ pilotagem).
 | `components/layout/`, `ui/`, `wizard/` | Casca (header, navegação, controles de janela, menu de pausa), design system e wizard de nova carreira |
 | `overlay/` | App dos overlays: torre de canvas, rádio do engenheiro, spotter, escritores de VR, painel de posição |
 | `lib/` | Voz do engenheiro, fila de carga de áudio, filtro de rádio, microfone, PTT, registro de rádio, updater |
-| `stores/` | `useCareerStore` (composição) sobre `stores/career/` (`careerSlice`, `raceSlice`, `marketSlice`, `seasonSlice`, `preRaceCacheSlice`) e `useAttentionStore` |
-| `hooks/` | `useConfiguracaoDoApp`, `useExitToMenu`, `useFerramentasDeDebug`, `useLoading`, `useRaceControl`, `useTempoDeTela` |
+| `stores/` | `useCareerStore` (composição) sobre `stores/career/` (`careerSlice`, `raceSlice`, `marketSlice`, `seasonSlice`, `blocoEspecialSlice`, `preRaceCacheSlice`) e `useAttentionStore` |
+| `hooks/` | `useCareerDraft`, `useConfiguracaoDoApp`, `useExitToMenu`, `useFerramentasDeDebug`, `useIracingFocoAutomatico`, `useLoading`, `useRaceControl`, `useSaves`, `useSpotterNativo`, `useTempoDeTela` |
 | `i18n/` | i18next, um namespace por área, `locales/<lang>/common.json` |
 | `utils/`, `styles/`, `assets/`, `dev/`, `test/` | Formatadores, cores de categoria, logos, design system, arte e apoio de teste |
 
@@ -549,8 +550,13 @@ Com `incidents_enabled`, cada trecho processa rolls de incidente por piloto, inf
 confiabilidade do carro. Um incidente pode custar posição ou virar DNF.
 
 O catálogo (`incident_catalog`, semeado pela baseline) é parametrizado por classe de veículo,
-formato (sprint ou endurance), fonte e tipo de gatilho, com peso separado por formato e template
-de texto para narrativa.
+formato (sprint ou endurance), fonte e tipo de gatilho, com peso separado por formato.
+
+O texto da narrativa **não** fica no banco. Desde a migração v65 a tabela guarda chave de i18n
+(`dnf_key`, `non_dnf_key`, `description_key`, todas na forma `breakdown.<id>.{dnf|warn|part}`) e a
+frase sai de `locales/*.yml` no locale ativo, na hora de apresentar. O que já foi gravado num
+incidente antigo continua no idioma da corrida — o save guarda prosa renderizada, e retraduzir o
+histórico é decisão em aberto, registrada no topo de `simulation/catalog.rs`.
 
 ### 10.2 Dano latente pós-colisão (`PendingDamage`)
 
@@ -627,17 +633,38 @@ Roda na pré-temporada. Componentes:
 - **evaluation:** valoração do piloto (desempenho recente, idade, atributos).
 - **proposals:** emissão e resposta de `market_proposals`.
 - **renewal:** renovação de contrato existente.
-- **preseason:** orquestra a janela, gera proposta, processa resposta da IA e preenche vaga.
+- **preseason** (`preseason.rs` + `preseason/`): orquestra a janela semana a semana — estado,
+  plano, eventos, expectativa, sincronização.
+- **pipeline** (`pipeline.rs` + `pipeline/`): as etapas com banco — vagas, contratação,
+  consolidação de N1/N2, assédio, slam, e `janela.rs`, que é o wiring do leilão.
+- **transfer_window** (`transfer_window.rs` + `transfer_window/`): o **motor puro** do leilão
+  semanal de dois lados (ofertas → respostas → resultados → rollover), sem banco. Quem lê vaga e
+  piloto do banco e aplica as assinaturas é o `pipeline::janela`.
 - **poaching:** assédio a piloto sob contrato, com leilão que chega ao jogador via
   `PoachAuctionHost` montado global no `App.jsx`.
+- **bond:** vínculo de longo prazo por par (piloto, equipe), 0–100, que cresce a cada temporada
+  juntos e decai devagar quando separados. Nesta fase só ACUMULA e expõe o selo qualitativo de 6
+  níveis; as consequências (renovação leal, segurar-vs-vender) não estão ligadas.
+- **slam_ambition:** decide se um piloto de elite persegue um slam de prestígio e que categoria
+  ele quer na próxima temporada. Lógica pura; quem leva a preferência ao mercado é o chamador.
 - **visibility:** o que o jogador enxerga do mercado.
-- **sync:** sincroniza contrato, lineup da equipe e `categoria_atual` do piloto.
-- **car_build_strategy e pit_strategy:** perfil de setup e risco de box por equipe.
+- **sync:** os contratos regulares ativos mandam; `piloto_1_id`/`piloto_2_id` da equipe e o
+  `categoria_atual` do piloto obedecem. O que não couber nessa regra é rescindido aqui.
+- **car_maintenance** (`car_maintenance.rs` + `car_maintenance/`): o cérebro de manutenção do
+  carro por corrida (trocar / esticar / degradar, e quando subir de nível), dentro do caixa e
+  olhando o calendário à frente. Substituiu o `car_build_strategy` de perfil discreto, que **não
+  existe mais no crate** — ver §10.3.
+- **pit_strategy:** risco de estratégia de box por equipe (`pit_strategy_risk`), derivado do plano
+  financeiro e do teto por categoria. É ele que alimenta o `strategyRiskiness` do roster do
+  iRacing.
 
 O jogador recebe proposta (`get_player_proposals` e `respond_to_proposal`), acompanha interesse
 (`get_player_interests`) e avança a janela semana a semana (`advance_market_week`) até
-`finalize_preseason`. Durante a temporada existe a janela de transferências
-(`get_transfer_window_state` e `advance_transfer_window`, tabela `transfer_window`).
+`finalize_preseason`. O estado da janela de transferências (tabela `transfer_window`) é **de
+leitura** para a UI, por `get_transfer_window_state`; não há comando de condução. O
+`advance_transfer_window` que existia era um no-op — corpo idêntico ao do getter, parâmetro
+ignorado — e foi removido em 11/08/2026 (o registro está em
+[divida-tecnica.md](divida-tecnica.md)).
 
 ---
 
@@ -771,9 +798,19 @@ Ciclo fechado no backend:
 - **Realizado** (`RealizedEventInterest`), pós-corrida, gera delta de mídia e de motivação por
   piloto e pode elevar uma notícia a destaque (`public_impact`).
 
-> Pendência de UI que continua aberta (F-07 no [backlog.md](backlog.md)): o backend está completo e
-> a UI mostra só o widget básico. Falta a exibição rica do interesse esperado e o retorno visual
-> pós-corrida da repercussão.
+A UI dos dois lados do ciclo, fechada em 11/08/2026 (F-07):
+
+- **antes da largada** — `components/race/EventInterestCard.jsx`, na Sala de Estratégia: tier
+  (`tier_label`, já traduzido pelo backend), público (`display_value`), porte da ocasião e a cota de
+  plateia que a estrela do jogador puxa (`public_fame_share`). Antes disso o público era um número
+  solto no canto do card de clima, sem tier e sem escala.
+- **depois da bandeirada** — `RepercussionSegment` e `RepercussionCard` no `RaceResultViewV2`, sobre
+  o `EventRepercussionSummary` que viaja em `event_repercussion` nos dois caminhos de resultado
+  (simulação e importação do iRacing): esperado contra entregue, o delta e o `headline_strength`.
+
+> Segue sem consumidor, e é decisão de equilíbrio e não de exposição: os três multiplicadores de
+> `ExpectedEventInterest` (`pressure_modifier`, `media_multiplier`, `motivation_multiplier`) são
+> calculados em `calculator.rs` e ninguém os lê.
 
 ### 17.2 Presença pública (`public_presence/`) e fama (`fame`)
 
@@ -811,9 +848,29 @@ apelido continuar clicável.
 ### 18.3 Aba de Notícias
 
 Revista (`NewsMagazineTab` e `components/news/`): capa, matéria da etapa, encarte de pré-temporada,
-notas do mundo e caixa postal. O filtro padrão ao abrir é o escopo da categoria atual do jogador
-com a última corrida disputada dessa categoria. Trocar de escopo troca o filtro para a última
-corrida daquela categoria (`get_news_tab_bootstrap` e `handleScopeChange`).
+notas do mundo e caixa postal.
+
+**Não há seletor de escopo.** A revista é sempre a da **categoria atual do jogador** — o recorte sai
+de `playerTeam.categoria`, e nada na tela o troca. A navegação é por **edição**: as corridas com
+`status = "Concluida"` do calendário daquela categoria, da mais recente para a mais antiga, com o
+par de setas (`goEdition`). Enquanto nenhuma etapa foi concluída, a revista abre no encarte de
+pré-temporada; se nem categoria houver, cai na capa fechada.
+
+Cada painel tem seu `invoke`, todos nos hooks de [`useMagazineData.js`](../src/components/news/useMagazineData.js)
+e todos caindo no vazio em qualquer falha, sem quebrar a página:
+
+| painel | comandos |
+|---|---|
+| Edições e pista de abertura | `get_calendar_for_category` |
+| Construtores e pilotos | `get_teams_standings`, `get_drivers_by_category` |
+| Matéria da etapa (boletim de IA) | `player_race_news_id` → `enrich_race_news_ai` |
+| Encarte de pré-temporada | `enrich_season_preview_ai` |
+| Notas do mundo | `get_world_footer`, depois `enrich_world_footer_ai` por cima |
+| Caixa postal | `get_inbox_messages` (no `MagazineMailbox`) |
+
+O `get_news` — o feed determinístico da §18.1 — **não passa pela revista**. Quem o consome é o
+mercado: `marketSlice.js` e `stores/career/helpers.js` o pedem com `limit: 400` e o passam por
+`buildWeeksFromNews` para montar a linha do tempo semana a semana da pré-temporada.
 
 ---
 
@@ -882,6 +939,25 @@ volta para frente sozinha. No mesmo ritmo o `raceSlice` chama `iracing_auto_impo
 - chama `iracing_process_race_result` best-effort, que é a **dificuldade adaptativa**: atualiza o
   perfil do jogador por `custid`, global e por pista, depois de cada corrida limpa. O
   `ai_sweet_spot` lê esse perfil para ancorar a curva de skill da IA na geração seguinte.
+
+**Ligado não é o mesmo que executado, e a diferença é auditável.** A chamada existe em
+[`importacao.rs:138`](../src-tauri/src/commands/iracing/importacao.rs) e depende do auto-import
+fechar; o `Err` é engolido para nunca desfazer o import. O que prova que o ciclo rodou é o par de
+linhas no `loop.log` (`%APPDATA%\com.loop.app\logs\`):
+
+```
+[import]      Corrida importada: <race_id> (pista <track_id>)
+[adaptativo]  Pista <id> · classe <c>: N IA de M carros · carro sim|não ·
+              ritmo vs frente +0,42%/volta · <veredito> ·
+              global 0+1=1 · pista 0+1=1 · gravado
+```
+
+A linha do adaptativo sai **sempre** que ele roda, mesmo sem mexer a agulha — termina em `gravado`
+ou `sem mudança`, e essa distinção é o ponto: arquivo de perfil ausente é ambíguo entre "nunca
+rodou" e "rodou e ficou no escudo". Falha vira `[adaptativo] Sem ajuste: <motivo>`, e a causa mais
+comum é o monitor sem histórico vivo (app reaberto entre correr e importar). **Sem o par de linhas
+num log de corrida real, o perfil por `custid` continua zerado e o `ai_sweet_spot` ancora em
+nada** — é medição, não código.
 
 ### 19.4 Manutenção e diagnóstico
 
@@ -990,19 +1066,20 @@ a v52 foram **colapsadas numa baseline única**. Hoje `db/migrations.rs` tem:
 
 ```rust
 const BASELINE_VERSION: u32 = 53;
-const CURRENT_VERSION:  u32 = 63;
+const CURRENT_VERSION:  u32 = 64;
 
 const MIGRATIONS: &[(u32, fn(&Connection) -> Result<(), DbError>)] = &[
     (53, migrate_baseline),
     (54, migrate_v54_forma_do_piloto),
     ...
-    (63, migrate_v63_indice_de_resultados_por_equipe),
+    (64, migrate_v64_normaliza_meta_linguagem_dos_textos_de_ia),
 ];
 ```
 
-- `migrate_baseline` roda o `BASELINE_DDL` inteiro (`db/migrations/baseline.rs`, 54 tabelas, todo
-  o DDL em `IF NOT EXISTS`, então reaplicar é inofensivo), semeia `meta` e semeia o
-  `incident_catalog`.
+- `migrate_baseline` roda o `BASELINE_DDL` inteiro (`db/migrations/baseline.rs`, **43 tabelas** —
+  este número já foi escrito como 54 aqui; conte com `grep -c 'CREATE TABLE'` no arquivo, e some as 5
+  que as incrementais criam), todo o DDL em `IF NOT EXISTS`, então reaplicar é inofensivo, mais o
+  seed de `meta` e do `incident_catalog`.
 - `run_all` aplica tudo num banco novo, e `run_pending` só o que falta num save existente.
 - **Save entre v1 e v52 é recusado com erro explícito.** A baseline não faz backfill de dado, então
   aplicá-la ali carimbaria v53 num banco que continua na forma velha. O arquivo do jogador fica
@@ -1022,6 +1099,7 @@ Migrações sobre a baseline:
 | v61 | ledger com linhas físicas |
 | v62 | tabelas de query sob as migrações |
 | v63 | índice de resultados por equipe |
+| v64 | normaliza a meta-linguagem dos textos de IA já gravados (o que o filtro de render fazia byte a byte passa a ser feito uma vez, no save; idempotente) |
 
 > **Regra que não muda:** o array `MIGRATIONS` é a única fonte de verdade da ordem. Adicionar uma
 > migração é uma linha nesse array mais o bump do `CURRENT_VERSION`. Nunca edite migração já
@@ -1065,11 +1143,17 @@ autosave. Cada carreira tem seu próprio arquivo SQLite.
 
 ## 24. API IPC (comandos Tauri)
 
-**201 comandos** registrados em `lib.rs::invoke_handler`. Um comando novo só existe depois de
-entrar nessa lista. O guard
+Um comando novo só existe depois de entrar no `lib.rs::invoke_handler`. O guard
 [`invoke-contra-generate-handler`](../scripts/tests/invoke-contra-generate-handler.test.mjs) cobra
-que todo `invoke("...")` do frontend exista ali, e congela o inventário dos que ainda não têm
-consumidor.
+que todo `invoke("...")` do frontend exista ali, e congela em `SEM_CONSUMIDOR_CONHECIDO` o
+inventário dos que ainda não têm consumidor, com o motivo de cada um.
+
+**O guard é a contagem oficial — este documento não repete o total.** Todo número em prosa envelhece
+no primeiro comando novo, e já envelheceu duas vezes aqui. Para contar hoje:
+
+```bash
+node --test scripts/tests/invoke-contra-generate-handler.test.mjs
+```
 
 Agrupados por área:
 
@@ -1078,7 +1162,7 @@ Agrupados por área:
 | Config e janela | `config`, `window` | `get_config`, `update_config`, `minimize_window`, `toggle_fullscreen_window` |
 | Carreira | `career_commands` | `create_career`, `create_historical_career_draft`, `load_career`, `list_saves`, `delete_career` |
 | Loop de temporada | `career_commands`, `calendar` | `advance_season`, `skip_all_pending_races`, `advance_market_week`, `finalize_preseason`, `get_temporal_summary` |
-| Mercado | `career_commands` | `get_player_proposals`, `respond_to_proposal`, `get_player_interests`, `get_transfer_window_state`, `advance_transfer_window`, `get_player_poach_offer` |
+| Mercado | `career_commands` | `get_player_proposals`, `respond_to_proposal`, `get_player_interests`, `get_transfer_window_state`, `get_season_market_board`, `get_player_poach_offer` |
 | Consultas e dossiês | `career_commands` | `get_drivers_by_category`, `get_driver_detail`, `get_player_dossier`, `get_global_driver_rankings`, `get_team_history_dossier`, `get_team_finance_report`, `get_race_reading` |
 | Corrida | `race` | `simulate_race_weekend`, `simulate_special_block`, `get_saved_race_screen`, `get_stage_invoice`, `get_race_breakdowns`, `get_weekend_modifiers` |
 | Convocação | `convocation` | `advance_to_convocation_window`, `run_convocation_window`, `iniciar_bloco_especial`, `run_pos_especial` |
@@ -1109,27 +1193,55 @@ Em paralelo, as janelas `overlay` e `engineer` sobem sobre o iRacing.
 ### 25.2 Abas do Dashboard (`pages/tabs/`)
 
 `NextRaceTab` (briefing, exportação para o iRacing, simular fim de semana), `StandingsTab`,
-`CalendarTabRedesign`, `NewsMagazineTab`, `GlobalDriversTab`, `GlobalTeamsTab` (com a V2 em
-`tabs/atlas/`), `MyTeamTab` (com a V2 em `tabs/myteam/`) e `TeamRecordsTab`.
+`CalendarTabRedesign`, `NewsMagazineTab`, `CarreiraTab` (em `tabs/carreira/`), `GlobalDriversTab`,
+`GlobalTeamsTab` (com a V2 em `tabs/atlas/`), `MyTeamTab` (com a V2 em `tabs/myteam/`) e
+`TeamRecordsTab`.
+
+Cinco delas estão na barra (`standings`, `news`, `carreira`, `my-team`, `calendar`, em
+`layout/TabNavigation.jsx`); as outras são alcançadas por navegação interna.
+
+**A aba Carreira é a lente do protagonista**, e existe porque o jogador se enxergava pelo mesmo
+`DriverDetailModal` que serve para olhar qualquer piloto de IA. Cinco seções sobre UM payload —
+`get_driver_detail` do piloto do jogador, buscado uma vez pelo hook `useCarreiraData`:
+
+| seção | responde | item fechado |
+|---|---|---|
+| Meu piloto | como eu estou e do que sou feito (abre pela habilidade medida, `get_player_dossier`) | F-02 |
+| História | de onde eu vim: escada de categorias, curva de campeonato, temporada por temporada | F-03 |
+| Troféus | o que eu levei: títulos, acervo, primeiras vezes, auge | F-04 |
+| Rivais | contra quem, desde quando, qual o placar | F-05 |
+| Mercado | para onde: contrato, valor, quem está de olho, vagas abertas (`get_season_market_board`) | F-01 |
+
+O cabeçalho (nome, título, licença, lesão, momento, motivação, campeonato) fica FORA das pílulas,
+sempre visível: é ele, e não as seções, que responde ao buraco de identidade do F-02 — o modal
+resolvia "ver um piloto" e nunca foi um lugar onde voltar.
 
 ### 25.3 Estado (Zustand)
 
 `useCareerStore.js` é o hub, e hoje é só a **composição** dos slices de `src/stores/career/`
-(`careerSlice`, `raceSlice`, `marketSlice`, `seasonSlice`, `preRaceCacheSlice`) sobre o
-`initialState` de `career/state.js`. Todos recebem o mesmo par `(set, get)`, então compartilham um
+(`careerSlice`, `raceSlice`, `marketSlice`, `seasonSlice`, `blocoEspecialSlice`,
+`preRaceCacheSlice`) sobre o `initialState` de `career/state.js`. Todos recebem o mesmo par `(set, get)`, então compartilham um
 estado único e uma ação chama a de outro domínio via `get()`. Os `invoke` ficam nos slices e, quando
 o dado é local de uma tela, em hooks `use*.js` dentro de `components/`.
 
 O outro store vivo é `useAttentionStore`, trivial.
 
-### 25.4 Seletor de versão V1/V2
+### 25.4 O seletor de versão V1/V2, que não existe mais
 
-`DriverDetailModal` e `TeamHistoryDrawer` têm as duas árvores vivas atrás de um seletor explícito
-(`driver/index.js` e `team/history/index.js`, com `VERSION = 2` e o comentário "voltar para o v1 é
-reverter esta linha"). Isso é alavanca de rollback declarada. Cortar exige decidir que o rollback
-deixou de ser necessário, o que é decisão de produto.
+**Os três seletores foram removidos em 11/08/2026, e com eles as árvores V1.** Esta seção descrevia
+`DriverDetailModal` e `TeamHistoryDrawer` com as duas árvores vivas atrás de um `VERSION = 2` e o
+comentário "voltar para o v1 é reverter esta linha" — a alavanca de rollback declarada. O rollback
+deixou de ser necessário e a decisão foi tomada.
 
-A árvore V1 da tela de resultado de corrida foi removida em 11/08/2026, registrada em
+O que sobrou nos dois `index.js` (`driver/index.js` e `team/history/index.js`) é **só o reexport**
+que preserva os nomes antigos: `DriverDetailModalV2` sai como `DriverDetailModal` e
+`TeamHistoryDrawerV2` como `TeamHistoryDrawer`, para os consumidores não precisarem mudar de import.
+O comentário de cada arquivo registra que houve seletor ali. A normalização de payload que morava
+dentro do V1 do dossiê de equipe ficou em `team/teamHistoryDossier.js`.
+
+A árvore V1 da tela de resultado de corrida (`race/RaceResultView.jsx` mais `race/raceresult/`, 15
+arquivos e 1.681 linhas) foi removida no mesmo dia, e essa não tinha nem seletor — não tinha
+importador nenhum, e escapava do guard de i18n por carregar `i18n-ignore-file`. Tudo registrado em
 [divida-tecnica.md](divida-tecnica.md).
 
 ### 25.5 Design system (`index.css`), valores aprovados
@@ -1218,18 +1330,16 @@ Cada passo persiste no SQLite, com autosave e backup por temporada protegendo o 
 
 **Operacional:** simulação com tráfego e estratégia, quebra de peça, pontuação, evolução, mercado
 com assédio, promoção, finanças e economia nova, notícia determinística e por IA, interesse de
-evento no backend, arquivo histórico, integração completa com o iRacing, engenheiro de pista com
-voz e PTT, spotter, overlays e VR, telemetria de produto, backup e restauração.
+evento de ponta a ponta (backend e UI), arquivo histórico, integração completa com o iRacing,
+engenheiro de pista com voz e PTT, spotter, overlays e VR, telemetria de produto, backup e
+restauração, e a **aba Carreira** — a lente do protagonista, com ficha do piloto, temporadas
+passadas, sala de troféus, rivais e mercado em temporada (§25.2).
 
 **Pendências conhecidas**, com o raciocínio em [roadmap.md](roadmap.md) e a lista com id em
 [backlog.md](backlog.md):
 
-- **História das temporadas passadas** (F-03, F-04, F-05): o backend é rico
-  (`db/queries/race_history/`, `world/`) e não existe tela onde o jogador olhe para trás. É o maior
-  buraco de produto aberto.
-- **Ficha do próprio piloto** (F-02): o jogador se enxerga com a lente de observador do mundo, pelo
-  mesmo `DriverDetailModal` que serve para qualquer piloto do grid.
-- **UI de espectadores** (F-07): backend completo, UI básica (§17.1).
+- **Etapa B do boletim e consequência da hierarquia interna** (o que sobrou do D-09): deixou de ser
+  dívida técnica e virou decisão de design, a ser discutida junto do produto.
 - **Dois painéis de iRacing órfãos** (§19.6): ligar ou apagar.
 - **Fases legadas da convocação** (D-01) e **tabela `races` órfã e vazia** (D-02). Os dois foram
   reenquadrados em 11/08/2026, e nos dois o que falta é decisão do dono, e não limpeza.
@@ -1272,7 +1382,7 @@ prioridade.
 | [spotter-obstaculo.md](spotter-obstaculo.md), [radio-carga.md](radio-carga.md) | o spotter e a carga do canal | vigente |
 | [ai-mention-tags.md](ai-mention-tags.md) | marcação de menção de piloto no texto de IA | vigente |
 | [varredura-bugs-2026-07.md](varredura-bugs-2026-07.md) | os 6 achados de julho, com veredito | ✅ fechada em 11/08/2026 |
-| [database-network-diagram.mmd](database-network-diagram.mmd), [database-core-flow.mmd](database-core-flow.mmd), [database-modules-flow.mmd](database-modules-flow.mmd), [database-flow-improvement-notes.md](database-flow-improvement-notes.md) | mapas do banco | vigente, regerados em 11/08/2026 contra o v63 |
+| [database-network-diagram.mmd](database-network-diagram.mmd), [database-core-flow.mmd](database-core-flow.mmd), [database-modules-flow.mmd](database-modules-flow.mmd), [database-flow-improvement-notes.md](database-flow-improvement-notes.md) | mapas do banco | vigente, regerados em 11/08/2026 contra o v63 (o v64 não mexe em schema, só normaliza texto gravado) |
 
 ---
 

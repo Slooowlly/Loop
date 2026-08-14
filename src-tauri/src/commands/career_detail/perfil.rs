@@ -36,7 +36,11 @@ pub(super) fn build_driver_health_block(
         saude_geral: None,
         lesao_ativa: Some(DriverActiveInjuryBlock {
             nome: Some(injury_name),
-            tipo: injury.injury_type.as_str().to_string(),
+            // A CHAVE do fio ("light"/"moderate"/…), não a grafia do banco. A ficha
+            // usava `as_str()` e mandava "Moderada" para a tela, que a imprimia crua:
+            // em en-US saía português, e acentuar "Critica" no backend — o que a
+            // regra de copy do projeto pede — teria trocado o rótulo em silêncio.
+            tipo: injury.injury_type.chave().to_string(),
             corrida_ocorrida_id: injury.race_occurred,
             corrida_ocorrida_rotulo: occurred_label,
             corrida_ocorrida_rodada: race.as_ref().map(|entry| entry.rodada),
@@ -200,7 +204,13 @@ pub(super) fn build_driver_profile_block(
     category_id: Option<&str>,
     badges: Vec<DriverBadge>,
 ) -> DriverProfileBlock {
-    let (bandeira, nacionalidade_label) = split_nationality(&driver.nacionalidade);
+    // A bandeira e o gentílico saem do rótulo de DISPLAY, não do gravado: o save
+    // congelou a forma em vigor na geração do piloto (e saves antigos gravaram sem
+    // acento), e a ficha precisa falar o idioma de quem está lendo agora.
+    let (bandeira, nacionalidade_label) = split_nationality(&nationality_display_label(
+        &driver.nacionalidade,
+        &driver.genero,
+    ));
 
     DriverProfileBlock {
         nome: driver.nome.clone(),

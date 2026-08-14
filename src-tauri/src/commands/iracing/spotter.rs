@@ -21,10 +21,7 @@ pub fn iracing_spotter_status() -> SpotterStatus {
 /// o deixou, e o boot seguinte tenta de novo. Ao contrário, o interruptor voltaria
 /// sozinho e pareceria um botão quebrado.
 #[tauri::command]
-pub fn iracing_spotter_set(
-    app: tauri::AppHandle,
-    enabled: bool,
-) -> Result<SpotterStatus, String> {
+pub fn iracing_spotter_set(app: tauri::AppHandle, enabled: bool) -> Result<SpotterStatus, String> {
     use tauri::Manager;
 
     let base_dir = app

@@ -64,7 +64,6 @@ fn ordem_da_virada_de_temporada_preservada() {
         "roll_up_team_career_history(&tx",
         "update_team_morale_from_season(&tx",
         "update_bonds_from_season(&tx",
-        "process_constructor_battle_rivalry(&tx",
         // 5. Dinheiro e ciclo de falência, ainda na categoria em que a equipe correu.
         "award_constructor_prizes(&tx",
         "process_collapse_lifecycle(&tx",
@@ -76,13 +75,33 @@ fn ordem_da_virada_de_temporada_preservada() {
         "process_teammate_season_rivalry(&tx",
         "process_track_season_rivalry(&tx",
         "apply_season_end_team_rivalry_decay(&tx",
+        "process_constructor_battle_rivalry(&tx",
         // 8. Temporada nova e mercado da pré-temporada.
         "create_next_season_phase(&tx",
         "initialize_preseason_phase(&tx",
         // 9. Motivação do offseason por último: precisa do mercado já resolvido.
         "apply_offseason_motivation(&tx",
         "tx.commit()",
+        // 10. O plano da pré-temporada é um arquivo, e arquivo não entra na transação:
+        //     só vai para o lugar depois do banco confirmado.
+        "staging.publicar()",
     ]);
+}
+
+/// O `preseason_plan.json` não pode ser publicado antes do commit. Publicá-lo antes é
+/// exatamente o bug que deixava um plano novo de pé em cima de um banco que voltou
+/// atrás — e o `remove_file` pendurado no erro de `commit` cobria uma única saída de
+/// erro entre as várias que a virada tem.
+#[test]
+fn plano_da_pre_temporada_so_e_publicado_depois_do_commit() {
+    assert!(
+        pos("tx.commit()") < pos("staging.publicar()"),
+        "o plano da pré-temporada está sendo publicado antes do commit"
+    );
+    assert!(
+        !FONTE.contains("save_preseason_plan("),
+        "a virada voltou a gravar o plano direto no arquivo definitivo, fora do staging"
+    );
 }
 
 #[test]
@@ -97,6 +116,14 @@ fn vereditos_de_temporada_rodam_depois_do_decaimento() {
     assert!(
         decaimento < pos("process_track_season_rivalry(&tx"),
         "rivalidade de pista rodando antes do decaimento anual"
+    );
+    // A briga de construtores é o mesmo caso, do lado das EQUIPES: rodando antes do
+    // decaimento dela, o par não decisor nascia em (4, 10), saía em (4, 5) e era apagado
+    // na mesma transação.
+    assert!(
+        pos("apply_season_end_team_rivalry_decay(&tx")
+            < pos("process_constructor_battle_rivalry(&tx"),
+        "briga de construtores rodando antes do decaimento anual de equipe"
     );
 }
 

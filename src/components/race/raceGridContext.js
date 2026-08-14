@@ -62,7 +62,7 @@ export function buildFormChips(driver) {
     if (result.is_dnf) {
       return {
         label: "DNF",
-        tone: "border-status-red/30 bg-status-red/12 text-status-red",
+        tone: "border-status-red/30 bg-status-red/[0.12] text-status-red",
       };
     }
 

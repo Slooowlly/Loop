@@ -3,8 +3,11 @@
 // Objetivo: quando você adiciona/edita UI e esquece de passar por i18n, este scanner
 // aponta arquivo:linha exatos para traduzir. Roda de 3 jeitos:
 //   • no teste `src/i18n/i18nCoverage.test.js` (falha a suíte quando há pendência);
-//   • no hook de pre-commit (`--staged`, checa só os .jsx no stage);
+//   • no hook de pre-commit (`--staged`, checa só o que está no stage, LENDO O BLOB DO ÍNDICE);
 //   • na mão: `npm run i18n:audit`.
+//
+// A linha é varrida DEPOIS de tirar dela as chamadas `t(...)`, e não pulada por conter uma. A
+// linha traduzida pela metade é o caso mais comum, e era o que sumia.
 //
 // COMO MARCAR EXCEÇÕES INTENCIONAIS (sem allowlist central):
 //   • `i18n-ignore` em qualquer lugar da linha (ou na linha imediatamente acima) → pula a linha.
@@ -12,9 +15,10 @@
 //   • `i18n-ignore-file` em qualquer lugar do arquivo → pula o arquivo inteiro
 //     (ex.: telas de dados-de-exemplo/WIP, ou código morto).
 //
-// LIMITAÇÃO consciente: varre só `.jsx`. Prosa retornada de módulos `.js` (ex.: helpers de
-// fato/display) NÃO é coberta aqui — essa continua no olho + no guard de paridade
-// `localeParity.test.js` + no guard de acentos `scripts/tests/portuguese-copy-accents`.
+// COBERTURA: `.jsx` e `.js` (fora os `*.test.*`). O `.jsx` é varrido pelas formas de JSX
+// listadas abaixo; o `.js` é varrido por LITERAL DE TEXTO, porque num helper a copy não tem
+// tag em volta — ela é o valor de retorno, o item do array, o rótulo do mapa. Ver
+// `varreduraJs` e o baseline em `scripts/i18nBaseline.mjs`.
 //
 // O QUE ELE ENXERGA dentro do `.jsx` (as cinco formas de escrever copy):
 //   1. nó de texto na mesma linha das tags:  <p>Texto</p>
@@ -31,7 +35,9 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+
+import { BASELINE_JS } from "./i18nBaseline.mjs";
 
 // Raiz do repo: sobe a partir do CWD até achar um package.json (funciona rodando de
 // qualquer subpasta, no vitest, no hook e no `npm run`). Evita depender de import.meta.url,
@@ -113,38 +119,192 @@ function parteFixa(texto) {
   return texto.replace(/\$\{[^}]*\}/g, " ");
 }
 
-function listJsxFiles() {
+/// A chamada de tradução, trocada por um MARCADOR antes da varredura.
+///
+/// Antes, a linha inteira era pulada quando continha `t(`. A conta parecia boa e não era: uma
+/// linha traduzida PELA METADE é o caso mais comum de todos, e era exatamente o que sumia.
+/// `<span>{t("titulos")}: {n} vitórias</span>` tem uma chave e duas palavras cruas, e o auditor
+/// dava a linha por resolvida por causa da chave.
+///
+/// O marcador é um identificador sem acento e fora da lista de palavras PT, e mantém as chaves
+/// em volta (`{t("x")}` vira `{TRADUZIDO}`), então os padrões de "prosa colada a expressão"
+/// continuam vendo a fronteira e pegam a metade que ficou de fora.
+const MARCADOR = "TRADUZIDO";
+
+/// Fim da chamada iniciada no parêntese `abre`, contando aninhamento e ignorando parêntese
+/// dentro de literal de texto (`t("Vencedor (provisório)")` fecharia cedo demais).
+function fimDaChamada(linha, abre) {
+  let nivel = 0;
+  let aspa = null;
+  for (let i = abre; i < linha.length; i += 1) {
+    const c = linha[i];
+    if (aspa) {
+      if (c === "\\") i += 1;
+      else if (c === aspa) aspa = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") aspa = c;
+    else if (c === "(") nivel += 1;
+    else if (c === ")") {
+      nivel -= 1;
+      if (nivel === 0) return i + 1;
+    }
+  }
+  return -1; // chamada que atravessa a linha: melhor deixar como está
+}
+
+/** Troca cada `t(...)` / `i18n.t(...)` pelo marcador, preservando o resto da linha. */
+export function mascararTraduzido(linha) {
+  const re = /(^|[^A-Za-z0-9_$])(?:i18n\.)?t\(/g;
+  let saida = "";
+  let cursor = 0;
+  let m;
+  while ((m = re.exec(linha)) !== null) {
+    const abre = m.index + m[0].length - 1;
+    const fim = fimDaChamada(linha, abre);
+    if (fim < 0) break;
+    saida += linha.slice(cursor, m.index + m[1].length) + MARCADOR;
+    cursor = fim;
+    re.lastIndex = fim;
+  }
+  return saida + linha.slice(cursor);
+}
+
+// ── varredura do `.js` ───────────────────────────────────────────────────────────────────
+//
+// Num helper `.js` a copy não tem tag em volta: ela é o valor de retorno, o item do array, o
+// rótulo do mapa. Então aqui o alvo é o LITERAL DE TEXTO, e o trabalho todo é separar prosa de
+// código. Os descartes abaixo são estruturais e valem para o arquivo inteiro; o passivo que
+// sobrou depois deles está listado, string por string, em `scripts/i18nBaseline.mjs`.
+
+/// Extensão de asset: `"Autódromo Nazionale Monza.jpg"` é NOME DE ARQUIVO, não copy.
+const ARQUIVO_DE_ASSET = /\.(jpe?g|png|webp|svg|gif|mp3|ogg|opus|wav|json|css|jsx?|mjs|rs|yml)$/i;
+
+/// Argumento de `console.*` é diagnóstico de desenvolvimento: nunca chega na tela, e traduzir
+/// log só atrapalha quem lê o console. A linha inteira é pulada.
+const DIAGNOSTICO = /console\.[a-z]+\s*\(/;
+
+/// Um literal por vez, andando na linha e respeitando aspas/crase/escape. Para no `//` e no
+/// `/*` fora de string, que é o que tira o comentário de fim de linha da varredura — sem isso
+/// todo comentário em português viraria pendência de tradução.
+function literaisDaLinha(linha) {
+  const achados = [];
+  let i = 0;
+  while (i < linha.length) {
+    const c = linha[i];
+    if (c === "/" && (linha[i + 1] === "/" || linha[i + 1] === "*")) break;
+    if (c === '"' || c === "'" || c === "`") {
+      let j = i + 1;
+      let texto = "";
+      while (j < linha.length && linha[j] !== c) {
+        if (linha[j] === "\\") {
+          j += 2;
+          texto += " ";
+          continue;
+        }
+        texto += linha[j];
+        j += 1;
+      }
+      if (j >= linha.length) break; // literal que atravessa a linha: fica de fora
+      achados.push({
+        texto,
+        antes: linha.slice(Math.max(0, i - 1), i),
+        depois: linha.slice(j + 1, j + 2),
+      });
+      i = j + 1;
+      continue;
+    }
+    i += 1;
+  }
+  return achados;
+}
+
+/// Literal que é CHAVE, IDENTIFICADOR ou DADO, e não copy.
+function ehCodigo({ texto, antes, depois }) {
+  if (depois === ":") return true; // chave de objeto: `"corrida": ...`
+  if (antes === ".") return true; // acesso por membro
+  if (/^[\w.\-/@#%]+$/.test(texto)) return true; // token único (id, classe, caminho, evento)
+  return ARQUIVO_DE_ASSET.test(texto);
+}
+
+/// Interpolação vira espaço e o espaço em excesso colapsa, para o texto do baseline não mudar
+/// quando alguém renomeia a variável dentro do template.
+function normalizar(texto) {
+  return parteFixa(texto).replace(/\s+/g, " ").trim();
+}
+
+function varreduraJs(rel, lines, { aplicarBaseline = true } = {}) {
+  const permitido = aplicarBaseline ? (BASELINE_JS[rel] ?? []) : [];
+  const found = [];
+  for (let i = 0; i < lines.length; i++) {
+    const bruta = lines[i];
+    if (/^\s*(\/\/|\*|\/\*)/.test(bruta)) continue; // linha de comentário
+    if (IGNORE_LINE.test(bruta) || IGNORE_LINE.test(lines[i - 1] ?? "")) continue;
+    if (/^\s*import\s|require\(/.test(bruta)) continue; // caminho de módulo
+    if (DIAGNOSTICO.test(bruta)) continue;
+    for (const lit of literaisDaLinha(mascararTraduzido(bruta))) {
+      if (ehCodigo(lit)) continue;
+      const text = normalizar(lit.texto);
+      if (!text) continue;
+      if (!PT.test(` ${text} `)) continue;
+      if (permitido.includes(text)) continue;
+      found.push({ file: rel, line: i + 1, text });
+    }
+  }
+  return found;
+}
+
+function listarArquivosDeUI() {
   return readdirSync(SRC, { recursive: true })
     .map((p) => (typeof p === "string" ? p : p.toString()))
-    .filter((p) => p.endsWith(".jsx") && !p.endsWith(".test.jsx"))
+    .filter((p) => ehArquivoDeUI(`src/${p.split(sep).join("/")}`))
     .map((p) => join(SRC, p));
 }
 
-function stagedJsxFiles() {
-  const out = execSync("git diff --cached --name-only --diff-filter=ACM", { cwd: ROOT, encoding: "utf8" });
+function ehArquivoDeUI(rel) {
+  if (!rel.startsWith("src/")) return false;
+  if (/\.test\.jsx?$/.test(rel)) return false;
+  return rel.endsWith(".jsx") || rel.endsWith(".js");
+}
+
+/// Os arquivos de UI no stage (.jsx e .js), LIDOS DO ÍNDICE.
+///
+/// A diferença importa no hook de pre-commit, que é onde este modo roda. O que vai ser commitado
+/// é o blob do índice, e ele pode não ser o que está no disco: `git add` de um arquivo seguido de
+/// mais edições, `git add -p` de um pedaço só, `git stash` de meio caminho. Lendo o disco, o hook
+/// julgava um texto que ninguém ia commitar — deixando passar a string crua que estava no índice,
+/// e bloqueando o commit por uma que ainda estava sendo escrita.
+function stagedBlobs() {
+  const out = execFileSync("git", ["diff", "--cached", "--name-only", "--diff-filter=ACM"], {
+    cwd: ROOT,
+    encoding: "utf8",
+  });
   return out
     .split("\n")
     .map((s) => s.trim())
-    .filter((s) => s.startsWith("src/") && s.endsWith(".jsx") && !s.endsWith(".test.jsx"))
-    .map((s) => join(ROOT, s));
+    .filter(ehArquivoDeUI)
+    .map((rel) => {
+      try {
+        return { rel, src: execFileSync("git", ["show", `:${rel}`], { cwd: ROOT, encoding: "utf8" }) };
+      } catch {
+        return null; // sumiu do índice entre o `diff` e o `show`
+      }
+    })
+    .filter(Boolean);
 }
 
-function scanFile(absPath) {
-  let src;
-  try {
-    src = readFileSync(absPath, "utf8");
-  } catch {
-    return []; // staged mas deletado / ilegível
-  }
+export function scanTexto(rel, src) {
   if (IGNORE_FILE.test(src)) return [];
   const lines = src.split("\n");
+  if (rel.endsWith(".js")) return varreduraJs(rel, lines);
   const found = [];
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const bruta = lines[i];
     const prev = lines[i - 1] ?? "";
-    if (/^\s*(\/\/|\*|\/\*)/.test(line)) continue; // linha de comentário
-    if (/\bt\(/.test(line) || /i18n\.t/.test(line)) continue; // já traduzida
-    if (IGNORE_LINE.test(line) || IGNORE_LINE.test(prev)) continue; // marcada
+    if (/^\s*(\/\/|\*|\/\*)/.test(bruta)) continue; // linha de comentário
+    if (IGNORE_LINE.test(bruta) || IGNORE_LINE.test(prev)) continue; // marcada
+    // A chamada de tradução sai da linha; o que sobra é o que ainda NÃO passou por `t()`.
+    const line = mascararTraduzido(bruta);
     const hits = [
       ...[...line.matchAll(TEXT_NODE)].map((m) => m[1]),
       ...[...line.matchAll(UI_ATTR)].map((m) => m[1]),
@@ -156,27 +316,79 @@ function scanFile(absPath) {
     ];
     for (const text of hits) {
       if (PT.test(` ${text} `)) {
-        found.push({ file: relative(ROOT, absPath).split(sep).join("/"), line: i + 1, text: text.trim() });
+        found.push({ file: rel, line: i + 1, text: text.trim() });
       }
     }
   }
   return found;
 }
 
-/** Retorna [{file, line, text}] de UI em PT fora de t(). `opts.staged` limita aos .jsx no stage. */
+function scanFile(absPath) {
+  let src;
+  try {
+    src = readFileSync(absPath, "utf8");
+  } catch {
+    return []; // sumiu do disco / ilegível
+  }
+  return scanTexto(relative(ROOT, absPath).split(sep).join("/"), src);
+}
+
+/**
+ * Retorna [{file, line, text}] de UI em PT fora de t().
+ *
+ * `opts.staged` limita aos arquivos de UI no stage e lê o BLOB DO ÍNDICE, que é o texto que vai
+ * ser commitado — não o do disco, que pode já estar adiante dele.
+ */
 export function runAudit(opts = {}) {
-  const files = opts.staged ? stagedJsxFiles() : listJsxFiles();
-  return files.flatMap(scanFile);
+  if (opts.staged) return stagedBlobs().flatMap(({ rel, src }) => scanTexto(rel, src));
+  return listarArquivosDeUI().flatMap(scanFile);
+}
+
+/**
+ * Entradas do baseline que o auditor NÃO encontra mais — string traduzida, arquivo apagado,
+ * texto reescrito. Baseline que sobra é baseline que envelhece: a linha morta continua
+ * liberando um texto que ninguém escreve mais, e o próximo que reintroduzir a mesma frase passa
+ * batido. Só faz sentido na varredura completa (o `--staged` vê um recorte dos arquivos).
+ */
+export function baselineOrfa() {
+  const orfas = [];
+  for (const [rel, textos] of Object.entries(BASELINE_JS)) {
+    const vivos = new Set(textosCrusDoArquivo(rel));
+    for (const texto of textos) {
+      if (!vivos.has(texto)) orfas.push({ file: rel, text: texto });
+    }
+  }
+  return orfas;
+}
+
+/// Tudo que a varredura de `.js` apontaria no arquivo se o baseline não existisse.
+function textosCrusDoArquivo(rel) {
+  let src;
+  try {
+    src = readFileSync(join(ROOT, rel), "utf8");
+  } catch {
+    return []; // arquivo apagado ou renomeado: toda entrada dele é órfã
+  }
+  if (IGNORE_FILE.test(src)) return [];
+  return varreduraJs(rel, src.split("\n"), { aplicarBaseline: false }).map((v) => v.text);
 }
 
 // CLI: `node scripts/i18nAudit.mjs [--staged]`
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith("i18nAudit.mjs")) {
   const staged = process.argv.includes("--staged");
   const violations = runAudit({ staged });
-  if (violations.length === 0) {
+  const orfas = staged ? [] : baselineOrfa();
+  if (violations.length === 0 && orfas.length === 0) {
     console.log(`✓ i18n: nenhuma string de UI em português fora de t()${staged ? " (arquivos no stage)" : ""}.`);
     process.exit(0);
   }
+  if (orfas.length > 0) {
+    console.error(`\n✗ i18n: ${orfas.length} entrada(s) do baseline de .js que o auditor não acha mais:\n`);
+    for (const o of orfas) console.error(`  ${o.file}  "${o.text}"`);
+    console.error(`\nApague a(s) linha(s) em scripts/i18nBaseline.mjs — baseline que sobra volta a liberar`);
+    console.error(`a frase quando alguém reintroduzir ela.\n`);
+  }
+  if (violations.length === 0) process.exit(1);
   console.error(`\n✗ i18n: ${violations.length} string(s) de UI em português ainda não traduzida(s):\n`);
   for (const v of violations) console.error(`  ${v.file}:${v.line}  "${v.text}"`);
   console.error(`\nEnvolva em t("chave") (+ adicione a chave nos dois common.json), ou marque como`);

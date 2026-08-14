@@ -1549,6 +1549,15 @@ iracing_estado_agora   iracing_reset_race   iracing_career_race_result
 iracing_throw_yellow   iracing_send_chat_macro   iracing_spotter_restore
 ```
 
+> ⚠️ **Esta lista é um retrato de quando o documento foi escrito, e quatro nomes dela já não existem.**
+> `advance_transfer_window`, `get_driver`, `get_window_maximized` e `toggle_maximize_window` foram
+> removidos do `generate_handler!` **e do crate** em 11/08/2026 (registro em
+> [divida-tecnica.md](divida-tecnica.md)). O inventário vivo não é mais uma lista em prosa: está
+> congelado em `SEM_CONSUMIDOR_CONHECIDO`, no guard
+> [`invoke-contra-generate-handler`](../scripts/tests/invoke-contra-generate-handler.test.mjs), que
+> quebra quando a lista muda. Rode `node --test scripts/tests/invoke-contra-generate-handler.test.mjs`
+> em vez de conferir contra este bloco.
+
 ## Parte 5 — Decisões travadas
 
 1. **O jogador só pilota.** A economia é simulação de mundo, não camada de gestão. Nenhuma

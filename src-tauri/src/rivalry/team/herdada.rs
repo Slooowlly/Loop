@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use rusqlite::Connection;
 
 use crate::db::connection::DbError;
-use crate::models::rivalry::normalize_pair;
+use crate::models::rivalry::normalize_team_pair;
 use crate::models::team_rivalry::TeamRivalryType;
 
 use super::motor::{apply_team_rivalry_event, TeamRivalryEvent};
@@ -44,18 +44,18 @@ pub fn process_driver_rivalry_bleed(
         if ta == tb {
             continue;
         }
-        let Some(pair) = normalize_pair(ta, tb) else {
+        let Some(pair) = normalize_team_pair(ta, tb) else {
             continue;
         };
         // Dedupe: dois pares de pilotos podem mapear pro mesmo par de times.
-        if !seen.insert((pair.piloto1_id.clone(), pair.piloto2_id.clone())) {
+        if !seen.insert((pair.team1_id.clone(), pair.team2_id.clone())) {
             continue;
         }
         let applied = apply_team_rivalry_event(
             conn,
             &TeamRivalryEvent {
-                team_a: pair.piloto1_id.clone(),
-                team_b: pair.piloto2_id.clone(),
+                team_a: pair.team1_id.clone(),
+                team_b: pair.team2_id.clone(),
                 tipo: TeamRivalryType::Herdada,
                 historical_delta: 1.0,
                 recent_delta: 3.0,
@@ -66,8 +66,8 @@ pub fn process_driver_rivalry_bleed(
             conn,
             &applied,
             TeamRivalryType::Herdada,
-            &pair.piloto1_id,
-            &pair.piloto2_id,
+            &pair.team1_id,
+            &pair.team2_id,
             Some(categoria_id),
             Some(rodada),
             temporada,

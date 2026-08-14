@@ -631,3 +631,474 @@ fn o_arredondamento_nunca_poe_o_minimo_acima_do_maximo() {
 fn a_banda_respeita_o_teto_de_125_do_iracing() {
     assert_eq!(limites_da_banda(-4.0, 900.0), (0, 125));
 }
+
+// ─── Rastro do adaptativo no log ─────────────────────────────────────────────
+//
+// A linha do rastro é a única prova de que a dificuldade adaptativa rodou: o jogador não
+// vê o ajuste (de propósito) e o perfil em disco só é escrito quando a agulha se move. O
+// adaptativo ficou anos com o painel desligado sem que ninguém percebesse, e foi a cadeia
+// `[import]` → `[adaptativo]` no loop.log que fechou a dúvida. Estes testes travam a
+// condição e o formato dessa linha sem precisar de uma corrida real no sim.
+
+fn rastro_de_exemplo() -> RastroDoAdaptativo<'static> {
+    RastroDoAdaptativo {
+        aplicado: true,
+        custid: 123456,
+        track_id: 18,
+        track_name: Some("Okayama"),
+        classe: 84,
+        ias_na_classe: 19,
+        carros: 20,
+        com_contexto_de_carro: true,
+        ritmo: "-1.20%/volta",
+        verdict: "Dominou → sobe",
+        global_antes: 0,
+        global_delta: 5,
+        global_depois: 5,
+        pista_antes: 0,
+        pista_delta: 5,
+        pista_depois: 5,
+    }
+}
+
+#[test]
+fn o_rastro_de_sucesso_abre_com_ajuste_aplicado_e_traz_custid_pista_e_delta() {
+    let linha = linha_do_rastro(&rastro_de_exemplo());
+
+    assert!(
+        linha.starts_with("Ajuste aplicado"),
+        "o desfecho tem de abrir a linha: {linha}"
+    );
+    // Os três fatos que o item pediu: de quem é o perfil, onde foi e quanto andou.
+    assert!(linha.contains("custid 123456"), "{linha}");
+    assert!(linha.contains("pista 18 (Okayama)"), "{linha}");
+    assert!(linha.contains("global 0+5=5"), "{linha}");
+    assert!(linha.contains("pista 0+5=5"), "{linha}");
+}
+
+#[test]
+fn o_rastro_sem_mudanca_nao_se_confunde_com_o_de_sucesso() {
+    let mut r = rastro_de_exemplo();
+    r.aplicado = false;
+    r.global_delta = 0;
+    r.global_depois = 0;
+    r.pista_delta = 0;
+    r.pista_depois = 0;
+    r.verdict = "Trânsito → mantém";
+    let linha = linha_do_rastro(&r);
+
+    assert!(linha.starts_with("Sem ajuste (nada a mudar)"), "{linha}");
+    assert!(
+        !linha.contains("Ajuste aplicado"),
+        "a passada sem gravação não pode dizer que aplicou: {linha}"
+    );
+    // Delta zero continua explícito — "+0" é o que separa "rodou e não mexeu" de "não rodou".
+    assert!(linha.contains("global 0+0=0"), "{linha}");
+}
+
+#[test]
+fn o_rastro_registra_o_custid_zero_em_vez_de_esconde_lo() {
+    // custid 0 é o caso em que o SDK não devolveu a conta e o perfil vai para o arquivo
+    // errado (`0.json`). É o sintoma mais caro de esconder do log.
+    let mut r = rastro_de_exemplo();
+    r.custid = 0;
+    assert!(linha_do_rastro(&r).contains("custid 0"));
+}
+
+#[test]
+fn o_rastro_sobrevive_a_pista_sem_nome_no_catalogo() {
+    let mut r = rastro_de_exemplo();
+    r.track_id = 9999;
+    r.track_name = None;
+    let linha = linha_do_rastro(&r);
+    assert!(linha.contains("pista 9999 ·"), "{linha}");
+    assert!(
+        !linha.contains("()"),
+        "sem nome não pode sobrar parêntese vazio: {linha}"
+    );
+}
+
+#[test]
+fn o_rastro_mantem_o_recorte_de_classe_e_o_bilhete_de_carro() {
+    // Sem estes dois campos não dá para responder, lendo o log, se o multiclasse comparou
+    // os carros certos nem se o mecanismo 2 achou o contexto do export.
+    let linha = linha_do_rastro(&rastro_de_exemplo());
+    assert!(linha.contains("classe 84: 19 IA de 20 carros"), "{linha}");
+    assert!(linha.contains("carro sim"), "{linha}");
+
+    let mut sem_contexto = rastro_de_exemplo();
+    sem_contexto.com_contexto_de_carro = false;
+    assert!(linha_do_rastro(&sem_contexto).contains("carro não"));
+}
+
+// ─── Montagem pura do contexto do piloto (A5.1) ──────────────────────────────
+// O comando `iracing_generate_roster` ficou só com a orquestração: ele LÊ o banco e passa os
+// campos crus adiante. Tudo o que DECIDE mora em funções puras, e é isto que se cobre aqui.
+
+fn vinculo_de_exemplo() -> VinculoDoPiloto {
+    VinculoDoPiloto {
+        contrato: Some((5, 7)),
+        bond: 0.0,
+        tier_anterior_da_equipe: None,
+        moral_da_equipe: Some(0.8),
+        trocou_de_equipe: false,
+        corridas_na_carreira: 42,
+        campeao_reinante: false,
+    }
+}
+
+#[test]
+fn o_contrato_no_ultimo_ano_acende_no_ano_do_fim_e_nao_antes() {
+    let mut v = vinculo_de_exemplo(); // contrato de 5 a 7
+    assert!(
+        !monta_driver_ctx(&v, 6, 3).contract_last_year,
+        "ainda tem 7"
+    );
+    assert!(monta_driver_ctx(&v, 7, 3).contract_last_year, "acaba em 7");
+    // Contrato vencido (o export rodando depois da virada) continua acusando pressão.
+    assert!(monta_driver_ctx(&v, 8, 3).contract_last_year);
+    // Lua de mel é o espelho: só na temporada em que ele assinou.
+    assert!(monta_driver_ctx(&v, 5, 3).honeymoon);
+    assert!(!monta_driver_ctx(&v, 6, 3).honeymoon);
+    v.contrato = None;
+    let sem = monta_driver_ctx(&v, 6, 3);
+    assert!(
+        !sem.contract_last_year && !sem.honeymoon,
+        "sem contrato não há pressão de renovação nem lua de mel"
+    );
+}
+
+#[test]
+fn piloto_sem_contrato_e_recem_chegado_no_selo_de_vinculo() {
+    // Sem contrato o `bond` do banco nem é lido, então um valor alto sobrando ali não pode
+    // virar selo de veterano da casa.
+    let mut v = vinculo_de_exemplo();
+    v.contrato = None;
+    v.bond = 999.0;
+    assert_eq!(monta_driver_ctx(&v, 6, 3).bond_level, 1);
+}
+
+#[test]
+fn o_piloto_sem_equipe_recebe_a_moral_neutra_e_nao_zero() {
+    // Moral 0.0 seria "time desmoronando", que é uma afirmação. O neutro é 1.0.
+    let mut v = vinculo_de_exemplo();
+    v.moral_da_equipe = None;
+    assert_eq!(monta_driver_ctx(&v, 6, 3).team_morale, 1.0);
+}
+
+#[test]
+fn a_estreia_de_carreira_e_zero_corrida_e_nada_mais() {
+    let mut v = vinculo_de_exemplo();
+    v.corridas_na_carreira = 0;
+    assert!(monta_driver_ctx(&v, 6, 3).career_debut);
+    v.corridas_na_carreira = 1;
+    assert!(!monta_driver_ctx(&v, 6, 3).career_debut);
+}
+
+#[test]
+fn os_campos_da_corrida_alvo_saem_zerados_da_montagem() {
+    // O contrato entre `monta_driver_ctx` e o comando: estes campos só existem depois de
+    // resolver qual é a próxima etapa. Sair com qualquer outra coisa aqui daria ao piloto
+    // uma raiva, uma lesão ou um duelo que ninguém mediu.
+    let ctx = monta_driver_ctx(&vinculo_de_exemplo(), 6, 3);
+    assert_eq!(ctx.teammate_points, None);
+    assert!(!ctx.injury_return);
+    assert_eq!(ctx.injury_active_penalty, 0.0);
+    assert!(!ctx.crashed_out_last_race);
+    assert_eq!(ctx.not_at_fault_dnfs, 0);
+    assert!(!ctx.track_crash);
+    assert!(!ctx.nemesis);
+    assert_eq!(ctx.mechanical_dnfs, 0);
+}
+
+#[test]
+fn o_movimento_de_categoria_e_o_sinal_da_diferenca_de_tier() {
+    assert_eq!(movimento_de_categoria(5, Some(3)), 1);
+    assert_eq!(movimento_de_categoria(3, Some(5)), -1);
+    assert_eq!(
+        movimento_de_categoria(4, Some(4)),
+        0,
+        "mesmo tier não é movimento"
+    );
+    assert_eq!(
+        movimento_de_categoria(4, None),
+        0,
+        "equipe sem passado não move ninguém"
+    );
+}
+
+#[test]
+fn a_lesao_ativa_decai_com_as_corridas_que_faltam() {
+    // Cheia logo depois da batida, metade no meio da recuperação, zero na alta.
+    assert!((penalidade_de_lesao_ativa(0.4, 4, 4) - 0.4).abs() < 1e-9);
+    assert!((penalidade_de_lesao_ativa(0.4, 2, 4) - 0.2).abs() < 1e-9);
+    assert!(penalidade_de_lesao_ativa(0.4, 0, 4).abs() < 1e-9);
+}
+
+#[test]
+fn a_penalidade_de_lesao_nunca_sai_da_faixa_nem_divide_por_zero() {
+    // `races_total = 0` é dado corrompido; o `max(1)` evita o NaN que envenenaria o pace.
+    let p = penalidade_de_lesao_ativa(0.5, 3, 0);
+    assert!(p.is_finite() && (0.0..=1.0).contains(&p), "{p}");
+    // Penalidade absurda no banco continua presa em 1.0 (perder mais que o pace inteiro não
+    // existe), e restante maior que o total não gera mais que a penalidade cheia.
+    assert_eq!(penalidade_de_lesao_ativa(5.0, 4, 4), 1.0);
+    assert!((penalidade_de_lesao_ativa(0.3, 9, 4) - 0.3).abs() < 1e-9);
+    assert_eq!(penalidade_de_lesao_ativa(-0.2, 4, 4), 0.0);
+}
+
+#[test]
+fn o_retorno_de_lesao_vale_da_alta_ate_duas_rodadas_depois() {
+    // Acidente na rodada 4, lesão de 3 corridas → alta na rodada 7.
+    assert!(!e_retorno_recente_de_lesao(6, 4, 3), "ainda lesionado");
+    assert!(e_retorno_recente_de_lesao(7, 4, 3), "a corrida da volta");
+    assert!(e_retorno_recente_de_lesao(9, 4, 3), "duas rodadas depois");
+    assert!(!e_retorno_recente_de_lesao(10, 4, 3), "já esqueceu");
+}
+
+#[test]
+fn a_estreia_do_save_exige_calendario_intocado_e_a_primeira_semana() {
+    let calendario = [(10, false), (12, false), (14, false)];
+    assert!(e_corrida_de_estreia(&calendario, 10));
+    assert!(
+        !e_corrida_de_estreia(&calendario, 12),
+        "segunda etapa não é estreia mesmo com tudo pendente"
+    );
+    let com_uma_corrida = [(10, true), (12, false)];
+    assert!(
+        !e_corrida_de_estreia(&com_uma_corrida, 10),
+        "com etapa concluída o save já rodou"
+    );
+}
+
+#[test]
+fn calendario_vazio_nao_vira_estreia() {
+    // Sem etapa nenhuma o `all` seria vacuamente verdadeiro; a primeira semana em `i32::MAX`
+    // é o que impede o roteiro fixo de clima de acender num calendário que não existe.
+    assert!(!e_corrida_de_estreia(&[], 10));
+}
+
+#[test]
+fn os_sinais_da_corrida_zeram_quem_nao_aparece_em_nenhum() {
+    use std::collections::{HashMap, HashSet};
+
+    let mut ctxs: HashMap<String, crate::iracing_sdk::roster_gen::DriverCtx> = HashMap::new();
+    for id in ["a", "b"] {
+        let mut ctx = monta_driver_ctx(&vinculo_de_exemplo(), 6, 3);
+        // Sujeira da rodada anterior: se a aplicação não for total, ela sobrevive.
+        ctx.crashed_out_last_race = true;
+        ctx.not_at_fault_dnfs = 9;
+        ctx.mechanical_dnfs = 9;
+        ctx.track_crash = true;
+        ctx.nemesis = true;
+        ctxs.insert(id.to_string(), ctx);
+    }
+
+    let mut sinais = SinaisDeAbandono::default();
+    sinais.tirado_na_ultima.insert("a".to_string());
+    sinais.azar.insert("a".to_string(), 2);
+    sinais.mecanico.insert("a".to_string(), 1);
+    let nemeses: HashSet<String> = ["a".to_string()].into_iter().collect();
+    let trauma: HashSet<String> = ["a".to_string()].into_iter().collect();
+
+    aplicar_sinais_de_corrida(&mut ctxs, &sinais, &nemeses, &trauma);
+
+    let a = &ctxs["a"];
+    assert!(a.crashed_out_last_race && a.nemesis && a.track_crash);
+    assert_eq!((a.not_at_fault_dnfs, a.mechanical_dnfs), (2, 1));
+
+    let b = &ctxs["b"];
+    assert!(
+        !b.crashed_out_last_race && !b.nemesis && !b.track_crash,
+        "piloto sem sinal tem de sair limpo, não com o estado anterior"
+    );
+    assert_eq!((b.not_at_fault_dnfs, b.mechanical_dnfs), (0, 0));
+}
+
+#[test]
+fn a_intensidade_de_chuva_e_uma_escada_crescente() {
+    use crate::iracing_sdk::weather::RainIntensity;
+    let escada = [
+        RainIntensity::None,
+        RainIntensity::Light,
+        RainIntensity::Decent,
+        RainIntensity::Heavy,
+        RainIntensity::VeryHeavy,
+    ]
+    .map(intensidade_de_chuva);
+    assert_eq!(escada[0], 0.0, "seco é zero");
+    assert_eq!(escada[4], 1.0, "dilúvio é um");
+    assert!(
+        escada.windows(2).all(|par| par[1] > par[0]),
+        "a escada tem de subir sempre: {escada:?}"
+    );
+}
+
+#[test]
+fn a_banda_de_carro_nao_tira_o_sweet_spot_da_faixa_do_iracing() {
+    assert!((sweet_spot_com_banda(80.0, 5.0) - 85.0).abs() < 1e-9);
+    assert_eq!(
+        sweet_spot_com_banda(120.0, 40.0),
+        125.0,
+        "acima de 125 o iRacing satura"
+    );
+    assert_eq!(
+        sweet_spot_com_banda(10.0, -50.0),
+        0.0,
+        "skill negativa o sim recusa"
+    );
+}
+
+#[test]
+fn a_vantagem_por_numero_ignora_piloto_sem_numero_atribuido() {
+    use std::collections::HashMap;
+
+    let vantagens: HashMap<String, f64> = [("p1".to_string(), 0.3), ("p2".to_string(), -0.1)]
+        .into_iter()
+        .collect();
+    let numeros: HashMap<String, i64> = [("p1".to_string(), 7)].into_iter().collect();
+
+    let por_numero = vantagens_por_numero(&vantagens, &numeros);
+    assert_eq!(por_numero.get("7"), Some(&0.3));
+    assert_eq!(
+        por_numero.len(),
+        1,
+        "número inventado faria o pós-corrida descontar a vantagem do carro errado"
+    );
+}
+
+// ─── Contrato do artefato exportado (categoria → carro e duração) ────────────
+//
+// Os dois riscos que estes casos fecham são de EXPORT SILENCIOSO: categoria não reconhecida
+// caindo em MX-5 por `else`, e a sentinela `0` de duração da categoria virando
+// `race_length: 0` no arquivo. Os dois produziam um arquivo válido para o iRacing e errado
+// para a carreira, sem nada acusando de nenhum dos lados.
+//
+// A cobertura aqui é da CHAMADA DIRETA ao backend, sem passar pela tela: os comandos
+// `iracing_generate_roster`/`iracing_generate_season` exigem `AppHandle` e a pasta do
+// simulador, então o que se prova é a decisão que eles tomam antes de tocar em disco, mais
+// o artefato montado com o valor que eles passariam adiante.
+
+/// O carro do export vem de UMA fonte, e as três pontas (roster, season, pintura) chamam
+/// exatamente essa. Antes eram três regras: a do frontend, a copiada na pintura, e nenhuma
+/// no roster/season, que aceitavam a chave que chegasse.
+#[test]
+fn roster_season_e_pintura_leem_a_mesma_tabela_de_carro() {
+    for categoria in [
+        "mazda_rookie",
+        "toyota_rookie",
+        "mazda_amador",
+        "toyota_amador",
+        "bmw_m2",
+    ] {
+        let chave =
+            super::exportavel::car_key_da_categoria(categoria).expect("categoria suportada");
+        assert!(
+            crate::iracing_sdk::roster_gen::car_spec(chave).is_some(),
+            "{categoria} → {chave} não existe em car_spec"
+        );
+    }
+    for categoria in ["gt4", "gt3", "lmp2", "production_challenger", "endurance"] {
+        assert!(
+            super::exportavel::car_key_da_categoria(categoria).is_err(),
+            "{categoria} precisa ser recusada, não aproximada"
+        );
+    }
+}
+
+/// O critério de aceite do artefato: nenhum `race_length` zero e nenhuma timeline de clima
+/// terminando em zero. Varre o catálogo inteiro com as durações que o calendário realmente
+/// grava para cada categoria — inclusive o sorteio de 120/180/240/360 do Endurance.
+#[test]
+fn nenhum_artefato_de_season_sai_com_duracao_zero() {
+    use crate::calendar::duracao_efetiva;
+    use crate::constants::categories::get_all_categories;
+    use crate::constants::tracks::get_track;
+    use crate::iracing_sdk::season_gen;
+
+    // Rudskogen é a pista baseline e é grátis — o que se mede aqui é duração, não pista.
+    let track = get_track(451).expect("Rudskogen está no catálogo");
+
+    for cat in get_all_categories() {
+        // As durações que `calendar::montagem::resolve_race_duration` grava nas etapas desta
+        // categoria: a constante quando ela existe, o sorteio quando ela é a sentinela.
+        let brutas: Vec<i32> = if cat.duracao_corrida_min > 0 {
+            vec![cat.duracao_corrida_min as i32; 3]
+        } else {
+            vec![120, 180, 240, 360]
+        };
+        let etapas: Vec<crate::car::breakdown::DuracaoDeProva> = brutas
+            .iter()
+            .map(|bruto| duracao_efetiva(*bruto, cat.id))
+            .collect();
+
+        let race_length = match super::exportavel::race_length_da_temporada(&etapas) {
+            Ok(d) => d,
+            // Temporada que o formato não representa não vira arquivo nenhum, que é o
+            // desfecho pedido. O Endurance cai aqui.
+            Err(motivo) => {
+                assert!(
+                    cat.duracao_corrida_min == 0,
+                    "{} tem duração fixa e não deveria ser recusada: {motivo}",
+                    cat.id
+                );
+                continue;
+            }
+        };
+        let race_end = race_length.minutos() as i64;
+        assert!(race_end > 0, "{} produziu race_length zero", cat.id);
+
+        // A timeline do clima termina no fim da corrida. Com `race_end` zero o último
+        // keyframe caía em 0 e a corrida acabava antes de começar, do ponto de vista do sim.
+        let (ew, _) = build_event_weather(
+            track, 20, 2026, cat.tier, 0, 0xC0FFEE, false, race_end, false, false,
+        );
+        let ultimo = ew
+            .keyframes
+            .last()
+            .expect("a timeline precisa ter ao menos um keyframe");
+        assert!(
+            ultimo.time_offset > 0,
+            "{} terminou a timeline do clima em {}",
+            cat.id,
+            ultimo.time_offset
+        );
+
+        // `EventWeather` não é `Clone` (é um bloco de saída, usado uma vez por evento), então
+        // o clima global sai de uma segunda montagem em vez de uma cópia.
+        let (global, _) = build_event_weather(
+            track, 20, 2026, cat.tier, 0, 0xBADC0DE, false, race_end, false, false,
+        );
+        let params = season_gen::SeasonParams {
+            roster_name: "Contrato".to_string(),
+            name: format!("{} - 2026", cat.nome_curto),
+            car_id: 67,
+            car_class_id: 74,
+            race_length_min: race_end,
+            max_drivers: 12,
+            min_skill: 30,
+            max_skill: 80,
+            year: 2026,
+            global_weather: global,
+            events: vec![season_gen::EventInput {
+                track_id: track.track_id as i64,
+                is_oval: false,
+                event_id: "e1".to_string(),
+                weather: ew,
+                results: None,
+            }],
+        };
+        let json = season_gen::build_season(&params);
+        assert_eq!(
+            json["race_length"].as_i64(),
+            Some(race_end),
+            "{} escreveu um race_length diferente do resolvido",
+            cat.id
+        );
+        assert!(
+            json["race_length"].as_i64().unwrap_or(0) > 0,
+            "{} escreveu race_length zero no arquivo",
+            cat.id
+        );
+    }
+}

@@ -1237,7 +1237,12 @@ mod tests {
         let t0 = c.t;
         c.ritmo[1] = 0.40;
         c.rodar(4.0);
-        let ep = c.obs.abertos().into_iter().find(|e| e.car_idx == 1).unwrap();
+        let ep = c
+            .obs
+            .abertos()
+            .into_iter()
+            .find(|e| e.car_idx == 1)
+            .unwrap();
         assert!(
             (ep.inicio_s - t0).abs() < 0.5,
             "início {:.2} contra {:.2} — a permanência foi descontada",
@@ -1313,7 +1318,9 @@ mod tests {
         c.rodar(40.0);
         let encerrados = c.obs.encerrados();
         assert!(
-            encerrados.iter().any(|e| e.desfecho == Some(Desfecho::Ultrapassado)),
+            encerrados
+                .iter()
+                .any(|e| e.desfecho == Some(Desfecho::Ultrapassado)),
             "desfechos: {:?}",
             encerrados.iter().map(|e| e.desfecho).collect::<Vec<_>>()
         );

@@ -36,7 +36,13 @@ i18n.use(initReactI18next).init({
   ns: ["common"],
   defaultNS: "common",
   interpolation: {
-    escapeValue: false, // React já escapa; e vários textos têm <b>/<p> internos.
+    // Desligado de propósito, e agora sem ressalva: nenhuma tela injeta HTML a
+    // partir de `t()`. A caixa de entrada era o último ponto que fazia isso e
+    // passou a montar trechos tipados (`pages/tabs/inboxMessages.js`), desenhados
+    // como filhos do React. Ligar o escape aqui não protegeria nada e vazaria
+    // entidade na tela: uma equipe chamada "Rossi & Filhos" viraria "Rossi &amp;
+    // Filhos". Quem escapa é o React, no momento de desenhar.
+    escapeValue: false,
   },
   returnNull: false,
   returnEmptyString: false,

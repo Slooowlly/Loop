@@ -47,15 +47,12 @@ pub(crate) const DDL_TRACK_LAP_RECORDS: &str = "
     );
 ";
 
+/// Reaplica o DDL para conexões de teste in-memory que não migram. Só isso: schema
+/// permanente é assunto das migrações, e o `ALTER` de `context` (tabela criada antes da
+/// coluna) mora na v62, que é o lado que existe para consertar save em campo. Aqui ele era
+/// no-op: a constante acima já declara a coluna.
 fn ensure_table(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(DDL_RECORD_MILESTONES)?;
-    // Tabelas criadas antes da coluna `context` (recorde por pista) não a têm.
-    crate::db::migrations::add_column_if_missing(
-        conn,
-        "record_milestones",
-        "context",
-        "TEXT NOT NULL DEFAULT ''",
-    )?;
     conn.execute_batch(DDL_TRACK_LAP_RECORDS)?;
     Ok(())
 }

@@ -10,8 +10,7 @@ use crate::market::pit_strategy::{
 use serde::{Deserialize, Serialize};
 
 use crate::car::Car;
-use crate::constants::categories::{get_category_config, is_especial};
-use crate::constants::teams::{get_team_templates, TeamTemplate};
+use crate::constants::teams::TeamTemplate;
 
 /// Quantos níveis de carro a equipe SEM marca de fábrica fica abaixo do teto da classe nas
 /// arenas GT3. `1` = a privateer chega ao nível 6 onde a fábrica chega ao 7. Calibrável:
@@ -118,6 +117,12 @@ pub struct Team {
     pub last_round_expenses: f64,
     pub last_round_net: f64,
     pub parachute_payment_remaining: f64,
+    /// Quantos socorros de emergência a equipe já tomou na temporada
+    /// [`Team::socorros_temporada_ref`]. Ver `finance::events::emergency_loan_amount`.
+    pub socorros_na_temporada: i32,
+    /// A temporada a que [`Team::socorros_na_temporada`] se refere. Quando a temporada corrente
+    /// é outra, a contagem vale zero — é assim que o limite por temporada se reinicia sozinho.
+    pub socorros_temporada_ref: i32,
     pub facilities: f64,
     pub engineering: f64,
     pub reputacao: f64,
@@ -307,6 +312,8 @@ impl Team {
             last_round_expenses: 0.0,
             last_round_net: 0.0,
             parachute_payment_remaining: 0.0,
+            socorros_na_temporada: 0,
+            socorros_temporada_ref: 0,
             facilities,
             engineering,
             reputacao: clamp_f64(
@@ -361,66 +368,6 @@ impl Team {
     }
 }
 
-/// Gera o conjunto de equipes persistentes de uma categoria a partir dos templates.
-///
-/// **Isto é geração de MUNDO morando na camada de modelo, e o lugar dela é `generators/`.**
-/// Não toca no banco — é a outra metade da mesma exceção que tirou o SQL de licenças de
-/// `models/license.rs`: model declara a forma de uma equipe, quem POVOA o mundo é o
-/// gerador. Os três call sites já vivem lá (`generators/world/genesis.rs`,
-/// `generators/world/historico.rs`) mais a auditoria de economia.
-///
-/// A mudança ficou pendente porque mover a função exige editar `generators/world/*`, que é
-/// de outra frente; ela é uma troca de `mod` e três `use`, sem mudança de assinatura.
-pub fn generate_teams_for_category<F>(
-    category_id: &str,
-    temporada: i32,
-    id_generator: &mut F,
-) -> Vec<Team>
-where
-    F: FnMut() -> String,
-{
-    let mut rng = rand::thread_rng();
-    generate_teams_for_category_with_rng(category_id, temporada, id_generator, &mut rng)
-}
-
-fn generate_teams_for_category_with_rng<F, R>(
-    category_id: &str,
-    temporada: i32,
-    id_generator: &mut F,
-    rng: &mut R,
-) -> Vec<Team>
-where
-    F: FnMut() -> String,
-    R: Rng,
-{
-    let templates = get_team_templates(category_id);
-    let teams: Vec<Team> = templates
-        .into_iter()
-        .map(|template| {
-            Team::from_template_with_rng(template, category_id, id_generator(), temporada, rng)
-        })
-        .collect();
-
-    if let Some(config) = get_category_config(category_id) {
-        // Legacy category capacity can differ from own templates: Endurance has
-        // 18 competitive slots, but six come from the regular LMP2 category.
-        let expected_team_count = if is_especial(category_id) {
-            teams.len()
-        } else {
-            config.num_equipes as usize
-        };
-
-        assert_eq!(
-            teams.len(),
-            expected_team_count,
-            "Quantidade de equipes persistentes gerada para '{}' difere da configuracao da categoria",
-            category_id
-        );
-    }
-
-    teams
-}
-
 pub fn hierarchy_status_from_tensao(tensao: f64) -> TeamHierarchyClimate {
     TeamHierarchyClimate::from_tensao(tensao)
 }
@@ -459,6 +406,8 @@ pub fn placeholder_team_from_db(
         last_round_expenses: 0.0,
         last_round_net: 0.0,
         parachute_payment_remaining: 0.0,
+        socorros_na_temporada: 0,
+        socorros_temporada_ref: 0,
         facilities: 0.0,
         engineering: 0.0,
         reputacao: 50.0,
@@ -505,6 +454,8 @@ fn clamp_f64(value: f64, min: f64, max: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use rand::{rngs::StdRng, SeedableRng};
+
+    use crate::constants::teams::get_team_templates;
 
     use super::*;
 
@@ -670,23 +621,6 @@ mod tests {
         assert!(team.cash_balance >= scale.cash_min);
         assert!(team.cash_balance <= scale.cash_max);
         assert!((team.budget - expected_budget).abs() < 0.0001);
-    }
-
-    #[test]
-    fn test_generate_teams_for_category_correct_count() {
-        let mut rng = StdRng::seed_from_u64(44);
-        let mut seq = 1_u32;
-        let mut next_id = || {
-            let id = format!("T{:03}", seq);
-            seq += 1;
-            id
-        };
-
-        let teams = generate_teams_for_category_with_rng("gt3", 2026, &mut next_id, &mut rng);
-
-        assert_eq!(teams.len(), 14);
-        assert_eq!(teams.first().map(|team| team.id.as_str()), Some("T001"));
-        assert_eq!(teams.last().map(|team| team.id.as_str()), Some("T014"));
     }
 
     #[test]

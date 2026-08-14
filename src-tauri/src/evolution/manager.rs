@@ -12,7 +12,10 @@
 // - Evolução de equipes (car_performance, facilities, engineering) ao longo das temporadas
 // - Interface unificada para módulos externos chamarem evolução sem conhecer internals
 //
-// Hoje: toda a orquestração está em evolution/pipeline.rs — função run_end_of_season().
-// Enquanto pipeline.rs for suficiente, este arquivo permanece reservado.
+// Hoje: a orquestração da virada está em evolution/pipeline/orquestracao.rs — função
+// run_end_of_season(). O evolution/pipeline.rs é só o índice dos submódulos, e a ORDEM
+// dos passos é travada pelo guard evolution/pipeline/tests/ordem.rs, que lê aquele fonte.
+// Enquanto orquestracao.rs for suficiente, este arquivo permanece reservado.
 //
-// Referência: evolution/pipeline.rs — run_end_of_season() é o ponto de entrada atual
+// Referência: evolution/pipeline/orquestracao.rs — run_end_of_season() é o ponto de
+// entrada atual

@@ -733,13 +733,25 @@ macro_rules! pecas {
 /// `None` **não é erro** — é o roteamento funcionando. Significa "esta pergunta merece o
 /// modelo", e é o que acontece com `Ritmo` (que precisa da biblioteca de tempos de volta,
 /// ~1.200 peças ainda não geradas), com `Carro`, e com toda pergunta aberta.
+/// **A corrida está de fato acontecendo?**
+///
+/// Fora dela a maioria dos fatos ou não existe ou não significa o que parece — uma posição na
+/// volta de formação não é uma posição, e um gap na volta de formação é a fila andando devagar.
+/// Nesses instantes o acervo se cala e quem explica é o modelo.
+///
+/// Vive aqui, e é `pub`, porque não é só [`renderizar`] que precisa dela: quem compõe a resposta
+/// do vizinho NOMEADO (`super::responder`) tenta uma fala gravada ANTES de chegar aqui, e sem
+/// consultar o mesmo portão ele entregava, na volta de formação, um gap com o sobrenome do
+/// carro da frente — a única fala do acervo que atravessava a formação inteira.
+pub fn em_corrida_de_verdade(e: &EstadoAgora) -> bool {
+    e.conectado && e.em_corrida && !e.em_formacao
+}
+
 pub fn renderizar(e: &EstadoAgora, intencao: Intencao) -> Option<Vec<String>> {
     if !e.conectado {
         return Some(vec!["sem_telemetria".to_string()]);
     }
-    // Fora de corrida a maioria dos fatos ou não existe ou não significa o que parece —
-    // uma posição na volta de formação não é uma posição. Melhor o modelo explicar.
-    if !e.em_corrida || e.em_formacao {
+    if !em_corrida_de_verdade(e) {
         return None;
     }
 
@@ -824,6 +836,13 @@ pub fn renderizar(e: &EstadoAgora, intencao: Intencao) -> Option<Vec<String>> {
                     "Bandeira vermelha" => "band_vermelha",
                     "Bandeira azul" => "band_azul",
                     "Bandeirada" => "band_bandeirada",
+                    // A BANDEIRA BRANCA. A peça é emprestada do spotter (ver
+                    // [`PECAS_DO_SPOTTER`]) e já era emitida pela pergunta do RESTANTE, em
+                    // `chave_restante`: a mesma frase, pela outra porta. Sem este braço a
+                    // pergunta sobre bandeira caía no `_` e ia ao modelo — ~2,9 s e uma ida
+                    // ao servidor para dizer o que o acervo responde em ~0,7 s, na última
+                    // volta, que é o pior instante da corrida para o rádio ficar devendo.
+                    "Última volta" => "ultima_volta",
                     "Reparo obrigatório" => "reparo",
                     // Bandeira que o acervo não conhece — inclusive uma que venha a ser
                     // acrescentada ao monitor sem passar por aqui. O modelo cobre.

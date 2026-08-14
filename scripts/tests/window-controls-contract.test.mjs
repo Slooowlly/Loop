@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,6 +10,24 @@ const projectRoot = path.resolve(__dirname, "..", "..");
 
 async function readProjectFile(relativePath) {
   return readFile(path.join(projectRoot, relativePath), "utf8");
+}
+
+/// Todo `.rs` do crate, com o caminho relativo junto — a asserção precisa NOMEAR o arquivo
+/// que reintroduziu o símbolo, senão a falha manda procurar em 900 arquivos.
+async function readRustSources() {
+  const raiz = path.join(projectRoot, "src-tauri", "src");
+  const entradas = await readdir(raiz, { recursive: true, withFileTypes: true });
+  const arquivos = entradas.filter((e) => e.isFile() && e.name.endsWith(".rs"));
+
+  return Promise.all(
+    arquivos.map(async (e) => {
+      const absoluto = path.join(e.parentPath ?? e.path, e.name);
+      return {
+        relativePath: path.relative(projectRoot, absoluto).split(path.sep).join("/"),
+        source: await readFile(absoluto, "utf8"),
+      };
+    }),
+  );
 }
 
 test("window controls drawer keeps a fullscreen toggle button", async () => {
@@ -53,22 +71,29 @@ test("tauri backend exposes fullscreen toggle commands", async () => {
   );
 });
 
-test("tauri backend keeps diagnostic career helpers out of the production command surface", async () => {
-  const libSource = await readProjectFile("src-tauri/src/lib.rs");
+// Os três helpers de diagnóstico de carreira (`verify_database`, `test_create_driver`,
+// `test_list_drivers`) foram REMOVIDOS em 12/08/2026: viviam em `commands/career/lifecycle.rs`
+// sob `#[allow(dead_code)]`, sem entrada no `generate_handler!` e sem nenhum `invoke` no
+// frontend. Este guard cobrava só que eles não entrassem no handler — com o código apagado,
+// essa asserção passou a ser verdadeira por vacuidade e não podia mais falhar. Agora ele cobra
+// o fato novo: os nomes não voltam ao crate. Quem quiser o helper de volta escreve um comando
+// de verdade, registrado, em vez de ressuscitar a função morta.
+test("tauri backend keeps diagnostic career helpers out of the rust crate", async () => {
+  const rustSources = await readRustSources();
 
-  assert.doesNotMatch(
-    libSource,
-    /commands::career::verify_database/,
-    "expected verify_database to stay out of the production invoke handler",
+  // Varredura que não acha arquivo nenhum passa verde e não guarda nada — o mesmo modo de
+  // falha que o PISO de `rodar-guards.mjs` existe para pegar.
+  assert.ok(
+    rustSources.length > 100,
+    `a varredura leu só ${rustSources.length} arquivos .rs — o guard não estaria olhando o crate`,
   );
-  assert.doesNotMatch(
-    libSource,
-    /commands::career::test_create_driver/,
-    "expected test_create_driver to stay out of the production invoke handler",
-  );
-  assert.doesNotMatch(
-    libSource,
-    /commands::career::test_list_drivers/,
-    "expected test_list_drivers to stay out of the production invoke handler",
-  );
+
+  for (const nome of ["verify_database", "test_create_driver", "test_list_drivers"]) {
+    const encontrado = rustSources.filter(({ source }) => source.includes(nome));
+    assert.deepEqual(
+      encontrado.map(({ relativePath }) => relativePath),
+      [],
+      `expected ${nome} to stay out of the rust crate`,
+    );
+  }
 });

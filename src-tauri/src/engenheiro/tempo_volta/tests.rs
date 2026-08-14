@@ -49,7 +49,10 @@ fn nenhum_tempo_tem_pontuacao_no_meio() {
     // no meio soa como rádio falhando.
     for d in MIN_DECIMOS..=MAX_DECIMOS {
         let t = tempo_falado(d).unwrap();
-        assert!(!t.contains(',') && !t.contains('—') && !t.contains(';'), "{d}: {t:?}");
+        assert!(
+            !t.contains(',') && !t.contains('—') && !t.contains(';'),
+            "{d}: {t:?}"
+        );
     }
 }
 
@@ -88,7 +91,11 @@ fn o_catalogo_tem_o_tamanho_medido_e_nenhuma_chave_repetida() {
     let chaves: HashSet<&String> = v.iter().map(|(k, _)| k).collect();
     assert_eq!(chaves.len(), v.len(), "chave repetida");
     let textos: HashSet<&String> = v.iter().map(|(_, t)| t).collect();
-    assert_eq!(textos.len(), v.len(), "texto repetido — duas tomadas da mesma frase");
+    assert_eq!(
+        textos.len(),
+        v.len(),
+        "texto repetido — duas tomadas da mesma frase"
+    );
 }
 
 #[test]
@@ -101,6 +108,12 @@ fn a_faixa_gravada_cobre_o_calendario_medido() {
     // Os números vêm de `simulation/profile/lap_times.rs`, 618 entradas: mínimo 30,0 s, máximo
     // 703,0 s. O piso tem que alcançar o mínimo; o teto NÃO alcança o máximo de propósito, e é
     // por isso que ele está escrito aqui — para a decisão ser revisável em vez de esquecida.
-    assert!(MIN_DECIMOS <= 300, "o piso deixou de cobrir a volta mais rápida do jogo");
-    assert_eq!(MAX_DECIMOS, 2400, "o teto mudou — reconfira quantos % do calendário ficam fora");
+    assert!(
+        MIN_DECIMOS <= 300,
+        "o piso deixou de cobrir a volta mais rápida do jogo"
+    );
+    assert_eq!(
+        MAX_DECIMOS, 2400,
+        "o teto mudou — reconfira quantos % do calendário ficam fora"
+    );
 }

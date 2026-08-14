@@ -1,6 +1,15 @@
 // Voz da caixa de entrada. Recebe os FATOS reais do backend
 // (`get_inbox_messages`) e monta as mensagens no formato que a casca da caixa já
 // consome. Texto de template (i18n) — nada de IA. Read-only.
+//
+// O corpo de cada mensagem é uma lista de PARÁGRAFOS, e cada parágrafo é uma lista
+// de trechos tipados: `{ tipo: "texto" | "forte", texto }`. Não existe HTML aqui.
+// A razão é direta: nome de piloto, de equipe e de pista vem do banco, e o banco
+// guarda o que o jogador digitou na criação da carreira. Enquanto o corpo era uma
+// string de HTML concatenado, um nome com marcação virava marcação de verdade na
+// tela. Agora o negrito é decidido por nós, no texto do locale, e o dado do banco
+// entra sempre como trecho de texto — a caixa desenha cada trecho como filho do
+// React, que escapa qualquer coisa sozinho.
 
 import i18n from "../../i18n/index.js";
 import { ordinal } from "../../i18n/format.js";
@@ -15,7 +24,47 @@ const KNOWN_ATTRS = new Set([
   "consistencia",
 ]);
 
-const bold = (s) => `<b>${s}</b>`;
+const texto = (valor) => ({ tipo: "texto", texto: String(valor) });
+const forte = (valor) => ({ tipo: "forte", texto: String(valor) });
+
+// Marca de posição dos valores do banco dentro do texto do locale. O i18next
+// interpola a MARCA no lugar do valor; o divisor troca a marca pelos trechos já
+// prontos. O dado do banco nunca chega a passar pelo divisor, e por isso não tem
+// como forjar uma marca: quando ele aparece, o divisor já terminou.
+const marca = (nome) => `[[${nome}]]`;
+const DIVISOR = /<b>([\s\S]*?)<\/b>|\[\[([a-zA-Z]+)\]\]/g;
+
+// Quebra o texto do locale em trechos. Só o `<b>` do NOSSO texto vira negrito;
+// tudo o mais segue como texto puro, inclusive `<b>`, `<script>` ou `<img>` que
+// venham dentro de um valor do banco, porque esses entram por `campos` e não
+// chegam a ser lidos aqui.
+function dividir(modelo, campos) {
+  const trechos = [];
+  let cursor = 0;
+  DIVISOR.lastIndex = 0;
+  for (let achado = DIVISOR.exec(modelo); achado; achado = DIVISOR.exec(modelo)) {
+    if (achado.index > cursor) trechos.push(texto(modelo.slice(cursor, achado.index)));
+    if (achado[1] !== undefined) trechos.push(forte(achado[1]));
+    else trechos.push(...(campos[achado[2]] ?? []));
+    cursor = achado.index + achado[0].length;
+  }
+  if (cursor < modelo.length) trechos.push(texto(modelo.slice(cursor)));
+  return trechos;
+}
+
+// Traduz `chave` e devolve os trechos. `valores` são interpolações do nosso próprio
+// texto (números que formatamos, cláusulas vindas de outra chave); `campos` são os
+// valores do banco, que entram já como lista de trechos.
+function frase(chave, valores = {}, campos = {}) {
+  const marcas = {};
+  for (const nome of Object.keys(campos)) marcas[nome] = marca(nome);
+  return dividir(i18n.t(chave, { ...valores, ...marcas }), campos);
+}
+
+// Nome do piloto em negrito, com a equipe entre parênteses quando existe.
+function quem(nome, equipe) {
+  return equipe ? [forte(nome), texto(` (${equipe})`)] : [forte(nome)];
+}
 
 function attrClause(key, kind) {
   if (!KNOWN_ATTRS.has(key)) return null;
@@ -25,20 +74,25 @@ function attrClause(key, kind) {
 // "Já cruzei com esse cara" — confronto direto com o rival mais enfrentado.
 function headToHeadMessage(h) {
   if (!h || h.races_together <= 0) return null;
-  const who = h.rival_team ? `${bold(h.rival_name)} (${h.rival_team})` : bold(h.rival_name);
   const n = h.races_together;
-  let body = i18n.t("inbox.h2h.intro", { count: n, who });
+  const paragrafo = frase("inbox.h2h.intro", { count: n }, { who: quem(h.rival_name, h.rival_team) });
 
   if (h.player_ahead <= 0) {
-    body += i18n.t("inbox.h2h.lostAll");
+    paragrafo.push(...frase("inbox.h2h.lostAll"));
   } else if (h.player_ahead >= n) {
-    body += i18n.t("inbox.h2h.wonAll");
+    paragrafo.push(...frase("inbox.h2h.wonAll"));
   } else {
-    body += i18n.t("inbox.h2h.wonSome", { n: h.player_ahead });
+    paragrafo.push(...frase("inbox.h2h.wonSome", { n: h.player_ahead }));
     if (h.best_finish && h.best_track) {
-      body += i18n.t("inbox.h2h.wonSomeBest", { ordinal: ordinal(h.best_finish), track: h.best_track });
+      paragrafo.push(
+        ...frase(
+          "inbox.h2h.wonSomeBest",
+          { ordinal: ordinal(h.best_finish) },
+          { track: [texto(h.best_track)] },
+        ),
+      );
     } else {
-      body += i18n.t("inbox.h2h.wonSomeGeneric");
+      paragrafo.push(...frase("inbox.h2h.wonSomeGeneric"));
     }
   }
 
@@ -50,7 +104,7 @@ function headToHeadMessage(h) {
     kind: i18n.t("inbox.h2h.kind"),
     time: i18n.t("inbox.h2h.time"),
     subject: i18n.t("inbox.h2h.subject", { rival: h.rival_name }),
-    body,
+    paragrafos: [paragrafo],
     actions: [],
   };
 }
@@ -58,7 +112,6 @@ function headToHeadMessage(h) {
 // "O favorito ao título" — o nome a bater na temporada.
 function titleFavoriteMessage(f) {
   if (!f) return null;
-  const who = f.driver_team ? `${bold(f.driver_name)} (${f.driver_team})` : bold(f.driver_name);
 
   // Perfil: veterano titulado vs. promessa.
   let profile;
@@ -95,7 +148,11 @@ function titleFavoriteMessage(f) {
         })
       : "";
 
-  const body = i18n.t("inbox.fav.body", { who, profile, standing, traits });
+  const paragrafo = frase(
+    "inbox.fav.body",
+    { profile, standing, traits },
+    { who: quem(f.driver_name, f.driver_team) },
+  );
 
   return {
     id: "fav",
@@ -108,7 +165,7 @@ function titleFavoriteMessage(f) {
       f.position === 0
         ? i18n.t("inbox.fav.subjectFavorite", { name: f.driver_name })
         : i18n.t("inbox.fav.subjectContender", { name: f.driver_name }),
-    body,
+    paragrafos: [paragrafo],
     actions: [],
   };
 }
@@ -126,14 +183,17 @@ function famaLevel(v) {
 // "Times de olho em você" — interesse de equipes pela FAMA (Fase 2a do estrelato).
 function teamInterestMessage(t) {
   if (!t || !Array.isArray(t.teams) || t.teams.length === 0) return null;
-  const names = t.teams.map((x) => bold(x.team_name));
-  const n = names.length;
-  const list = n === 1 ? names[0] : `${names.slice(0, -1).join(", ")}${i18n.t("inbox.interest.and")}${names[n - 1]}`;
-  const level = famaLevel(t.player_fama);
+  const n = t.teams.length;
 
-  const body =
-    i18n.t("inbox.interest.p1", { count: n, list, level }) +
-    i18n.t("inbox.interest.p2", { count: n });
+  // A lista de equipes: "Alpha, Beta e Gama", cada nome em negrito e os separadores
+  // por nossa conta.
+  const list = [];
+  t.teams.forEach((equipe, i) => {
+    if (i > 0) list.push(texto(i === n - 1 ? i18n.t("inbox.interest.and") : ", "));
+    list.push(forte(equipe.team_name));
+  });
+
+  const level = famaLevel(t.player_fama);
 
   return {
     id: "interest",
@@ -146,7 +206,10 @@ function teamInterestMessage(t) {
       n === 1
         ? i18n.t("inbox.interest.subjectOne", { team: t.teams[0].team_name })
         : i18n.t("inbox.interest.subjectMany", { count: n }),
-    body,
+    paragrafos: [
+      frase("inbox.interest.p1", { count: n, level }, { list }),
+      frase("inbox.interest.p2", { count: n }),
+    ],
     actions: [],
   };
 }

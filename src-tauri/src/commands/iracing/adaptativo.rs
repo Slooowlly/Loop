@@ -206,6 +206,77 @@ pub(crate) fn load_export_skill_band(
         .filter(|b| postit_esta_fresco(b.gravado_em_unix, "faixa de skill do roster"))
 }
 
+/// Os fatos de uma passada do adaptativo, do jeito que o log de diagnóstico precisa deles.
+///
+/// Existe separado do processamento por um motivo só: a linha do rastro é a ÚNICA prova de
+/// que o adaptativo rodou (o jogador não vê o ajuste, de propósito, e o perfil em disco só
+/// é escrito quando a agulha se move — "arquivo ausente" é ambíguo entre "nunca rodou" e
+/// "rodou e não mudou nada"). Uma prova dessas não pode depender de uma corrida real no sim
+/// para ser conferida, então a montagem da frase é pura e tem teste.
+pub(crate) struct RastroDoAdaptativo<'a> {
+    /// `true` = o perfil foi GRAVADO nesta passada.
+    pub aplicado: bool,
+    /// Conta do iRacing dona do perfil. `0` quando o SDK ainda não devolveu o custid — e é
+    /// justamente esse o caso em que o perfil vai para o arquivo errado, então o número
+    /// entra na linha.
+    pub custid: i64,
+    pub track_id: i64,
+    pub track_name: Option<&'a str>,
+    /// Recorte de CLASSE: responde se o multiclasse comparou os carros certos.
+    pub classe: i64,
+    pub ias_na_classe: usize,
+    pub carros: usize,
+    /// Se o mecanismo 2 (cego ao carro) achou o bilhete do export desta pista.
+    pub com_contexto_de_carro: bool,
+    /// Ritmo vs a frente, já formatado (ou "sem amostra").
+    pub ritmo: &'a str,
+    pub verdict: &'a str,
+    pub global_antes: i64,
+    pub global_delta: i64,
+    pub global_depois: i64,
+    pub pista_antes: i64,
+    pub pista_delta: i64,
+    pub pista_depois: i64,
+}
+
+/// Monta a linha do rastro. O primeiro campo separa os dois desfechos com palavras
+/// diferentes — "Ajuste aplicado" quando o perfil foi gravado, "Sem ajuste" quando a
+/// passada terminou sem mexer na agulha. O terceiro desfecho, o de ERRO, é logado pelo
+/// chamador do import como "Sem ajuste (erro)": ali a passada nem chegou a acontecer,
+/// então não há delta nenhum para contar.
+pub(crate) fn linha_do_rastro(r: &RastroDoAdaptativo) -> String {
+    let desfecho = if r.aplicado {
+        "Ajuste aplicado"
+    } else {
+        "Sem ajuste (nada a mudar)"
+    };
+    let pista = match r.track_name {
+        Some(nome) => format!("pista {} ({nome})", r.track_id),
+        None => format!("pista {}", r.track_id),
+    };
+    format!(
+        "{desfecho} · custid {} · {pista} · global {}{:+}={} · pista {}{:+}={} · {} · \
+         classe {}: {} IA de {} carros · carro {} · ritmo vs frente {}",
+        r.custid,
+        r.global_antes,
+        r.global_delta,
+        r.global_depois,
+        r.pista_antes,
+        r.pista_delta,
+        r.pista_depois,
+        r.verdict,
+        r.classe,
+        r.ias_na_classe,
+        r.carros,
+        if r.com_contexto_de_carro {
+            "sim"
+        } else {
+            "não"
+        },
+        r.ritmo,
+    )
+}
+
 /// Resultado do processamento adaptativo pós-corrida (para a UI).
 #[derive(serde::Serialize)]
 pub struct AdaptiveResult {
@@ -299,8 +370,9 @@ pub fn iracing_process_race_result(app: tauri::AppHandle) -> Result<AdaptiveResu
     // Rastro no log de diagnóstico. O jogador não vê o ajuste (é de propósito), então sem
     // esta linha não há COMO saber se ele rodou, o que mediu e por que decidiu — o perfil só
     // é gravado quando a agulha se move, e "arquivo ausente" é ambíguo entre "nunca rodou" e
-    // "rodou e ficou no escudo". Registra também o recorte de CLASSE, que é o que responde
-    // se o multiclasse comparou os carros certos.
+    // "rodou e ficou no escudo". A frase é montada por [`linha_do_rastro`], que é pura e
+    // testada: o desfecho (aplicado / sem ajuste) abre a linha, e o caso de erro sai pelo
+    // chamador do import como "Sem ajuste (erro)".
     let classe = race
         .race
         .iter()
@@ -316,25 +388,27 @@ pub fn iracing_process_race_result(app: tauri::AppHandle) -> Result<AdaptiveResu
         Some(g) => format!("{:+.2}%/volta", g * 100.0),
         None => "sem amostra".to_string(),
     };
+    let track_name = get_track(track_id as u32).map(|t| t.nome.to_string());
     crate::diagnostico::linha(
         "adaptativo",
-        &format!(
-            "Pista {track_id} · classe {classe}: {ias_na_classe} IA de {} carros · carro {} · ritmo vs frente {ritmo} · {} · global {}{:+}={} · pista {}{:+}={} · {}",
-            race.race.len(),
-            if car_ctx.is_some() { "sim" } else { "não" },
-            update.verdict,
-            current.global,
-            update.d_global,
-            update.new.global,
-            current.track,
-            update.d_track,
-            update.new.track,
-            if update.applied {
-                "gravado"
-            } else {
-                "sem mudança"
-            }
-        ),
+        &linha_do_rastro(&RastroDoAdaptativo {
+            aplicado: update.applied,
+            custid,
+            track_id,
+            track_name: track_name.as_deref(),
+            classe,
+            ias_na_classe,
+            carros: race.race.len(),
+            com_contexto_de_carro: car_ctx.is_some(),
+            ritmo: &ritmo,
+            verdict: &update.verdict,
+            global_antes: current.global,
+            global_delta: update.d_global,
+            global_depois: update.new.global,
+            pista_antes: current.track,
+            pista_delta: update.d_track,
+            pista_depois: update.new.track,
+        }),
     );
     if update.applied {
         profile.global = update.new.global;
@@ -356,6 +430,6 @@ pub fn iracing_process_race_result(app: tauri::AppHandle) -> Result<AdaptiveResu
         global: profile.global,
         track: profile.track_delta(track_id),
         track_id,
-        track_name: get_track(track_id as u32).map(|t| t.nome.to_string()),
+        track_name,
     })
 }

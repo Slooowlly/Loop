@@ -771,6 +771,16 @@ race:
     champion_title: "%{name} é o grande campeão da temporada %{season}!"
     champion_text: "Após %{rounds} rodadas intensas, %{name} conquista o título da categoria. Uma temporada inesquecível chegou ao fim."
     other_categories_summary: "Resumo das outras categorias: %{headline}."
+    # Manchete de incidente e de lesão. O CORPO da notícia de incidente não passa por aqui: ele
+    # é a descrição do incidente, que já nasce traduzida no motor (`race.incident.*`) ou no
+    # catálogo do banco. Só o título é montado nesta camada.
+    #
+    # As notícias já GRAVADAS não mudam de idioma: o texto é persistido no save no idioma em
+    # que foi gerado, mesma Opção A das lesões. Estas chaves valem para as notícias NOVAS.
+    incident_dnf_title: "%{name} abandona a corrida após incidente"
+    incident_title: "%{name} envolvido em incidente durante a prova"
+    injury_title: "Desfalque confirmado"
+    injury_text: "%{name} está fora da próxima etapa após lesão confirmada. Situação será reavaliada nos próximos dias."
   retirement:
     injury: "Aposentou-se aos %{age} anos após lesão grave"
     # Notícia da carreira encerrada por lesão. Importância Destaque: é a manchete mais dura
@@ -779,19 +789,45 @@ race:
     news_text: "%{injury} na rodada %{round} deixou sequelas graves demais para seguir. %{name} pendura o capacete em %{category} com %{races} corridas, %{wins} vitórias e %{podiums} pódios. A vaga na %{team} abre no meio da temporada."
     news_text_no_team: "%{injury} na rodada %{round} deixou sequelas graves demais para seguir. %{name} pendura o capacete em %{category} com %{races} corridas, %{wins} vitórias e %{podiums} pódios."
   # Descrições de incidente geradas pelo MOTOR (fora do catálogo do banco): o contato da
-  # disputa (simulation/race/motor.rs) e o fallback do dano latente quando o catálogo não
-  # cobre a classe (simulation/race/danos.rs). Persistem no save no idioma em que foram
-  # geradas, mesma Opção A das lesões.
+  # disputa (simulation/race/motor.rs), a colisão direta e os fallbacks de pane e de erro
+  # (simulation/incidents/segmento.rs), o dano latente sem entrada no catálogo
+  # (simulation/race/danos.rs) e o incidente inferido do resultado oficial do iRacing
+  # (iracing_sdk/result_bridge/oficial.rs). Persistem no save no idioma em que foram geradas,
+  # mesma Opção A das lesões.
   #
   # **A redação não é livre**: `race_signals::dnf_kind` classifica o abandono por palavra
-  # quando o incidente cru não sobreviveu ao save, então cada uma destas frases precisa
-  # carregar uma palavra de `PALAVRAS_BATIDA` no idioma dela. O teste
-  # `race_signals::tests::textos_do_motor_sao_classificaveis_nos_dois_idiomas` trava isso.
+  # quando o incidente cru não sobreviveu ao save. Frase de batida precisa carregar uma
+  # palavra de `PALAVRAS_BATIDA` no idioma dela, e frase de pane uma de `PALAVRAS_MECANICAS`.
+  # O teste `race_signals::tests::textos_do_motor_sao_classificaveis_nos_dois_idiomas` trava
+  # isso. As frases de erro de pilotagem ficam fora do teste porque não existe lista de
+  # palavras para elas: do texto salvo, um erro de pilotagem sempre leu `Desconhecido`, e
+  # mudar isso é decisão de classificação, não de tradução.
   incident:
     contact_attacker: "%{atacante} bate ao tentar passar %{defensor}"
     contact_defender: "%{defensor} leva contato de %{atacante}"
     latent_damage_dnf: "%{name} abandona por dano de colisão anterior"
     latent_damage_positions: "%{name} perde posições por dano de colisão anterior"
+    # Colisão DIRETA (simulation/incidents/segmento.rs): por decisão de projeto ela não
+    # consulta o catálogo de incidentes, então estas frases são o texto final, não fallback.
+    collision_dnf: "%{name} abandona após colisão"
+    collision_positions: "%{name} perde %{count} posições em colisão"
+    collision_dnf_with: "%{name} abandona após colisão com %{other}"
+    collision_positions_with: "%{name} perde %{count} posições em colisão com %{other}"
+    # Fallbacks de pane e de erro de pilotagem: só saem quando o catálogo não tem entrada
+    # elegível para a classe do carro — o caso do LMP2, que é `Prototype` e não tem linha no
+    # catálogo. Antes de 12/08/2026 eram `format!` em português cru dentro do Rust, e o
+    # jogador em inglês lia "abandona com problema mecanico", sem acento e sem tradução.
+    mechanical_dnf: "%{name} abandona com problema mecânico"
+    mechanical_positions: "%{name} perde %{count} posições por problema mecânico"
+    driver_error_dnf: "%{name} abandona após erro de pilotagem"
+    driver_error_positions: "%{name} comete erro e perde %{count} posições"
+    # Resultado OFICIAL do iRacing (iracing_sdk/result_bridge/oficial.rs): o incidente é
+    # inferido das voltas-atrás, não simulado.
+    collision_with: "Colisão com %{other}"
+    retired_after_incident: "Abandonou após incidente"
+    # Piloto que a lista de largada não conhece. Aparece dentro da frase do vizinho de
+    # colisão; nunca deve virar um identificador.
+    unknown_driver: "Piloto"
 
 # Falência de equipe (evolution/pipeline/financas.rs). Dois tempos: o alerta no fim da
 # primeira temporada insolvente e a venda no fim da segunda. Sem estes textos a quebra
@@ -1035,6 +1071,66 @@ breakdown:
   RS_E_PIT_01:
     dnf: "{driver} rodou e não conseguiu religar"
     part: "Rodada com stall"
+
+  # ── PROTÓTIPO (LMP2) — acrescentado pela migração v67 (12/08/2026) ──
+  PR_S_MEC_01:
+    dnf: "{driver} abandona por falha no câmbio sequencial – sem engate"
+    warn: "{driver} com o câmbio recusando marchas – perdeu posições"
+    part: "Câmbio sequencial – atuador"
+  PR_S_MEC_02:
+    dnf: "{driver} abandona por superaquecimento do V8 – perda de pressão"
+    warn: "{driver} com temperatura do motor subindo – aliviando nas retas"
+    part: "Motor – temperatura"
+  PR_S_MEC_03:
+    dnf: "{driver} abandona por pane na eletrônica – protótipo em modo de proteção"
+    warn: "{driver} com o volante piscando alarme – potência limitada"
+    part: "Eletrônica – ECU do protótipo"
+  PR_E_MEC_01:
+    dnf: "{driver} abandona por quebra do câmbio – protótipo parado na escapatória"
+    warn: "{driver} com o câmbio falhando nas trocas sob carga"
+    part: "Câmbio sequencial – engrenagem"
+  PR_E_MEC_02:
+    dnf: "{driver} abandona por falha do motor na virada da noite"
+    warn: "{driver} com o motor perdendo rendimento no fim do stint"
+    part: "Motor – desgaste de stint longo"
+  PR_E_MEC_03:
+    dnf: "{driver} abandona por pane elétrica – protótipo sem faróis"
+    warn: "{driver} com oscilação elétrica – faróis piscando"
+    part: "Elétrica – alternador/faróis"
+  PR_E_MEC_04:
+    dnf: "{driver} abandona por falha na direção assistida"
+    warn: "{driver} com a direção pesada – desgaste no stint"
+    part: "Direção assistida"
+  PR_E_PIT_02:
+    dnf: "{driver} fica sem combustível – erro de conta na última janela"
+    part: "Erro de combustível"
+  PR_COL_01:
+    dnf: "{driver} abandona por dano no assoalho – protótipo sem carga aerodinâmica"
+    warn: "{driver} com o assoalho danificado após contato – carro solto"
+    part: "Assoalho/difusor danificado"
+  PR_COL_02:
+    dnf: "{driver} abandona por dano na suspensão após contato"
+    warn: "{driver} com a suspensão comprometida após contato"
+    part: "Suspensão do protótipo entortada"
+  PR_COL_03:
+    dnf: "{driver} abandona por carenagem arrancada – radiador exposto"
+    warn: "{driver} com a carenagem danificada – temperatura subindo"
+    part: "Carenagem/entrada de ar"
+  PR_S_ERR_01:
+    warn: "{driver} passou do ponto na frenagem e perdeu posições"
+    part: "Frenagem tardia"
+  PR_S_ERR_02:
+    warn: "{driver} pegou a zebra alta e desestabilizou o protótipo"
+    part: "Zebra alta"
+  PR_S_ERR_03:
+    dnf: "{driver} abandona após erro de pilotagem – bateu na barreira"
+    part: "Erro fatal – bateu na barreira"
+  PR_S_PIT_01:
+    dnf: "{driver} rodou e não conseguiu religar"
+    part: "Rodada com stall"
+  PR_E_PIT_01:
+    dnf: "{driver} rodou e cravou na brita – não conseguiu sair"
+    part: "Cravou na brita"
 
 # Motor de contexto do boletim de IA (narrative/mod.rs). São os FATOS + instruções
 # enviados ao servidor no idioma ativo (antes a IA traduzia do PT; agora saem prontos).
@@ -1338,3 +1434,162 @@ calendar:
     medio: "Médio"
     dificil: "Difícil"
     lendario: "Lendário"
+
+# ── Sistema de Quebra: o PROBLEMA CONCRETO da peça (car/breakdown.rs) ──
+#
+# Chave = `<peça>_<modo 0..2>_<severidade>`. A trinca (peça, modo, severidade) é o que o save
+# guarda — `race_breakdowns` tem uma coluna para cada uma —, e a prosa é derivada dela na hora
+# de mostrar. Até 12/08/2026 estas 99 frases eram `&'static str` em português dentro do .rs, e
+# um jogador em inglês lia "motor fundiu por superaquecimento" no meio de uma tela em inglês.
+#
+# Voz de BOLETIM: minúscula no começo (a frase entra no meio de outra), sem ponto final, e o
+# travessão separa o que houve da consequência.
+car_breakdown:
+  problem:
+    engine_0_light: "superaquecimento — perdeu potência"
+    engine_0_heavy: "motor fervendo — parada pra baixar temperatura"
+    engine_0_dnf: "motor fundiu por superaquecimento"
+    engine_1_light: "queda na pressão de óleo — segurou o ritmo"
+    engine_1_heavy: "vazamento de óleo — reparo demorado"
+    engine_1_dnf: "quebra de biela por falta de óleo"
+    engine_2_light: "falha de ignição — engasgando"
+    engine_2_heavy: "falha na injeção — parada nos boxes"
+    engine_2_dnf: "pane de ignição — motor morreu"
+    gearbox_0_light: "engate falhando — perdendo marchas"
+    gearbox_0_heavy: "câmbio travando — parada longa"
+    gearbox_0_dnf: "câmbio quebrou"
+    gearbox_1_light: "embreagem patinando — largadas fracas"
+    gearbox_1_heavy: "embreagem queimada — box"
+    gearbox_1_dnf: "embreagem destruída — sem tração"
+    gearbox_2_light: "diferencial nervoso — traseira solta"
+    gearbox_2_heavy: "diferencial superaquecido — parada"
+    gearbox_2_dnf: "diferencial travou"
+    brakes_0_light: "fadiga de freio — pedal longo"
+    brakes_0_heavy: "superaquecimento dos freios — parada"
+    brakes_0_dnf: "perda total de freio"
+    brakes_1_light: "pastilhas no fim — frenagens fracas"
+    brakes_1_heavy: "disco trincado — box"
+    brakes_1_dnf: "disco de freio estourou"
+    brakes_2_light: "ar na linha — pedal esponjoso"
+    brakes_2_heavy: "vazamento de fluido de freio — parada"
+    brakes_2_dnf: "pane hidráulica de freio"
+    suspension_0_light: "bandeja folgada — carro impreciso"
+    suspension_0_heavy: "braço de suspensão trincado — box"
+    suspension_0_dnf: "braço de suspensão quebrou"
+    suspension_1_light: "amortecedor vazando — carro saltando"
+    suspension_1_heavy: "amortecedor morto — parada"
+    suspension_1_dnf: "colapso da suspensão"
+    suspension_2_light: "alinhamento fugindo — comendo pneu"
+    suspension_2_heavy: "rolamento de roda gritando — box"
+    suspension_2_dnf: "rolamento travou a roda"
+    front_wing_0_light: "asa dianteira frouxa — perdeu downforce"
+    front_wing_0_heavy: "flap dianteiro solto — parada pra trocar"
+    front_wing_0_dnf: "asa dianteira arrancou"
+    front_wing_1_light: "suporte da asa trincado — subvirando"
+    front_wing_1_heavy: "asa desalinhada — reparo nos boxes"
+    front_wing_1_dnf: "estrutura da asa dianteira cedeu"
+    front_wing_2_light: "endplate danificado — leve perda aero"
+    front_wing_2_heavy: "flap preso — pit pra ajustar"
+    front_wing_2_dnf: "asa dianteira destruída"
+    rear_wing_0_light: "asa traseira frouxa — traseira solta"
+    rear_wing_0_heavy: "asa traseira desregulada — box"
+    rear_wing_0_dnf: "asa traseira arrancou"
+    rear_wing_1_light: "flap teimando — perda nas retas"
+    rear_wing_1_heavy: "mecanismo da asa travado — parada"
+    rear_wing_1_dnf: "colapso da asa traseira"
+    rear_wing_2_light: "suporte da asa vibrando"
+    rear_wing_2_heavy: "montante da asa cedendo — reparo"
+    rear_wing_2_dnf: "asa traseira desprendeu"
+    cooling_0_light: "radiador entupindo — temperatura subindo"
+    cooling_0_heavy: "radiador furado — parada pra completar água"
+    cooling_0_dnf: "perda total de líquido — motor cozinhou"
+    cooling_1_light: "bomba d'água fraca — aquecendo"
+    cooling_1_heavy: "falha na bomba d'água — box"
+    cooling_1_dnf: "bomba d'água travou — superaquecimento fatal"
+    cooling_2_light: "intercooler sujo — perda de potência"
+    cooling_2_heavy: "ventoinha falhando — parada"
+    cooling_2_dnf: "colapso do arrefecimento"
+    sidepods_0_light: "sidepod amassado — leve perda aero"
+    sidepods_0_heavy: "lateral danificada — reparo"
+    sidepods_0_dnf: "sidepod arrancou"
+    sidepods_1_light: "entrada de ar obstruída — temperatura subindo"
+    sidepods_1_heavy: "duto lateral rompido — parada"
+    sidepods_1_dnf: "lateral comprometeu a refrigeração"
+    sidepods_2_light: "painel lateral solto — vibração"
+    sidepods_2_heavy: "lateral desprendendo — box"
+    sidepods_2_dnf: "colapso da lateral"
+    underbody_0_light: "assoalho raspando — perda de rendimento"
+    underbody_0_heavy: "assoalho danificado — parada"
+    underbody_0_dnf: "assoalho destruído — carro ingável"
+    underbody_1_light: "difusor lascado — leve perda de carga"
+    underbody_1_heavy: "difusor quebrado — reparo"
+    underbody_1_dnf: "difusor arrancou — perda total de carga"
+    underbody_2_light: "skid desgastado — carro baixo demais"
+    underbody_2_heavy: "plank comprometido — box"
+    underbody_2_dnf: "assoalho rompeu"
+    chassis_0_light: "trinca no chassi — carro perdeu firmeza"
+    chassis_0_heavy: "trinca estrutural — carro difícil de guiar"
+    chassis_0_dnf: "chassi rompeu"
+    chassis_1_light: "fixação folgada — alinhamento fugindo"
+    chassis_1_heavy: "suporte estrutural cedendo — muito tempo perdido"
+    chassis_1_dnf: "estrutura do chassi colapsou"
+    chassis_2_light: "vibração estrutural — carro nervoso"
+    chassis_2_heavy: "ressonância forte — parada de emergência"
+    chassis_2_dnf: "fadiga do chassi — quebra total"
+    electronics_0_light: "sensor falhando — leituras erradas"
+    electronics_0_heavy: "chicote com mau contato — parada"
+    electronics_0_dnf: "pane elétrica geral"
+    electronics_1_light: "bateria fraca — eletrônica instável"
+    electronics_1_heavy: "alternador falhando — box"
+    electronics_1_dnf: "morte elétrica — carro desligou"
+    electronics_2_light: "ECU limitando potência — modo seguro"
+    electronics_2_heavy: "ECU reiniciando — parada"
+    electronics_2_dnf: "ECU travou — carro parou"
+
+# Monitor de corrida do iRacing (iracing_sdk/race_monitor/). Desfecho da tentativa do jogador
+# e os fatores de batida que o scorer registra. Eram `format!` em português cru dentro do Rust
+# até 12/08/2026 — quem jogava em inglês lia "Abandonou após batida GRAVE na volta 7" no meio
+# de uma tela em inglês. Não confundir com `race.incident.*`, que é a prosa da SIMULAÇÃO.
+#
+# **A redação da frase de batida não é livre**: `race_signals::dnf_kind` classifica o abandono
+# por palavra quando o incidente cru não sobreviveu ao save, então `dnf.after_crash` PRECISA
+# carregar uma palavra de `PALAVRAS_BATIDA` no idioma dela ("batida" aqui, "crash" no en-US).
+# Pela mesma razão as frases SEM batida não podem carregar nenhuma: era esse o defeito de
+# "(sem batida registrada)", que fazia o abandono sem contato ser classificado como batida.
+race_monitor:
+  outcome:
+    finished: "Cruzou a bandeira quadriculada"
+    not_started: "Não chegou a largar"
+  ended:
+    restart: "reiniciou sem terminar"
+    sim_closed: "fechou o jogo / saiu sem terminar"
+    other: "encerrou sem terminar"
+  dnf:
+    after_crash: "Abandonou após batida %{severity} na volta %{lap} (%{detail}); %{how}."
+    after_crash_no_detail: "Abandonou após batida %{severity} na volta %{lap}; %{how}."
+    plain: "DNF — %{how}."
+    with_evidence: "DNF — %{how}. %{parts}."
+    evidence_disqualified: "desqualificado"
+    evidence_garage: "foi para a garagem"
+    evidence_off_track: "saiu da pista"
+  severity:
+    nenhum: "SEM DANO"
+    leve: "LEVE"
+    moderado: "MODERADO"
+    grave: "GRAVE"
+    destruido: "DESTRUÍDO"
+    catastrofico: "CATASTRÓFICO"
+  # Fatores do scorer de batida. O primeiro token de cada um é a CATEGORIA que
+  # `merge_crash_factors` usa para não repetir o mesmo sinal — mantenha as sete primeiras
+  # palavras distintas entre si ao traduzir.
+  factor:
+    incident: "incidente: %{kind}"
+    incident_contact: "contato (+4x)"
+    incident_spin: "rodada (+2x)"
+    incident_off: "saída (+1x)"
+    impact: "impacto %{g}g"
+    yaw: "guinada brusca (yaw)"
+    rotation: "rotação violenta (roll/pitch)"
+    off_track: "fora da pista"
+    tow: "reboque acionado"
+    sim_repair: "reparo do sim: %{secs}s"

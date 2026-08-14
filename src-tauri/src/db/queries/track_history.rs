@@ -275,6 +275,7 @@ mod tests {
             gap_to_winner_ms: 0.0,
             is_dnf: true,
             dnf_reason: Some(dnf_reason.to_string()),
+            dnf_reason_key: None,
             dnf_segment: Some("EARLY".to_string()),
             incidents_count: 1,
             incidents: vec![IncidentResult {

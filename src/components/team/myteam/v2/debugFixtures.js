@@ -1,3 +1,5 @@
+// i18n-ignore-file — fixture do DebugDataSwitch (que já carrega a mesma marca). Nenhuma
+// destas frases chega ao build de produção.
 // Cenários falsos para inspecionar a aba Minha Equipe v2 sem esperar a carreira
 // chegar naquele estado.
 //

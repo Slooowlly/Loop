@@ -185,10 +185,7 @@ mod tests {
 
         rust_i18n::set_locale("pt-BR");
         assert_eq!(save_not_found(), "Save não encontrado.");
-        assert_eq!(
-            active_season_not_found(),
-            "Temporada ativa não encontrada."
-        );
+        assert_eq!(active_season_not_found(), "Temporada ativa não encontrada.");
         rust_i18n::set_locale("en-US");
         assert_eq!(save_not_found(), "Save not found.");
 

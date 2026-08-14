@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import { bestEffort } from "../../utils/bestEffort";
 import useTempoDeTela from "../../hooks/useTempoDeTela";
 import useCareerStore from "../../stores/useCareerStore";
 import FlagIcon from "../ui/FlagIcon";
@@ -20,10 +21,17 @@ import { getTeamGlow } from "../../utils/teamColors";
 import { isPortuguese, localizedAiError } from "../../utils/aiFallback";
 import { CLIMA_RESULTADO, weatherLabel as climaLabel } from "../../utils/weather";
 
-// Tela pós-corrida REDESENHADA (v2), atrás de flag de dev. NÃO substitui a atual —
-// renderizada em paralelo no Dashboard só quando a flag liga, para comparar lado a
-// lado. Duas abas: DEBRIEF (tabela rica + debrief do engenheiro) e TELEMETRIA
-// (cockpit). Recebe os MESMOS props da tela atual: result, evaluation, telemetry.
+// A tela pós-corrida. Nasceu como redesenho (daí o `V2` no nome) rodando ao lado da
+// V1 atrás de flag de dev, para comparação lado a lado; a V1 morreu em 11/08/2026 e
+// a flag foi junto. Hoje o Dashboard renderiza esta e só esta, num `return` antecipado
+// enquanto `showResult` estiver ligado — não há caminho alternativo.
+//
+// Duas abas: DEBRIEF (tabela rica + debrief do engenheiro) e TELEMETRIA (cockpit).
+// Props: result, evaluation, telemetry, maintenance, repercussion e onDismiss.
+//
+// O que sobrou de flag aqui é outra coisa e continua viva: o botão de telemetria
+// fake, só em `import.meta.env.DEV`, que alimenta o cockpit e as quebras sem exigir
+// uma corrida no iRacing (ver `__mockTelemetry`).
 
 const ASSESSMENT = {
   MuitoAcima: { key: "muitoAcima", color: "#4ade80", emoji: "🔥" },
@@ -155,13 +163,17 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
       return undefined;
     }
     setAiLoading(true);
-    invoke("post_race_debrief_ai", { careerId, raceId: lastRaceId })
+    // Cooldown e servidor de IA fora do ar são o caso esperado, e a tela tem o debrief
+    // de template para eles. O rastro separa "a IA recusou" de "a IA nunca foi chamada".
+    bestEffort(
+      invoke("post_race_debrief_ai", { careerId, raceId: lastRaceId }),
+      "post_race_debrief_ai",
+    )
       .then((r) => {
         if (active && r && (r.headline || r.body)) {
           setAiDebrief({ headline: r.headline || null, body: r.body || null });
         }
       })
-      .catch(() => {})
       .finally(() => {
         if (active) setAiLoading(false);
       });
@@ -178,11 +190,15 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
     let active = true;
     setInvoice(null);
     if (!careerId || !lastRaceId) return undefined;
-    invoke("get_stage_invoice", { careerId, raceId: lastRaceId })
-      .then((data) => {
-        if (active && data) setInvoice(data);
-      })
-      .catch(() => {});
+    // Falhar aqui esconde a fatura inteira, e a seção some sem dizer por quê. Não dá
+    // para derrubar a tela de resultado por causa dela, então o rastro é o que existe:
+    // uma fatura ausente no log tem motivo, e não vira "sumiu do nada".
+    bestEffort(
+      invoke("get_stage_invoice", { careerId, raceId: lastRaceId }),
+      "get_stage_invoice",
+    ).then((data) => {
+      if (active && data) setInvoice(data);
+    });
     return () => {
       active = false;
     };
@@ -193,11 +209,14 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
   useEffect(() => {
     let active = true;
     if (!careerId || !playerTeam?.categoria) return undefined;
-    invoke("get_drivers_by_category", { careerId, category: playerTeam.categoria })
-      .then((data) => {
-        if (active) setDrivers(Array.isArray(data) ? data : []);
-      })
-      .catch(() => {});
+    // Sem o elenco, a tabela perde bandeira e cor de equipe e continua de pé. O rastro
+    // explica a tela "sem bandeiras", que hoje chega como reclamação visual.
+    bestEffort(
+      invoke("get_drivers_by_category", { careerId, category: playerTeam.categoria }),
+      "get_drivers_by_category",
+    ).then((data) => {
+      if (active) setDrivers(Array.isArray(data) ? data : []);
+    });
     return () => {
       active = false;
     };
@@ -209,11 +228,14 @@ function RaceResultViewV2({ result, evaluation, telemetry, maintenance, repercus
   useEffect(() => {
     let active = true;
     if (!careerId || !lastRaceId) return undefined;
-    invoke("get_race_breakdowns", { careerId, raceId: lastRaceId })
-      .then((data) => {
-        if (active) setBreakdowns(Array.isArray(data) ? data : []);
-      })
-      .catch(() => {});
+    // Lista vazia é um estado LEGÍTIMO (corrida sem quebra nenhuma), e é justamente por
+    // isso que a falha precisa de rastro: calada, ela é idêntica a uma corrida limpa.
+    bestEffort(
+      invoke("get_race_breakdowns", { careerId, raceId: lastRaceId }),
+      "get_race_breakdowns",
+    ).then((data) => {
+      if (active) setBreakdowns(Array.isArray(data) ? data : []);
+    });
     return () => {
       active = false;
     };

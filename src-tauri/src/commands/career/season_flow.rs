@@ -7,8 +7,7 @@ pub(crate) fn advance_season_in_base_dir(
     base_dir: &Path,
     career_id: &str,
 ) -> Result<EndOfSeasonResult, String> {
-    let career_number =
-        career_number_from_id(career_id).ok_or_else(errors::invalid_career_id)?;
+    let career_number = career_number_from_id(career_id).ok_or_else(errors::invalid_career_id)?;
     let mut config = AppConfig::load_or_default(base_dir);
     let (mut db, career_dir, mut meta) = open_career_resources(base_dir, career_id)?;
     let meta_path = career_dir.join("meta.json");
@@ -245,7 +244,7 @@ pub(crate) fn cleanup_legacy_special_state_for_9d_transition(
          SET status = 'Expirado'
          WHERE tipo = 'Especial'
            AND status = 'Ativo'
-           AND temporada_inicio = ?1",
+           AND CAST(temporada_inicio AS INTEGER) = ?1",
         rusqlite::params![season_number],
     )
     .map_err(|e| format!("Falha ao expirar contratos especiais legados: {e}"))?;

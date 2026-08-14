@@ -16,12 +16,25 @@ use super::noticias::emit_team_rivalry_news;
 /// Fração dos pontos do líder dentro da qual o gap de pontos conta como "briga apertada".
 const CONSTRUCTOR_CLOSE_FRAC: f64 = 0.15;
 
-/// Reforça rivalidades entre construtores que brigaram na temporada que fecha. Roda no
-/// pipeline de fim de temporada, depois do arquivamento.
-pub fn process_constructor_battle_rivalry(
+/// Um par de construtores que brigou na temporada que fecha.
+pub(super) struct BriganteDoCampeonato {
+    pub team_a: String,
+    pub team_b: String,
+    pub categoria: String,
+    /// 1º × 2º — a briga que decidiu o título, com delta reforçado.
+    pub decidiu_o_titulo: bool,
+}
+
+/// Quem brigou pelo campeonato na temporada `temporada`, lido do `team_season_archive`.
+///
+/// Existe separada do reforço porque o DECAIMENTO anual precisa da mesma lista: ele roda
+/// antes do veredito e não pode apagar um par que a briga desta mesma virada ainda vai
+/// reforçar — apagar ali joga fora o eixo histórico que o clássico levou temporadas
+/// acumulando. Ver `decaimento::apply_season_end_team_rivalry_decay`.
+pub(super) fn pares_da_briga_de_construtores(
     conn: &Connection,
     temporada: i32,
-) -> Result<(), DbError> {
+) -> Result<Vec<BriganteDoCampeonato>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT team_id, categoria, COALESCE(classe, ''), posicao_campeonato, pontos
          FROM team_season_archive
@@ -50,6 +63,7 @@ pub fn process_constructor_battle_rivalry(
     }
     drop(stmt);
 
+    let mut brigantes = Vec::new();
     for (_key, mut teams) in groups {
         teams.sort_by_key(|t| t.2); // por posição ascendente
         teams.truncate(4); // só os top-4 brigam por "clássico"
@@ -67,36 +81,53 @@ pub fn process_constructor_battle_rivalry(
                 if !(both_top3 || close) {
                     continue;
                 }
-                // +50% se o par decidiu o título (1º vs 2º).
-                let title_decider = (*a_pos == 1 && *b_pos == 2) || (*a_pos == 2 && *b_pos == 1);
-                let (h, r) = if title_decider {
-                    (6.0, 15.0)
-                } else {
-                    (4.0, 10.0)
-                };
-                let applied = apply_team_rivalry_event(
-                    conn,
-                    &TeamRivalryEvent {
-                        team_a: a_id.clone(),
-                        team_b: b_id.clone(),
-                        tipo: TeamRivalryType::Campeonato,
-                        historical_delta: h,
-                        recent_delta: r,
-                        temporada,
-                    },
-                )?;
-                emit_team_rivalry_news(
-                    conn,
-                    &applied,
-                    TeamRivalryType::Campeonato,
-                    a_id,
-                    b_id,
-                    Some(categoria),
-                    None,
-                    temporada,
-                )?;
+                brigantes.push(BriganteDoCampeonato {
+                    team_a: a_id.clone(),
+                    team_b: b_id.clone(),
+                    categoria: categoria.clone(),
+                    decidiu_o_titulo: (*a_pos == 1 && *b_pos == 2) || (*a_pos == 2 && *b_pos == 1),
+                });
             }
         }
+    }
+    Ok(brigantes)
+}
+
+/// Reforça rivalidades entre construtores que brigaram na temporada que fecha. Roda no
+/// pipeline de fim de temporada, depois do arquivamento **e depois do decaimento anual**
+/// — ver o bloco de ordem em `evolution::pipeline::orquestracao`.
+pub fn process_constructor_battle_rivalry(
+    conn: &Connection,
+    temporada: i32,
+) -> Result<(), DbError> {
+    for brigante in pares_da_briga_de_construtores(conn, temporada)? {
+        // +50% se o par decidiu o título (1º vs 2º).
+        let (h, r) = if brigante.decidiu_o_titulo {
+            (6.0, 15.0)
+        } else {
+            (4.0, 10.0)
+        };
+        let applied = apply_team_rivalry_event(
+            conn,
+            &TeamRivalryEvent {
+                team_a: brigante.team_a.clone(),
+                team_b: brigante.team_b.clone(),
+                tipo: TeamRivalryType::Campeonato,
+                historical_delta: h,
+                recent_delta: r,
+                temporada,
+            },
+        )?;
+        emit_team_rivalry_news(
+            conn,
+            &applied,
+            TeamRivalryType::Campeonato,
+            &brigante.team_a,
+            &brigante.team_b,
+            Some(&brigante.categoria),
+            None,
+            temporada,
+        )?;
     }
     Ok(())
 }

@@ -19,6 +19,8 @@ mod controle_corrida;
 mod corridas_salvas;
 #[path = "iracing/diagnostico.rs"]
 mod diagnostico;
+#[path = "iracing/exportavel.rs"]
+mod exportavel;
 #[path = "iracing/importacao.rs"]
 mod importacao;
 #[path = "iracing/modo_janela.rs"]

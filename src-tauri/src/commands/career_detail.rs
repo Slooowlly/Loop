@@ -13,22 +13,23 @@ use crate::commands::career_types::{
     DriverCareerQualifyingBlock, DriverCareerRankBlock, DriverCareerRankEntry,
     DriverCareerReliabilityBlock, DriverCareerSpecialEventsBlock, DriverCareerTeammateBlock,
     DriverChampionshipCurvePoint, DriverCompetitiveBlock, DriverContractMarketBlock,
-    DriverCurrentSummaryBlock, DriverDetail,
-    DriverFormBlock, DriverHealthBlock, DriverLicenseInfo, DriverMarketBlock,
-    DriverMarketCurvePoint, DriverPerformanceBlock, DriverPerformanceReadBlock, DriverProfileBlock,
-    DriverRivalInfo, DriverRivalMeeting, DriverRivalTeammateSpell, DriverRivalsBlock,
-    DriverSpecialCampaignBlock, DriverSpecialEventEntry, DriverSpecialEventRankBlock,
-    DriverStardomBlock, DriverTeammateDuel, DriverTechnicalReadBlock, DriverTechnicalReadItem,
-    DriverTitleEntry, FormResultEntry, FormSeasonBlock, PerformanceStatsBlock, PersonalityInfo,
-    StatsBlock, TagInfo, TransferForceBreakdown,
+    DriverCurrentSummaryBlock, DriverDetail, DriverFormBlock, DriverHealthBlock, DriverLicenseInfo,
+    DriverMarketBlock, DriverMarketCurvePoint, DriverPerformanceBlock, DriverPerformanceReadBlock,
+    DriverProfileBlock, DriverRivalInfo, DriverRivalMeeting, DriverRivalTeammateSpell,
+    DriverRivalsBlock, DriverSpecialCampaignBlock, DriverSpecialEventEntry,
+    DriverSpecialEventRankBlock, DriverStardomBlock, DriverTeammateDuel, DriverTechnicalReadBlock,
+    DriverTechnicalReadItem, DriverTitleEntry, FormResultEntry, FormSeasonBlock,
+    PerformanceStatsBlock, PersonalityInfo, StatsBlock, TagInfo, TransferForceBreakdown,
 };
 use crate::commands::global_driver_rankings::valid_archived_title_count;
 use crate::commands::race_history::build_driver_histories;
+use crate::common::numeros::formatar_decimal;
 use crate::constants::categories;
 use crate::db::queries::calendar as calendar_queries;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::injuries as injury_queries;
 use crate::db::queries::teams as team_queries;
+use crate::generators::nationality::nationality_display_label;
 use crate::models::contract::Contract;
 use crate::models::driver::{AttributeTag, Driver, DriverAttributes, TagLevel};
 use crate::models::driver_tags::visible_tags_in_grid;
@@ -153,7 +154,10 @@ pub(crate) fn build_driver_detail_payload(
     Ok(DriverDetail {
         id: driver.id.clone(),
         nome: driver.nome.clone(),
-        nacionalidade: driver.nacionalidade.clone(),
+        // Rótulo de DISPLAY, resolvido no locale ativo: o save guarda a forma que
+        // estava em vigor quando o piloto nasceu, e sem esta borda um jogador em
+        // en-US lia "Britânico" na ficha. Nada aqui volta para o banco.
+        nacionalidade: nationality_display_label(&driver.nacionalidade, &driver.genero),
         idade: driver.idade as i32,
         genero: driver.genero.clone(),
         is_jogador: driver.is_jogador,

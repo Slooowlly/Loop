@@ -411,8 +411,11 @@ fn tela_salva_corrompida_nao_derruba_a_montagem() {
     pt();
     let dir = dir_temporario("bundle_corrompido");
     std::fs::create_dir_all(dir.join("race_screens")).expect("pasta");
-    std::fs::write(dir.join("race_screens").join("C003.json"), "{ isto não é json")
-        .expect("gravar lixo");
+    std::fs::write(
+        dir.join("race_screens").join("C003.json"),
+        "{ isto não é json",
+    )
+    .expect("gravar lixo");
     std::fs::write(
         dir.join("race_screens").join("C004.json"),
         r#"{"race_id":"C004"}"#,

@@ -43,7 +43,7 @@ function CarPartsRadar({ cars, playerTeamId, hoveredTeamId = null }) {
 
   if (!radar.hasData) {
     return (
-      <p className="rounded-2xl border border-white/8 bg-black/10 px-4 py-8 text-center text-xs leading-5 text-text-secondary">
+      <p className="rounded-2xl border border-white/[0.08] bg-black/10 px-4 py-8 text-center text-xs leading-5 text-text-secondary">
         {t("myTeamTabV2.parts.empty")}
       </p>
     );

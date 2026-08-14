@@ -5,22 +5,22 @@
 //! `crate::models::enums::X` continuem válidos.
 //!
 //! ⚠️ A ORDEM das variantes é parte do contrato de serialização — não reordene.
-
-#![allow(dead_code)]
+//!
+//! O submódulo `mercado` saiu em 12/08/2026. Ele trazia `NewsType`, `ProposalStatus` e
+//! `RefusalReason`, e nenhum dos três tinha um consumidor: os dois primeiros eram cópias
+//! divergentes de [`crate::news::NewsType`] e [`crate::market::proposals::ProposalStatus`]
+//! (que é quem o crate inteiro importa, e o único com `from_str_strict`), e o terceiro não
+//! era citado em lugar nenhum. Duas definições do mesmo enum, uma delas com menos
+//! variantes, é armadilha esperando o próximo `use` errado.
 
 mod clima;
 mod contrato;
 mod corrida;
-mod mercado;
 mod piloto;
 mod temporada;
 
 pub use clima::*;
 pub use contrato::*;
 pub use corrida::*;
-// Enums de mercado/imprensa ainda não consumidos pelo crate (mesmo motivo do
-// `allow(dead_code)` acima) — o re-export existe para manter o caminho público.
-#[allow(unused_imports)]
-pub use mercado::*;
 pub use piloto::*;
 pub use temporada::*;

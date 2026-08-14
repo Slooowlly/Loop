@@ -117,15 +117,20 @@ pub struct EventResultRow {
     pub incidents: i64,
     pub dnf: bool,
     pub has_fastest: bool,
+    /// Motivo do abandono JÁ resolvido no locale ativo — ver [`get_event_results`].
     pub dnf_reason: Option<String>,
 }
 
 /// Resultados de UMA corrida (todos os pilotos + dados pro bloco do aiseason).
+///
+/// O `dnf_reason` sai daqui no idioma de AGORA quando o abandono foi por quebra: a coluna
+/// `dnf_reason_key` (v68) guarda a chave e ela é resolvida aqui. Sem chave — abandono que não é
+/// quebra, ou linha anterior à v68 — vale a prosa que a coluna `dnf_reason` congelou.
 pub fn get_event_results(conn: &Connection, race_id: &str) -> Result<Vec<EventResultRow>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT rr.piloto_id, d.nome, d.is_jogador, rr.posicao_final, rr.posicao_largada,
                 rr.voltas_completadas, rr.tempo_total, rr.gap_to_winner_ms, rr.incidents_count,
-                rr.dnf, rr.fastest_lap, rr.dnf_reason
+                rr.dnf, rr.fastest_lap, rr.dnf_reason, rr.dnf_reason_key
          FROM race_results rr
          JOIN drivers d ON rr.piloto_id = d.id
          WHERE rr.race_id = ?1
@@ -133,6 +138,12 @@ pub fn get_event_results(conn: &Connection, race_id: &str) -> Result<Vec<EventRe
     )?;
     let rows = stmt
         .query_map(rusqlite::params![race_id], |row| {
+            let gravado: Option<String> = row.get(11)?;
+            let chave: Option<String> = row.get(12)?;
+            let dnf_reason = chave
+                .as_deref()
+                .and_then(crate::car::breakdown::problem_text_from_key)
+                .or(gravado);
             Ok(EventResultRow {
                 piloto_id: row.get(0)?,
                 nome: row.get(1)?,
@@ -145,7 +156,7 @@ pub fn get_event_results(conn: &Connection, race_id: &str) -> Result<Vec<EventRe
                 incidents: row.get(8)?,
                 dnf: row.get::<_, i32>(9)? != 0,
                 has_fastest: row.get::<_, f64>(10)? != 0.0,
-                dnf_reason: row.get(11)?,
+                dnf_reason,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;

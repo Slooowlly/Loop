@@ -88,6 +88,41 @@ describe("useConfiguracaoDoApp", () => {
     await waitFor(() => expect(result.current.config.auto_paint_car).toBe(true));
   });
 
+  it("falha na carga marca a falha em vez de deixar a tela sem config e sem motivo", async () => {
+    invoke.mockImplementation((comando) => {
+      if (comando === "get_config") return Promise.reject(new Error("config.json ilegível"));
+      return Promise.resolve(null);
+    });
+
+    const { result } = renderHook(() => useConfiguracaoDoApp());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.config).toBeNull();
+    expect(result.current.falhaAoCarregar).toBe(true);
+  });
+
+  it("o retry recarrega e limpa a falha", async () => {
+    invoke.mockImplementation((comando) => {
+      if (comando === "get_config") return Promise.reject(new Error("config.json ilegível"));
+      return Promise.resolve(null);
+    });
+
+    const { result } = renderHook(() => useConfiguracaoDoApp());
+    await waitFor(() => expect(result.current.falhaAoCarregar).toBe(true));
+
+    invoke.mockImplementation((comando) => {
+      if (comando === "get_config") return Promise.resolve({ ...CONFIG_DO_DISCO });
+      return Promise.resolve(null);
+    });
+
+    await act(async () => {
+      await result.current.loadConfig();
+    });
+
+    expect(result.current.falhaAoCarregar).toBe(false);
+    expect(result.current.config).toEqual(CONFIG_DO_DISCO);
+  });
+
   it("dois toggles seguidos não perdem o primeiro", async () => {
     const { result } = renderHook(() => useConfiguracaoDoApp());
     await waitFor(() => expect(result.current.loading).toBe(false));

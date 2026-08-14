@@ -101,14 +101,23 @@ impl Memoria {
     ///
     /// `None` em todos os casos em que a comparação seria falsa ou inútil: outro carro,
     /// memória velha, variação dentro do ruído, ou nenhuma resposta anterior.
-    pub fn consultar(&mut self, e: &EstadoAgora, subsessao: i64, intencao: Intencao) -> Option<Delta> {
+    pub fn consultar(
+        &mut self,
+        e: &EstadoAgora,
+        subsessao: i64,
+        intencao: Intencao,
+    ) -> Option<Delta> {
         self.sincronizar(subsessao);
         let frente = match intencao {
             Intencao::Frente => true,
             Intencao::Atras => false,
             _ => return None,
         };
-        let atual = if frente { e.frente.as_ref() } else { e.atras.as_ref() }?;
+        let atual = if frente {
+            e.frente.as_ref()
+        } else {
+            e.atras.as_ref()
+        }?;
         let antes = self.lado(frente)?;
         // O MESMO carro. Sem esta linha, uma ultrapassagem entre duas perguntas faria a
         // conta comparar dois pilotos diferentes.

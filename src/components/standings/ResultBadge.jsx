@@ -28,7 +28,7 @@ function ResultBadge({ result }) {
     content = <Badge className="border-[#cd7f32]/30 bg-[#cd7f32]/15 text-[#cd7f32]" label="P3" />;
   } else if (result.position <= 10) {
     content = (
-      <Badge className="border-white/10 bg-white/6 text-text-primary" label={`P${result.position}`} />
+      <Badge className="border-white/10 bg-white/[0.06] text-text-primary" label={`P${result.position}`} />
     );
   } else {
     content = (

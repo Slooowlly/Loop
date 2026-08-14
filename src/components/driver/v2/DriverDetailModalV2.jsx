@@ -1,6 +1,5 @@
 import {
   createContext,
-  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -17,10 +16,8 @@ import {
   ChevronDown,
   ChevronsUp,
   ChevronUp,
-  Crown,
   Flag,
   Globe,
-  Medal,
   Sparkles,
   Star,
   TrendingUp,
@@ -38,20 +35,28 @@ import { pisoDeAbertura } from "../../ui/aberturaDePainel.js";
 import { getCategoryColor } from "../../../utils/categoryColors";
 import { getVividTeamColor } from "../../../utils/teamColors";
 import { comprimeSequenciasDeAnos } from "../../../utils/sequenciaDeAnos";
-import { formatSalary, formatSalaryAnnual } from "../../../utils/formatters";
+import { formatSalaryAnnual } from "../../../utils/formatters";
 import { PlayerSkillSection } from "../detalhes/PlayerSkillSection.jsx";
 import { technicalToneClass } from "../detalhes/primitivos.jsx";
 import { DossierDetailTooltip } from "./DossierDetailTooltip.jsx";
 import { CurvaDeCampeonato } from "./CurvaDeCampeonato.jsx";
-import { CURVA_MERCADO, CURVA_PAGO, MarketCurve } from "./CurvaDeMercado.jsx";
 import { DuelTimeline, MiniTimeline } from "./FaixaDeConfronto.jsx";
+import { MarketSection } from "./MarketSection.jsx";
+import { RecentFormStrip } from "./RecentFormStrip.jsx";
+import {
+  Block,
+  BlockLabel,
+  DataRow,
+  HeroBadge,
+  MetricIcon,
+  MotivationBar,
+} from "./primitivosDaFicha.jsx";
 import {
   formatAttributeName,
   formatAverage,
   formatAverageGrid,
   formatDuel,
   formatCareerYears,
-  formatCategoryLabel,
   formatContractPeriod,
   formatContractRole,
   formatInjuryOccurrence,
@@ -73,7 +78,6 @@ import {
   MEDAL_COLORS,
   TONE_HEX,
   corDoSaldo,
-  finishColor,
   formataSaldo,
   groupTitlesByTeam,
   listaDeAnos,
@@ -81,7 +85,6 @@ import {
   ordenarPorNivel,
   primeiroNome,
   sequenciaAtual,
-  tendenciaDeValor,
 } from "./driverDetailV2Logic";
 
 // Ficha do piloto v2.
@@ -120,13 +123,6 @@ const DEFAULT_SECTION = DRIVER_SECTIONS[0];
 // conteúdo que o payload não tem.
 const RETIRED_SECTIONS = ["historico"];
 
-const METRIC_ICONS = {
-  corridas: Flag,
-  vitorias: Crown,
-  podios: Medal,
-  titulos: Award,
-};
-
 // Tom do momento atual. As chaves (`forte`, `estavel`, `em_baixa`) vêm do
 // backend e viram sufixo da chave `driverDetail.momentBuilder.<chave>` — mudar
 // uma delas aqui exige mudar a chave de i18n do mesmo nome.
@@ -137,24 +133,10 @@ const MOMENT_TONES = {
   sem_dados: { key: "sem_dados", color: "#8b949e" },
 };
 
-const FORM_HEIGHT = 104;
-
 // Quantas EQUIPES o card de campeão desenha antes de resumir o resto. Quatro
 // linhas é o que cabe sem o card dobrar de altura em relação aos vizinhos —
 // acima disso a linha de destaques deixa de ser uma linha.
 const MAX_TITLE_TEAMS = 4;
-// Largura máxima de uma corrida na faixa de forma e o vão entre elas — os mesmos
-// números das classes `max-w-[64px]`/`basis-16` e `gap-1` das colunas. Ficam aqui
-// porque o teto de largura de cada temporada é calculado a partir deles.
-const FORM_CELL = 64;
-const FORM_CELL_GAP = 4;
-// A divisa de uma temporada para a outra: `border-l` + `pl-4`.
-const FORM_GROUP_DIVIDER = 17;
-// Trilhos das rodadas que ainda vêm. Fixo e generoso: o que passar da faixa é
-// cortado pelo `overflow-hidden`, e o fade esconde o corte.
-const FORM_GHOST_SLOTS = 24;
-const FORM_GHOST_MASK =
-  "linear-gradient(90deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 100%)";
 
 export function DriverDetailModalV2({
   driverId,
@@ -877,7 +859,7 @@ function RookieSummary({ detail }) {
   return (
     <section>
       <div
-        className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-xl border border-accent-primary/20 bg-accent-primary/8 px-3.5 py-2.5"
+        className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-xl border border-accent-primary/20 bg-accent-primary/[0.08] px-3.5 py-2.5"
         data-testid="driver-detail-rookie-banner"
       >
         <strong className="text-base font-semibold text-accent-primary">
@@ -2073,6 +2055,45 @@ function StardomBlock({ stardom }) {
   );
 }
 
+function StardomMeter({ eixo, label, value, level, tone }) {
+  const color = TONE_HEX[tone] || TONE_HEX.neutral;
+  const width = Math.max(0, Math.min(Number(value) || 0, 100));
+  const foco = useFoco(eixo);
+  const aceso = foco === "aceso";
+  return (
+    <div data-stardom={eixo} data-em-foco={aceso || undefined} className={classesDeRealce(foco)}>
+      <div className="flex items-baseline justify-between gap-3">
+        <span
+          className={`text-xs font-semibold ${aceso ? "text-text-primary" : "text-text-secondary"}`}
+        >
+          {label}
+        </span>
+        <span className="flex shrink-0 items-baseline gap-1.5">
+          {/* O número subiu para a linha do nível: embaixo da barra ele ocupava
+              uma terceira linha por medidor para repetir o que a barra desenha, e
+              alinhado à direita sozinho não se ligava a coisa nenhuma. */}
+          <span className="font-mono text-[10px] text-text-muted">{width}</span>
+          <span className="text-xs font-semibold" style={{ color }}>
+            {level}
+          </span>
+        </span>
+      </div>
+      <div className="mt-1.5 h-1.5 rounded-full bg-white/[0.07]">
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${width}%`,
+            backgroundColor: color,
+            // O medidor já nasce com brilho; no foco ele fica em alfa cheio, que
+            // é a mesma diferença que a régua da leitura técnica faz ao acender.
+            boxShadow: aceso ? `0 0 12px ${color}` : `0 0 10px ${color}59`,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 // A bolinha some e a cor vai para a PALAVRA. Ela era o único portador do nível
 // numa pílula que já tinha borda de outra cor, e 6px de diâmetro é pouco pano
 // para separar cinco tons — sem ela, o roxo do elite passa a ter o tamanho do
@@ -2109,272 +2130,6 @@ function TraitChip({ tag, tone, onFocarEixo }) {
         {tag.tag_text}
       </span>
     </Tooltip>
-  );
-}
-
-// Forma recente: uma coluna por corrida, altura = quão à frente o piloto chegou,
-// cor = a colocação.
-//
-// O v1 desenhava isso como uma linha de tendência num SVG de 760px — bonito e
-// caro de ler: para saber onde foi a vitória você precisava seguir a curva até o
-// ponto mais alto e depois procurar o rótulo. Aqui a vitória é dourada e alta, o
-// DNF é vermelho e não tem coluna, e a sequência se lê de relance.
-//
-// A escala é INVERTIDA de propósito: P1 no topo. Posição é a única métrica do
-// jogo em que menor é melhor, e desenhar a barra crescendo para baixo seria
-// tecnicamente correto e visualmente mentiroso.
-//
-// A janela é o CALENDÁRIO, não um número redondo de corridas. Cinco quadradinhos
-// não diziam de que ano eram nem quanto do ano cobriam — podiam ser o fim de uma
-// temporada, o começo da seguinte ou metade de cada. Agora entra a temporada
-// anterior inteira mais a atual até aqui, separadas: à esquerda o ano fechado, à
-// direita o que está acontecendo.
-function RecentFormStrip({ seasons, entries, context }) {
-  const { t } = useTranslation();
-  const grupos = useMemo(() => {
-    // `temporadas` é o caminho normal. `entries` é o payload antigo (save aberto
-    // por build anterior), que não sabe de que temporada é cada corrida: vira um
-    // grupo só, sem rótulo de ano — melhor que sumir com a faixa.
-    const porTemporada = Array.isArray(seasons) && seasons.length
-      ? seasons
-          .filter((season) => Array.isArray(season?.resultados) && season.resultados.length)
-          .map((season) => ({
-            key: `s${season.season_number}`,
-            year: season.ano || null,
-            current: Boolean(season.atual),
-            rows: season.resultados,
-          }))
-      : [{ key: "janela", year: null, current: false, rows: Array.isArray(entries) ? entries : [] }];
-
-    const comCorridas = porTemporada.filter((grupo) => grupo.rows.length);
-    if (!comCorridas.length) return [];
-
-    // A escala do eixo é COMUM às temporadas: com uma régua por grupo, um P8 de
-    // 2025 desenharia mais alto que um P8 de 2026 só porque o pior resultado do
-    // ano foi outro, e a faixa deixaria de comparar as duas.
-    const finishes = comCorridas
-      .flatMap((grupo) => grupo.rows)
-      .filter((row) => !row?.dnf && Number.isFinite(row?.chegada))
-      .map((row) => row.chegada);
-    const worst = Math.max(20, ...finishes, 1);
-
-    return comCorridas.map((grupo) => {
-      const bars = grupo.rows.map((row, index) => {
-        const dnf = Boolean(row?.dnf);
-        const finish = Number.isFinite(row?.chegada) ? row.chegada : null;
-        return {
-          key: `${grupo.key}-${row?.rodada ?? "r"}-${index}`,
-          round: row?.rodada ?? null,
-          dnf,
-          finish,
-          height: dnf || finish === null ? 0 : ((worst - finish) / Math.max(1, worst - 1)) * 100,
-          color: finishColor(dnf, finish),
-          title: dnf
-            ? t("driverDetail.v2.form.tooltipDnf", { round: row?.rodada ?? "-" })
-            : t("driverDetail.v2.form.tooltip", {
-                round: row?.rodada ?? "-",
-                position: finish ?? "-",
-              }),
-        };
-      });
-      const pontuadas = bars.filter((bar) => !bar.dnf && bar.finish);
-      return {
-        ...grupo,
-        bars,
-        average: pontuadas.length
-          ? pontuadas.reduce((soma, bar) => soma + bar.finish, 0) / pontuadas.length
-          : null,
-        best: pontuadas.length ? Math.min(...pontuadas.map((bar) => bar.finish)) : null,
-        dnfs: bars.filter((bar) => bar.dnf).length,
-      };
-    });
-  }, [seasons, entries, t]);
-
-  if (!grupos.length) {
-    return (
-      <div className="mt-5">
-        <BlockLabel>{t("driverDetail.summary.recentFormTitle")}</BlockLabel>
-        <div className="mt-2 rounded-xl bg-[#0f1c2b] px-4 py-3.5 text-xs text-text-secondary">
-          {context === "sem_time_temporada_passada"
-            ? t("driverDetail.summary.noTeamLastSeasonBody")
-            : context
-              ? t("driverDetail.summary.noRacesLastSeasonBody")
-              : t("driverDetail.summary.insufficientBody")}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-5">
-      {/* Sem contador ao lado do rótulo: as barras JÁ são a contagem, uma por
-          corrida, e o número repetia em cinza o que o desenho mostra inteiro. */}
-      <BlockLabel>{t("driverDetail.summary.recentFormTitle")}</BlockLabel>
-
-      <div
-        className="mt-2 flex gap-2 rounded-xl bg-[#0f1c2b] px-4 py-3.5"
-        data-testid="driver-detail-form-strip"
-      >
-        {/* A calha do eixo fica FORA da área dos grupos: dentro, ela entraria na
-            divisão proporcional e o "P1" deslizaria junto com as barras. */}
-        <div className="w-7 shrink-0 pt-4">
-          <div className="relative" style={{ height: FORM_HEIGHT }}>
-            <span className="absolute right-0 top-0 -translate-y-1/2 font-mono text-[10px] text-text-muted">
-              P1
-            </span>
-            <span className="absolute bottom-0 right-0 translate-y-1/2 font-mono text-[10px] text-text-muted">
-              {t("driverDetail.summary.worst")}
-            </span>
-          </div>
-        </div>
-
-        {/* Cada grupo cresce na PROPORÇÃO do número de corridas — é o que faz uma
-            coluna de 2025 ter a mesma largura de uma de 2026 mesmo com os anos
-            tendo calendários de tamanhos diferentes. */}
-        <div className="flex min-w-0 flex-1 gap-4">
-          {grupos.map((grupo, index) => (
-            <div
-              key={grupo.key}
-              data-season={grupo.year ?? undefined}
-              data-current={grupo.current ? "true" : undefined}
-              className={`min-w-0 ${index > 0 ? "border-l border-white/12 pl-4" : ""}`}
-              style={{
-                flexGrow: grupo.bars.length,
-                flexBasis: 0,
-                // Temporada FECHADA não cresce além do que as corridas dela
-                // ocupam. Sem esse teto, um ano de 6 corridas ficava com 6/7 da
-                // faixa enquanto as colunas paravam em FORM_CELL — e sobrava um
-                // buraco entre a última corrida e a divisa do ano seguinte.
-                // A sobra vai toda para a temporada em curso, que é onde ela
-                // significa alguma coisa: o resto do calendário.
-                ...(grupo.current
-                  ? { minWidth: 168 }
-                  : {
-                      maxWidth:
-                        grupo.bars.length * FORM_CELL +
-                        (grupo.bars.length - 1) * FORM_CELL_GAP +
-                        (index > 0 ? FORM_GROUP_DIVIDER : 0),
-                    }),
-              }}
-            >
-              {/* Cabeçalho do grupo: o ano à esquerda e a leitura DAQUELE ano à
-                  direita. Média cruzando duas temporadas não é média de nada — é
-                  a mistura de dois campeonatos num número só. */}
-              <div className="mb-1 flex items-baseline justify-between gap-2">
-                <span
-                  className={`truncate font-mono text-[10px] ${
-                    grupo.current ? "text-[color:var(--team)]" : "text-text-muted"
-                  }`}
-                >
-                  {grupo.year
-                    ? grupo.current
-                      ? t("driverDetail.v2.form.seasonCurrent", { year: grupo.year })
-                      : grupo.year
-                    : t("driverDetail.summary.recentFormTitle")}
-                </span>
-                <span className="shrink-0 truncate text-[10px] text-text-muted">
-                  {grupo.average
-                    ? t("driverDetail.v2.form.seasonAverage", { value: grupo.average.toFixed(1) })
-                    : ""}
-                  {grupo.dnfs > 0 ? ` · ${t("driverDetail.v2.form.seasonDnfs", { count: grupo.dnfs })}` : ""}
-                </span>
-              </div>
-
-              <div className="relative flex items-end gap-1" style={{ height: FORM_HEIGHT }}>
-                {grupo.bars.map((bar) => (
-                  <Tooltip key={bar.key} texto={bar.title}>
-                  <div
-                    data-round={bar.round ?? undefined}
-                    data-dnf={bar.dnf ? "true" : undefined}
-                    className="relative h-full min-w-[14px] max-w-[64px] grow basis-16"
-                  >
-                    {/* Trilho: a coluna VAZIA, sempre desenhada. Sem ele, uma
-                        corrida de último lugar não tinha pixel algum e ficava
-                        idêntica a uma corrida que não existiu. */}
-                    <div className="absolute inset-0 rounded-md bg-white/[0.045]" />
-                    {bar.dnf ? (
-                      <div className="absolute inset-x-0 bottom-0 grid h-full place-items-center rounded-md border border-dashed border-status-red/40">
-                        <X
-                          size={12}
-                          strokeWidth={1.8}
-                          aria-hidden="true"
-                          className="text-status-red/70"
-                        />
-                      </div>
-                    ) : (
-                      <div
-                        className="absolute inset-x-0 bottom-0 rounded-md"
-                        style={{
-                          height: `${bar.height}%`,
-                          minHeight: "4px",
-                          backgroundImage: `linear-gradient(180deg, ${bar.color}, color-mix(in srgb, ${bar.color} 72%, #0b1524))`,
-                        }}
-                      />
-                    )}
-                    {/* A colocação vai DENTRO da coluna, no topo. Some quando o
-                        calendário é longo: com vinte corridas o rótulo de 10px
-                        não cabe na barra, e P1 sobre P12 sobre P9 vira borrão. */}
-                    {grupo.bars.length <= 12 ? (
-                      <span className="absolute inset-x-0 -top-0.5 text-center font-mono text-[10px] font-bold text-text-primary">
-                        {bar.dnf ? "" : `P${bar.finish ?? "-"}`}
-                      </span>
-                    ) : null}
-                  </div>
-                  </Tooltip>
-                ))}
-
-                {/* A sobra da temporada em curso não é vazio: são as rodadas que
-                    ainda vêm. Desenhar o trilho delas ocupa a largura que antes
-                    ficava morta e diz que o ano continua. O fade existe porque a
-                    ficha NÃO sabe quantas faltam — a faixa some antes de virar
-                    uma contagem que ninguém prometeu. */}
-                {grupo.current ? (
-                  <div
-                    aria-hidden="true"
-                    className="pointer-events-none flex h-full min-w-0 flex-1 gap-1 overflow-hidden"
-                    style={{ maskImage: FORM_GHOST_MASK, WebkitMaskImage: FORM_GHOST_MASK }}
-                  >
-                    {Array.from({ length: FORM_GHOST_SLOTS }, (_, slot) => (
-                      <div
-                        key={`vazio-${slot}`}
-                        className="h-full shrink-0 rounded-md bg-white/[0.022]"
-                        style={{ width: FORM_CELL }}
-                      />
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="flex gap-1">
-                {grupo.bars.map((bar, barIndex) => (
-                  <span
-                    key={`round-${bar.key}`}
-                    className="mt-1 min-w-[14px] max-w-[64px] grow basis-16 text-center font-mono text-[10px] text-text-muted"
-                  >
-                    {/* Um rótulo a cada N rodadas em calendário longo, pelo mesmo
-                        motivo do rótulo de posição. */}
-                    {bar.round && barIndex % Math.max(1, Math.ceil(grupo.bars.length / 8)) === 0
-                      ? `R${bar.round}`
-                      : ""}
-                  </span>
-                ))}
-                {/* Espelha o bloco dos trilhos futuros para os rótulos ficarem
-                    embaixo da coluna certa. */}
-                {grupo.current ? <span aria-hidden="true" className="min-w-0 flex-1" /> : null}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[10px] text-text-muted">
-        <MedalKey color={MEDAL_COLORS.first} label={t("driverDetail.v2.medals.first")} />
-        <MedalKey color={MEDAL_COLORS.second} label={t("driverDetail.v2.medals.second")} />
-        <MedalKey color={MEDAL_COLORS.third} label={t("driverDetail.v2.medals.third")} />
-        <MedalKey color={MEDAL_COLORS.nearMiss} label={t("driverDetail.v2.medals.rest")} />
-        <MedalKey color={MEDAL_COLORS.dnf} label="DNF" />
-      </div>
-    </div>
   );
 }
 
@@ -3029,7 +2784,7 @@ function CareerDossier({ historico, ativo = true, onAbrirEquipe, careerId, drive
             }${
               recordesLigados
                 ? "border-[color:var(--team)] bg-[color:var(--team)]/15 text-[color:var(--team)]"
-                : "border-white/12 text-text-muted hover:border-white/25 hover:text-text-secondary"
+                : "border-white/[0.12] text-text-muted hover:border-white/25 hover:text-text-secondary"
             }`}
           >
             {t("driverDetail.history.recordsToggle")}
@@ -3642,564 +3397,6 @@ function RivalRow({ rival, onAbrir }) {
   );
 }
 
-// ─────────────────────────────── Mercado ───────────────────────────────
-
-// A aba era dois cards de números soltos, e dois deles eram o MESMO número: o
-// salário aparecia no contrato e outra vez no mercado, idêntico, porque o
-// estimado caía no contratado quando havia contrato. Agora o topo é a chance de
-// troca decomposta — a única pergunta viva da aba — e embaixo um card só, com o
-// que ele vale e o que custa lado a lado.
-function MarketSection({ detail }) {
-  const { t } = useTranslation();
-  const contract = detail.contrato_mercado?.contrato;
-  const market = detail.contrato_mercado?.mercado;
-
-  return (
-    <section>
-      {market ? <TransferThermometer market={market} temContrato={Boolean(contract)} /> : null}
-
-      <MarketCurve pontos={detail.contrato_mercado?.curva} />
-
-      {market ? (
-        <SituacaoContratual
-          contract={contract}
-          market={market}
-          curva={detail.contrato_mercado?.curva}
-        />
-      ) : (
-        <div className="mt-3 rounded-xl bg-[#0f1c2b] px-4 py-3.5 text-xs text-text-secondary">
-          {t("driverDetail.market.noMarketSignals")}
-        </div>
-      )}
-    </section>
-  );
-}
-
-// Cada força tem cor própria e fixa: quem olha duas fichas seguidas precisa ler
-// "o vermelho cresceu" sem reconferir a legenda.
-const FORCA_TONE = { contrato: "warning", motivacao: "danger", mercado: "info" };
-const FORCAS = ["contrato", "motivacao", "mercado"];
-
-// O termômetro: o número grande e a barra empilhada que o explica.
-//
-// 57% sozinho não diz se o piloto está infeliz ou se é só o contrato acabando —
-// e essas duas situações pedem reações opostas do jogador. A decomposição vem
-// pronta do backend justamente porque o cálculo sempre soube a diferença.
-//
-// Havia aqui uma frase que narrava a força dominante ("o contrato acaba nesta
-// janela…"). Saiu: a barra já mostra quem manda e as legendas já dizem o que
-// cada uma é — o parágrafo repetia em prosa o que estava desenhado dois pixels
-// acima e roubava a altura do cartão.
-function TransferThermometer({ market, temContrato }) {
-  const { t } = useTranslation();
-  const chance = Number.isFinite(market.chance_transferencia)
-    ? market.chance_transferencia
-    : null;
-  if (chance === null) return null;
-
-  const forcas = market.forcas_transferencia;
-  const tomDoTotal = chance >= 60 ? "danger" : chance >= 35 ? "warning" : "success";
-
-  return (
-    <div className="rounded-xl bg-[#0f1c2b] px-4 py-3.5" data-testid="driver-detail-transfer-meter">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-xs font-semibold text-text-secondary">
-          {t("driverDetail.market.transferMeter")}
-        </span>
-        <span
-          className="font-mono text-2xl font-semibold leading-none tabular-nums"
-          style={{ color: TONE_HEX[tomDoTotal] }}
-          data-testid="driver-detail-transfer-chance"
-        >
-          {chance}%
-        </span>
-      </div>
-
-      {forcas ? (
-        <>
-          <div className="mt-2.5 flex h-2 gap-0.5 overflow-hidden rounded-full bg-white/[0.07]">
-            {FORCAS.map((chave) =>
-              forcas[chave] > 0 ? (
-                <div
-                  key={chave}
-                  data-forca={chave}
-                  className="h-full first:rounded-l-full last:rounded-r-full"
-                  style={{
-                    // Em porcentagem da barra, não da escala 0-100: as parcelas
-                    // fecham no total, então a barra cheia É a chance.
-                    width: `${(forcas[chave] / chance) * 100}%`,
-                    backgroundColor: TONE_HEX[FORCA_TONE[chave]],
-                    boxShadow: `0 0 10px ${TONE_HEX[FORCA_TONE[chave]]}59`,
-                  }}
-                />
-              ) : null,
-            )}
-          </div>
-
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-            {FORCAS.map((chave) => (
-              <ForcaKey
-                key={chave}
-                chave={chave}
-                valor={forcas[chave]}
-                apagada={forcas[chave] === 0}
-              />
-            ))}
-          </div>
-        </>
-      ) : (
-        // Sem decomposição não há barra nem legenda, e o cartão ficaria só com
-        // um número solto: aqui a frase é o conteúdo inteiro, não um resumo do
-        // que já está desenhado.
-        <p className="mt-2 text-xs leading-relaxed text-text-secondary">
-          {t(
-            temContrato
-              ? "driverDetail.market.noMarketSignals"
-              : "driverDetail.market.freeAgent",
-          )}
-        </p>
-      )}
-    </div>
-  );
-}
-
-// Duas palavras não ensinam uma mecânica. O rótulo diz de que força se trata; o
-// balão diz o que a move — sem ele, "Interesse de fora" com um 5 do lado é um
-// número sem pergunta, e quem não conhece o motor por trás fica sem saber se
-// aquilo é bom, ruim ou coisa que ele possa mexer.
-function ForcaKey({ chave, valor, apagada }) {
-  const { t } = useTranslation();
-  const cor = TONE_HEX[FORCA_TONE[chave]];
-  return (
-    <Tooltip texto={t(`driverDetail.market.forceHints.${chave}`)}>
-      <span
-        className={`flex items-center gap-1.5 text-[11px] ${apagada ? "opacity-40" : ""}`}
-        data-forca-key={chave}
-      >
-        <span className="h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: cor }} />
-        <span className="text-text-secondary">{t(`driverDetail.market.forces.${chave}`)}</span>
-        <span className="font-mono tabular-nums text-text-muted">{valor}</span>
-      </span>
-    </Tooltip>
-  );
-}
-
-// Um card só, e não dois.
-//
-// Eram "Contrato" e "Valor de mercado" lado a lado, e o salário contratado
-// aparecia nos dois — três vezes na tela, contando a tabela do gráfico. Sobram
-// aqui as duas perguntas que nenhum outro elemento da aba responde: quanto ele
-// vale COMPARADO AO PELOTÃO dele, e quanto a equipe paga comparado a isso.
-//
-// A régua de vigência saiu. Ela desenhava um segmento por temporada, e contrato
-// de um ano — o caso mais comum — virava uma barra sólida que não media nada; o
-// gráfico logo acima já desenha os anos contratados como traço fantasma, com o
-// eixo do tempo junto, que é a mesma informação com mais contexto.
-function SituacaoContratual({ contract, market, curva }) {
-  const { t } = useTranslation();
-  const estimado = Number.isFinite(market.salario_estimado) ? market.salario_estimado : null;
-  const pago = contract && Number.isFinite(contract.salario_anual) ? contract.salario_anual : null;
-  const selo = seloDeSalario(estimado, pago);
-  const prazo = prazoDoContrato(contract, t);
-
-  return (
-    <div
-      className="mt-3 rounded-xl bg-[#0f1c2b] px-4 py-3.5"
-      data-testid="driver-detail-situation"
-    >
-      <div className="flex items-center justify-between gap-3">
-        {contract ? (
-          <span className="flex min-w-0 items-center gap-2">
-            <TeamLogoMark
-              teamName={contract.equipe_nome}
-              size="xs"
-              halo
-              testId="driver-detail-contract-logo"
-            />
-            <span className="truncate text-xs font-semibold text-[color:var(--team)]">
-              {contract.equipe_nome}
-            </span>
-            {/* O papel como chip, e não como linha de tabela: ele é um atributo
-                do vínculo, e ao lado do nome da equipe se lê como um fato só. */}
-            <span className="shrink-0 rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
-              {formatContractRole(contract.papel)}
-            </span>
-          </span>
-        ) : (
-          <span className="text-xs font-semibold text-text-secondary">
-            {t("driverDetail.market.curve.noContract")}
-          </span>
-        )}
-
-        {prazo ? (
-          // Só o estado. Os ANOS descem para a régua logo abaixo, que diz quais
-          // já foram — repeti-los aqui seria a mesma vigência escrita duas vezes
-          // a três pixels de distância.
-          <span
-            className="shrink-0 text-[11px] font-semibold"
-            style={{ color: TONE_HEX[prazo.tom] }}
-            data-prazo={prazo.chave}
-          >
-            {prazo.texto}
-          </span>
-        ) : null}
-      </div>
-
-      {/* A régua atravessa o card inteiro: ela é o eixo do tempo dos dois
-          blocos abaixo, e não propriedade de um deles. */}
-      <ReguaDeContrato contract={contract} tom={prazo?.tom ?? "neutral"} />
-
-      <div className="mt-3.5 grid gap-x-6 gap-y-5 border-t border-white/[0.06] pt-3.5 sm:grid-cols-2">
-        <ValorDeMercado market={market} curva={curva} />
-        <CustoAnual estimado={estimado} pago={pago} selo={selo} />
-      </div>
-    </div>
-  );
-}
-
-// A vigência como régua: um trecho por temporada, cheio no que já foi cumprido
-// e tracejado no que ainda não aconteceu, com um traço vertical em cada virada
-// de ano.
-//
-// A versão antiga eram barrinhas soltas sem ano nenhum: davam a proporção e
-// nada mais, e quem quisesse saber QUAL temporada estava em jogo tinha que ler
-// o período em outro canto e contar. Aqui cada trecho é nomeado, e o tracejado
-// diz sozinho o que ainda é promessa — o mesmo vocabulário que o gráfico acima
-// usa para os anos já contratados.
-function ReguaDeContrato({ contract, tom }) {
-  if (!contract) return null;
-
-  const inicio = contract.ano_inicio ?? contract.temporada_inicio;
-  const fim = contract.ano_fim ?? contract.temporada_fim;
-  if (!Number.isFinite(inicio) || !Number.isFinite(fim)) return null;
-
-  const total = Math.max(1, fim - inicio + 1);
-  const restantes = Number.isFinite(contract.anos_restantes)
-    ? Math.max(0, Math.min(total, contract.anos_restantes))
-    : 0;
-  const cumpridas = total - restantes;
-  const cor = TONE_HEX[tom];
-  const apagado = "rgba(255,255,255,0.18)";
-
-  return (
-    <div className="mt-3" data-testid="driver-detail-contract-ruler">
-      <div className="flex items-center">
-        {Array.from({ length: total }, (_, indice) => {
-          const ano = inicio + indice;
-          const cumprida = indice < cumpridas;
-          return (
-            <Fragment key={ano}>
-              {indice > 0 ? (
-                // A virada de ano. Fica no tom do trecho que COMEÇA nela, para
-                // a marca da fronteira não sobreviver ao trecho que já acabou.
-                <span
-                  aria-hidden="true"
-                  className="h-3.5 w-0.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: cumprida ? cor : apagado }}
-                />
-              ) : null}
-              <span
-                data-temporada={ano}
-                data-cumprida={cumprida || undefined}
-                className="h-1 min-w-0 flex-1 rounded-full"
-                style={
-                  cumprida
-                    ? { backgroundColor: cor, boxShadow: `0 0 8px ${cor}55` }
-                    : {
-                        backgroundImage: `repeating-linear-gradient(to right, ${apagado} 0 6px, transparent 6px 12px)`,
-                      }
-                }
-              />
-            </Fragment>
-          );
-        })}
-      </div>
-
-      <div className="mt-1.5 flex">
-        {Array.from({ length: total }, (_, indice) => {
-          const ano = inicio + indice;
-          const cumprida = indice < cumpridas;
-          return (
-            <span
-              key={ano}
-              className="min-w-0 flex-1 text-center font-mono text-[10px] tabular-nums"
-              style={{ color: cumprida ? "#8b949e" : "#6e7681" }}
-            >
-              {ano}
-            </span>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// O prazo em uma expressão só, com o tom já resolvido — "0 ano" pedia uma conta
-// de cabeça para chegar no que importa, que é o contrato acabar AGORA.
-function prazoDoContrato(contract, t) {
-  const restantes = contract && Number.isFinite(contract.anos_restantes)
-    ? contract.anos_restantes
-    : null;
-  if (restantes === null) return null;
-  if (restantes <= 0) {
-    return { chave: "agora", tom: "danger", texto: t("driverDetail.market.expiresNow") };
-  }
-  if (restantes === 1) {
-    return { chave: "ultimo", tom: "warning", texto: t("driverDetail.market.lastYear") };
-  }
-  // "2 anos" solto não diz anos de quê. `expiresValue` serve à frase "Expira em
-  // 2 anos", que tem o verbo antes; aqui o rótulo tem que se sustentar sozinho.
-  return {
-    chave: "longo",
-    tom: "success",
-    texto: t("driverDetail.market.remainingYears", { count: restantes }),
-  };
-}
-
-// Quanto ele vale — e onde isso cai no pelotão dele.
-//
-// O número absoluto não se julgava sozinho: "$23,016" não diz se é o carro mais
-// caro do grid ou o mais barato, e sem essa régua o valor era enfeite. A barra é
-// a fração do pelotão que está ATRÁS dele, então cheia é o mais caro de todos.
-function ValorDeMercado({ market, curva }) {
-  const { t } = useTranslation();
-  const posicao = Number.isFinite(market.posicao_valor) ? market.posicao_valor : null;
-  const total = Number.isFinite(market.total_valor) ? market.total_valor : null;
-  const posto =
-    posicao !== null && total > 1 && market.categoria_valor
-      ? (total - posicao + 1) / total
-      : null;
-  const tendencia = tendenciaDeValor(curva);
-  const cor =
-    posto === null
-      ? null
-      : posto >= 0.75
-        ? TONE_HEX.success
-        : posto >= 0.4
-          ? TONE_HEX.info
-          : TONE_HEX.neutral;
-
-  return (
-    <div className="text-center" data-bloco="valor">
-      <div className="flex items-baseline justify-center gap-2">
-        <span className="text-xs font-semibold text-text-secondary">
-          {t("driverDetail.market.marketValueLabel")}
-        </span>
-        {tendencia ? <TendenciaDeValor tendencia={tendencia} /> : null}
-      </div>
-      <span className="mt-1 block font-mono text-[34px] font-semibold leading-none tabular-nums text-text-primary sm:text-[42px]">
-        {formatSalary(market.valor_mercado)}
-      </span>
-
-      {posto !== null ? (
-        <div className="mx-auto mt-3 w-full max-w-[260px]" data-testid="driver-detail-market-rank">
-          <div className="h-1.5 rounded-full bg-white/[0.07]">
-            <div
-              className="h-full rounded-full"
-              data-preenchimento="posto"
-              style={{
-                width: `${Math.max(3, posto * 100)}%`,
-                backgroundColor: cor,
-                boxShadow: `0 0 8px ${cor}45`,
-              }}
-            />
-          </div>
-          <span className="mt-1.5 block text-[11px] text-text-secondary">
-            {t("driverDetail.market.rankInGrid", {
-              rank: ordinal(posicao),
-              total,
-              category: formatCategoryLabel(market.categoria_valor),
-            })}
-          </span>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-// A variação contra o último ano medido, do MESMO número impresso acima.
-//
-// Sai de `valor_mercado` ponto a ponto e não do salário estimado: os dois
-// divergem quando mídia ou desenvolvimento mudam, e um "+18%" tirado do proxy
-// seria uma precisão sobre a coisa errada.
-function TendenciaDeValor({ tendencia }) {
-  const { t } = useTranslation();
-  const subiu = tendencia.variacao > 0;
-  const cor = subiu ? TONE_HEX.success : TONE_HEX.danger;
-
-  return (
-    <Tooltip
-      texto={t("driverDetail.market.trendAgainst", {
-        year: tendencia.ano,
-        value: formatSalary(tendencia.base),
-      })}
-    >
-      <span
-        className="flex shrink-0 items-center gap-1 font-mono text-[11px] font-semibold tabular-nums"
-        style={{ color: cor }}
-        data-tendencia={subiu ? "alta" : "baixa"}
-      >
-        <span aria-hidden="true">{subiu ? "▲" : "▼"}</span>
-        {`${subiu ? "+" : "-"}${Math.round(Math.abs(tendencia.variacao) * 100)}%`}
-      </span>
-    </Tooltip>
-  );
-}
-
-// O que custa, contra o que valeria — duas barras na MESMA escala.
-//
-// Era uma porcentagem solta ("-44%") pendurada num card cujo número grande é
-// outro: parecia descontar do valor de passe quando comparava salários, e a
-// direção da conta ficava por conta de quem lia. As barras dizem quem é maior
-// sem porcentagem nenhuma, e a frase embaixo diz de que lado o desequilíbrio
-// cai. As cores são as MESMAS do gráfico acima de propósito — o card é o último
-// ponto daquelas duas linhas.
-function CustoAnual({ estimado, pago, selo }) {
-  const { t } = useTranslation();
-  const maximo = Math.max(estimado ?? 0, pago ?? 0);
-
-  return (
-    <div data-bloco="custo">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs font-semibold text-text-secondary">
-          {t("driverDetail.market.annualCost")}
-        </span>
-        {selo ? (
-          <span
-            className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
-            data-selo={selo.chave}
-            style={{ color: TONE_HEX[selo.tom], backgroundColor: `${TONE_HEX[selo.tom]}1f` }}
-          >
-            {t(`driverDetail.market.priceTag.${selo.chave}`)}
-          </span>
-        ) : null}
-      </div>
-
-      <div className="mt-2 space-y-2">
-        {pago !== null ? (
-          <BarraDeSalario
-            chave="pago"
-            rotulo={t("driverDetail.market.paidShort")}
-            valor={pago}
-            maximo={maximo}
-            cor={CURVA_PAGO}
-          />
-        ) : null}
-        {estimado !== null ? (
-          <BarraDeSalario
-            chave="mercado"
-            rotulo={t("driverDetail.market.worthShort")}
-            valor={estimado}
-            maximo={maximo}
-            cor={CURVA_MERCADO}
-          />
-        ) : null}
-      </div>
-
-      <p className="mt-2 text-[11px] leading-relaxed text-text-secondary">
-        {fraseDoDesequilibrio(selo, estimado, pago, t)}
-      </p>
-    </div>
-  );
-}
-
-// A frase diz a conta na direção em que ela é verdadeira.
-//
-// O selo dizia "Acima do mercado" e o número ao lado dizia "-44%", que é o
-// quanto o mercado paga a MENOS — duas leituras da mesma razão, invertidas. Aqui
-// cada caso usa a sua: quem paga demais paga X% a mais, quem ganha de menos
-// ganha Y% a menos, e X e Y não são o mesmo número.
-//
-// Quem decide o caso é o SELO, e não um segundo jogo de limiares: dois
-// conjuntos de cortes acabariam imprimindo "Acima do mercado" com uma frase
-// dizendo que o salário está na faixa.
-function fraseDoDesequilibrio(selo, estimado, pago, t) {
-  if (!Number.isFinite(estimado) || estimado <= 0) return t("driverDetail.market.noEstimate");
-  if (!selo) return t("driverDetail.market.freeAgentCost");
-
-  const razao = pago / estimado;
-  if (selo.chave === "inflado") {
-    return t("driverDetail.market.overpaid", { value: `${Math.round((razao - 1) * 100)}%` });
-  }
-  if (selo.chave === "pechincha") {
-    return t("driverDetail.market.underpaid", { value: `${Math.round((1 - razao) * 100)}%` });
-  }
-  return t("driverDetail.market.fairPaid");
-}
-
-function BarraDeSalario({ chave, rotulo, valor, maximo, cor }) {
-  const largura = maximo > 0 && Number.isFinite(valor) ? Math.max(3, (valor / maximo) * 100) : 0;
-
-  return (
-    <div className="flex items-center gap-2" data-barra={chave}>
-      <span className="w-[68px] shrink-0 truncate text-[11px] text-text-secondary">{rotulo}</span>
-      <span className="h-1.5 min-w-0 flex-1 rounded-full bg-white/[0.07]">
-        <span
-          className="block h-full rounded-full"
-          style={{ width: `${largura}%`, backgroundColor: cor }}
-        />
-      </span>
-      <span className="shrink-0 font-mono text-[11px] tabular-nums text-text-primary">
-        {formatSalaryAnnual(valor)}
-      </span>
-    </div>
-  );
-}
-
-// Sem contrato não há comparação a fazer — o estimado vira o único número e o
-// selo some em vez de dizer "na faixa" contra nada.
-//
-// A porcentagem que acompanhava o selo saiu: ela era `estimado/pago - 1`, e
-// pendurada num card cujo número grande é o valor de passe lia-se como desconto
-// sobre ele. Quem imprime a distância agora é a frase, que diz a direção junto
-// ([`fraseDoDesequilibrio`]).
-function seloDeSalario(estimado, pago) {
-  if (!Number.isFinite(estimado) || !Number.isFinite(pago) || pago <= 0) return null;
-  const razao = estimado / pago;
-  if (razao >= 1.15) return { chave: "pechincha", tom: "success" };
-  if (razao <= 0.85) return { chave: "inflado", tom: "warning" };
-  return { chave: "faixa", tom: "neutral" };
-}
-
-function StardomMeter({ eixo, label, value, level, tone }) {
-  const color = TONE_HEX[tone] || TONE_HEX.neutral;
-  const width = Math.max(0, Math.min(Number(value) || 0, 100));
-  const foco = useFoco(eixo);
-  const aceso = foco === "aceso";
-  return (
-    <div data-stardom={eixo} data-em-foco={aceso || undefined} className={classesDeRealce(foco)}>
-      <div className="flex items-baseline justify-between gap-3">
-        <span
-          className={`text-xs font-semibold ${aceso ? "text-text-primary" : "text-text-secondary"}`}
-        >
-          {label}
-        </span>
-        <span className="flex shrink-0 items-baseline gap-1.5">
-          {/* O número subiu para a linha do nível: embaixo da barra ele ocupava
-              uma terceira linha por medidor para repetir o que a barra desenha, e
-              alinhado à direita sozinho não se ligava a coisa nenhuma. */}
-          <span className="font-mono text-[10px] text-text-muted">{width}</span>
-          <span className="text-xs font-semibold" style={{ color }}>
-            {level}
-          </span>
-        </span>
-      </div>
-      <div className="mt-1.5 h-1.5 rounded-full bg-white/[0.07]">
-        <div
-          className="h-full rounded-full"
-          style={{
-            width: `${width}%`,
-            backgroundColor: color,
-            // O medidor já nasce com brilho; no foco ele fica em alfa cheio, que
-            // é a mesma diferença que a régua da leitura técnica faz ao acender.
-            boxShadow: aceso ? `0 0 12px ${color}` : `0 0 10px ${color}59`,
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
 // ────────────────────────────── Primitivos ──────────────────────────────
 
 // Aviso de lesão ativa. Cobre a ficha inteira (que fica desfocada atrás) porque
@@ -4207,6 +3404,13 @@ function StardomMeter({ eixo, label, value, level, tone }) {
 // — deixá-la como mais um card seria enterrá-la entre trinta números.
 function InjuryOverlay({ injury, onConfirm }) {
   const { t } = useTranslation();
+  // `injury.tipo` é a CHAVE do fio que o Rust manda (`InjuryType::chave`:
+  // "light"/"moderate"/"severe"/"critical"), não mais a grafia do banco em
+  // português. Chave desconhecida cai no traço em vez de imprimir a chave crua no
+  // meio de uma frase traduzida.
+  const gravidade = injury?.tipo
+    ? t(`driverDetail.injury.severityValue.${injury.tipo}`, { defaultValue: "-" })
+    : "-";
   return (
     <div
       className="absolute inset-0 z-30 grid place-items-center bg-[#05070d]/90 px-6"
@@ -4220,7 +3424,7 @@ function InjuryOverlay({ injury, onConfirm }) {
           {t("driverDetail.injury.title")}
         </span>
         <strong className="mt-1 block text-2xl font-semibold text-text-primary">
-          {injury?.nome || injury?.tipo || "-"}
+          {injury?.nome || gravidade}
         </strong>
         <div className="mt-5">
           <DataRow label={t("driverDetail.injury.occurred")} value={formatInjuryOccurrence(injury)} />
@@ -4230,7 +3434,7 @@ function InjuryOverlay({ injury, onConfirm }) {
           />
           <DataRow
             label={t("driverDetail.injury.severity")}
-            value={injury?.tipo}
+            value={gravidade}
             valueClassName="text-status-red"
           />
         </div>
@@ -4277,156 +3481,10 @@ function DriverStepButton({ label, direction, driverId, onSelectDriver, onStep }
   );
 }
 
-// Rótulo de bloco. Caixa de frase, sem tracking largo. NÃO reintroduza caixa
-// alta em rótulo pequeno aqui — a combinação de versalete, tracking e cinza
-// apagado num corpo de 10px obriga a soletrar, e a hierarquia não depende dela.
-//
-// Centralizado, e centralizado AQUI: a ficha é uma pilha de cartões de largura
-// cheia, e um rótulo encostado no canto esquerdo de cada um deles puxava o olho
-// para fora do conteúdo a cada bloco. Quem paga por isso são as linhas que
-// pareiam o rótulo com um contador ou um botão — elas precisam do
-// `justify-center` (ou tirar o controle do fluxo) para o eixo bater.
-function BlockLabel({ children }) {
-  return (
-    <span className="block text-center text-xs font-semibold text-text-secondary">{children}</span>
-  );
-}
-
-// Casca de seção para os blocos importados de ../detalhes/ que esperam um
-// `SectionComponent` com título próprio.
-function Block({ title, children }) {
-  return (
-    <section className="mb-4 last:mb-0">
-      <BlockLabel>{title}</BlockLabel>
-      <div className="mt-2">{children}</div>
-    </section>
-  );
-}
-
-// Chip do cabeçalho: licença, status, "sem equipe". Borda fina e fundo quase
-// preto para ficarem legíveis sem virar botões — nenhum deles é clicável.
-function HeroBadge({ children }) {
-  return (
-    <span className="rounded-full border border-white/15 bg-[#08111f] px-2.5 py-1 text-xs text-text-secondary">
-      {children}
-    </span>
-  );
-}
-
-// `hint` é a referência do mundo, colada no valor em corpo menor: "1,5%" não
-// responde se ele é confiável, "1,5% média 4,2%" responde. Fica ao lado e não
-// embaixo para não empurrar a altura da linha — os cards do grid precisam
-// terminar alinhados.
-function DataRow({ label, value, hint = null, recorde = null, valueClassName = "text-text-primary" }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-white/[0.06] py-2 last:border-b-0 last:pb-0">
-      <span className="min-w-0 truncate text-xs text-text-secondary">{label}</span>
-      <span className="flex shrink-0 items-baseline gap-1.5">
-        {hint ? <span className="text-[10px] text-text-muted">{hint}</span> : null}
-        {recorde ? <RankMarks recorde={recorde} /> : null}
-        <span className={`text-right text-[13px] font-medium ${valueClassName}`}>{value}</span>
-      </span>
-    </div>
-  );
-}
-
-// A posição do piloto naquele número, nas duas populações.
-//
-// Só os dois ordinais, sem denominador: eles são os mesmos em todas as linhas, e
-// repetir "de 12 no grid · de 503 no mundo" vinte vezes quebrava cada linha em
-// duas e dobrava a altura dos nove cards. Os totais vão UMA vez, na legenda do
-// botão; o número exato de cada linha (que varia — grid médio só conta quem tem
-// largada registrada) fica no `title`.
-//
-// Entra ANTES do valor, e não depois, para a coluna dos números continuar
-// alinhada à direita — é ela que dá o ritmo do card.
-function RankMarks({ recorde }) {
-  const { t } = useTranslation();
-  const grid =
-    Number.isFinite(recorde.grid) && recorde.grid_total > 1
-      ? { chave: "grid", rank: recorde.grid, total: recorde.grid_total }
-      : null;
-  const mundo =
-    Number.isFinite(recorde.mundo) && recorde.mundo_total > 1
-      ? { chave: "mundo", rank: recorde.mundo, total: recorde.mundo_total }
-      : null;
-  if (!grid && !mundo) return null;
-
-  return (
-    <span className="flex shrink-0 items-baseline gap-1 text-[10px]" data-testid="dossier-rank">
-      {grid ? (
-        <Tooltip
-          texto={t("driverDetail.history.rankGrid", {
-            rank: ordinal(grid.rank),
-            total: grid.total,
-          })}
-        >
-          <span className="font-medium text-[color:var(--team)]">{ordinal(grid.rank)}</span>
-        </Tooltip>
-      ) : null}
-      {grid && mundo ? <span className="text-text-muted">·</span> : null}
-      {mundo ? (
-        <Tooltip
-          texto={t("driverDetail.history.rankWorld", {
-            rank: ordinal(mundo.rank),
-            total: mundo.total,
-          })}
-        >
-          <span className="text-text-muted">{ordinal(mundo.rank)}</span>
-        </Tooltip>
-      ) : null}
-    </span>
-  );
-}
-
-// Motivação deitada: rótulo, trilho curto e o número, tudo na mesma linha.
-//
-// Em pé — rótulo e número numa linha, barra embaixo — ela precisava de uma
-// coluna própria no cabeçalho e reservava uma faixa de 248px que nada mais
-// usava. Deitada, a barra vira o que sempre foi: um adjetivo do número ao lado,
-// não um gráfico. 56px bastam para diferenciar 30% de 100% em leitura
-// periférica, que é tudo que se pede dela aqui.
-function MotivationBar({ value }) {
-  const { t } = useTranslation();
-  const normalized = Number.isFinite(value) ? value : 0;
-  const color = normalized >= 70 ? "#3fb950" : normalized >= 40 ? "#d29922" : "#f85149";
-  return (
-    <div className="flex items-center gap-2" data-testid="driver-detail-motivation">
-      <span className="whitespace-nowrap text-xs text-text-secondary">
-        {t("driverDetail.motivation.label")}
-      </span>
-      <div className="h-1 w-14 shrink-0 overflow-hidden rounded-full bg-white/10">
-        <div
-          className="h-full rounded-full transition-all duration-700"
-          style={{ width: `${normalized}%`, backgroundColor: color }}
-        />
-      </div>
-      <span className="font-mono text-xs tabular-nums" style={{ color }}>
-        {normalized}%
-      </span>
-    </div>
-  );
-}
-
-function MedalKey({ color, label }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: color }} />
-      {label}
-    </span>
-  );
-}
-
-function MetricIcon({ name, size = 15 }) {
-  const Icon = METRIC_ICONS[name];
-  if (!Icon) return null;
-  return <Icon size={size} strokeWidth={1.5} aria-hidden="true" className="shrink-0" />;
-}
-
 const SUMMARY_TONES = {
   danger: { card: "border-status-red/25 bg-status-red/10", label: "text-status-red" },
   warning: { card: "border-status-yellow/25 bg-status-yellow/10", label: "text-status-yellow" },
-  info: { card: "border-accent-primary/20 bg-accent-primary/8", label: "text-accent-primary" },
+  info: { card: "border-accent-primary/20 bg-accent-primary/[0.08]", label: "text-accent-primary" },
   success: { card: "border-status-green/25 bg-status-green/10", label: "text-status-green" },
 };
 

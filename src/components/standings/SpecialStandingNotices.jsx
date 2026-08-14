@@ -65,7 +65,7 @@ export function SpecialPendingNotice({ category, phase }) {
 
 export function SpecialPendingTeamsNotice() {
   return (
-    <div className="rounded-2xl border border-white/8 bg-white/[0.025] px-4 py-5 text-sm leading-6 text-text-secondary">
+    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.025] px-4 py-5 text-sm leading-6 text-text-secondary">
       {i18n.t("standings.special.teamsPending")}
     </div>
   );

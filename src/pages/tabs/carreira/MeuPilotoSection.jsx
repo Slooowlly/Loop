@@ -58,7 +58,7 @@ function MeuPilotoSection({ detail, careerId }) {
           </div>
 
           {resumo.veredito ? (
-            <p className="mt-4 border-t border-white/8 pt-3 text-sm leading-relaxed text-text-secondary">
+            <p className="mt-4 border-t border-white/[0.08] pt-3 text-sm leading-relaxed text-text-secondary">
               <strong className="font-semibold text-text-primary">{resumo.veredito}</strong>
               {forma.contexto ? ` · ${forma.contexto}` : ""}
             </p>
@@ -105,7 +105,7 @@ function MeuPilotoSection({ detail, careerId }) {
               {arco.resumo ? (
                 <p className="mt-2 text-sm leading-relaxed text-text-secondary">{arco.resumo}</p>
               ) : null}
-              <dl className="mt-3.5 grid gap-x-6 gap-y-2 border-t border-white/8 pt-3 sm:grid-cols-2">
+              <dl className="mt-3.5 grid gap-x-6 gap-y-2 border-t border-white/[0.08] pt-3 sm:grid-cols-2">
                 <Linha
                   rotulo={t("carreiraTab.piloto.experience")}
                   valor={arco.nivel_experiencia}
@@ -168,7 +168,7 @@ function MeuPilotoSection({ detail, careerId }) {
             />
           </div>
           {estrelato.resumo ? (
-            <p className="mt-3.5 border-t border-white/8 pt-3 text-sm leading-relaxed text-text-secondary">
+            <p className="mt-3.5 border-t border-white/[0.08] pt-3 text-sm leading-relaxed text-text-secondary">
               {estrelato.resumo}
             </p>
           ) : null}
@@ -186,7 +186,7 @@ function MeuPilotoSection({ detail, careerId }) {
             {leituraTecnica.map((item) => (
               <div
                 key={item.chave}
-                className="flex items-center justify-between gap-3 rounded-lg border border-white/6 bg-black/10 px-3 py-2"
+                className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-black/10 px-3 py-2"
               >
                 <span className="min-w-0 truncate text-xs text-text-secondary">{item.label}</span>
                 <span className="flex shrink-0 items-baseline gap-2">

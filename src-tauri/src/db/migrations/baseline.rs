@@ -166,6 +166,11 @@ CREATE TABLE IF NOT EXISTS teams (
     last_round_expenses          REAL NOT NULL DEFAULT 0.0,
     last_round_net               REAL NOT NULL DEFAULT 0.0,
     parachute_payment_remaining  REAL NOT NULL DEFAULT 0.0,
+    -- Socorro de emergência (finance::events): quantos a equipe já tomou e em qual temporada.
+    -- O par existe para o limite por temporada se reiniciar sozinho na virada do ano, sem
+    -- depender de um passo de transição que alguém pode esquecer de chamar.
+    socorros_na_temporada        INTEGER NOT NULL DEFAULT 0,
+    socorros_temporada_ref       INTEGER NOT NULL DEFAULT 0,
 
     created_at           TEXT NOT NULL DEFAULT '',
     updated_at           TEXT NOT NULL DEFAULT ''

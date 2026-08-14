@@ -72,7 +72,10 @@ pub fn tempo_falado(decimos: i32) -> Option<String> {
     } else {
         cardinal(segundo)?
     };
-    Some(format!("{} {segundo_txt} e {decimo_txt}", cardinal(minuto)?))
+    Some(format!(
+        "{} {segundo_txt} e {decimo_txt}",
+        cardinal(minuto)?
+    ))
 }
 
 /// A chave do tempo no catálogo. `None` fora da faixa — e o `None` é o ponto: ele sobe até o
@@ -135,7 +138,10 @@ pub fn familia_tempo_volta() -> Vec<(String, String)> {
         // `expect` e não `?`: um buraco aqui seria um tempo dentro da faixa sem gravação, e o
         // sintoma na pista é silêncio. Melhor derrubar o teste que gera o catálogo.
         let texto = tempo_falado(d).expect("tempo dentro da faixa sem redação");
-        v.push((chave_tempo(d).expect("chave dentro da faixa"), format!("{texto}.")));
+        v.push((
+            chave_tempo(d).expect("chave dentro da faixa"),
+            format!("{texto}."),
+        ));
     }
     for (k, t) in [LEAD_VOLTA, LEAD_MELHOR] {
         v.push((k.to_string(), t.to_string()));

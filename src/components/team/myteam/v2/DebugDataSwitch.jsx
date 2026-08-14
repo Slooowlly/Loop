@@ -19,7 +19,7 @@ function DebugDataSwitch({ active, onSelect }) {
         className={`rounded-xl border px-3 py-1.5 text-[11px] transition-glass ${
           active === null
             ? "border-white/20 bg-white/10 text-text-primary"
-            : "border-white/8 bg-black/10 text-text-muted hover:text-text-primary"
+            : "border-white/[0.08] bg-black/10 text-text-muted hover:text-text-primary"
         }`}
       >
         Dados reais
@@ -32,7 +32,7 @@ function DebugDataSwitch({ active, onSelect }) {
           className={`rounded-xl border px-3 py-1.5 text-[11px] transition-glass ${
             active === scenario.id
               ? "border-status-yellow/50 bg-status-yellow/15 text-status-yellow"
-              : "border-white/8 bg-black/10 text-text-muted hover:text-text-primary"
+              : "border-white/[0.08] bg-black/10 text-text-muted hover:text-text-primary"
           }`}
         >
           {scenario.label}

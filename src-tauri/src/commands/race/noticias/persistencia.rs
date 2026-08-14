@@ -93,7 +93,10 @@ pub(crate) fn persist_race_news(
         if let Err(e) =
             crate::db::queries::ai_story::store_race_facts(conn, &news_id, &facts, &teams_json)
         {
-            eprintln!("[narrative] Falha ao guardar fatos do boletim de IA: {e:?}");
+            crate::diagnostico::linha(
+                "narrative",
+                &format!("falha ao guardar os fatos do boletim de IA: {e:?}"),
+            );
         }
     }
 
@@ -104,6 +107,10 @@ pub(crate) fn persist_race_news(
 /// esteja em cache quando o jogador abrir a aba de Notícias (sem sentir a latência
 /// do servidor). Roda numa thread própria com conexão própria ao banco. Silencioso:
 /// se falhar (rede/cooldown), o caminho lazy de abrir a notícia tenta de novo.
+///
+/// Este é o ÚNICO caminho de geração que não escreve no `loop.log`, e é de propósito: a
+/// mesma falha reapareceria quando o jogador abrisse a aba, e aí `enrich_race_news_ai`
+/// registra. Logar aqui daria duas linhas para um problema só.
 pub(crate) fn spawn_prewarm_boletim(
     db_path: std::path::PathBuf,
     news_id: String,

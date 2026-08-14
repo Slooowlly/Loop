@@ -35,6 +35,7 @@ const BANNER_IMAGE_FILES = [
   { match: ["road atlanta"], file: "Michelin Raceway Road Atlanta.jpg" },
   { match: ["mid-ohio", "mid ohio"], file: "Mid-Ohio Sports Car Course.jpg", focus: "center 43%" },
   { match: ["misano"], file: "Misano World Circuit Marco Simoncelli.jpg", focus: "center 52%" },
+  // i18n-ignore — "panorama" aqui é pedaço do nome da pista australiana, não a nossa palavra.
   { match: ["mount panorama", "bathurst"], file: "Mount Panorama Circuit.jpg", focus: "center 48%" },
   { match: ["nurburgring", "nordschleife"], file: "Nürburgring Nordschleife.jpg", focus: "center 49%" },
   { match: ["red bull ring", "spielberg"], file: "Red Bull Ring – Spielberg.jpg", focus: "center 49%" },

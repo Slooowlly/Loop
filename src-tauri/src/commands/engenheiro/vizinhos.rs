@@ -37,14 +37,15 @@ pub fn carregar(
     let nemesis = crate::db::queries::player_nemesis::get_current_nemesis(conn)
         .ok()
         .flatten();
-    let rivais: Vec<String> = crate::db::queries::rivalries::get_rivalries_for_pilot(conn, &jogador.id)
-        .map(|rs| {
-            rs.iter()
-                .flat_map(|r| [r.piloto1_id.clone(), r.piloto2_id.clone()])
-                .filter(|id| *id != jogador.id)
-                .collect()
-        })
-        .unwrap_or_default();
+    let rivais: Vec<String> =
+        crate::db::queries::rivalries::get_rivalries_for_pilot(conn, &jogador.id)
+            .map(|rs| {
+                rs.iter()
+                    .flat_map(|r| [r.piloto1_id.clone(), r.piloto2_id.clone()])
+                    .filter(|id| *id != jogador.id)
+                    .collect()
+            })
+            .unwrap_or_default();
     let companheiros = companheiros_de(conn, &jogador.id);
 
     let de = |numero: i32| -> Option<Vinculo> {

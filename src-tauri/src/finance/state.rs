@@ -24,7 +24,9 @@
 //! de verdade acompanha, e é a mesma unidade em que `economia::desenvolvimento` decide
 //! investir (reserva de 12 meses).
 
-use crate::finance::planning::{calculate_financial_plan, category_finance_scale};
+use crate::finance::planning::{
+    calculate_financial_plan, category_finance_scale, category_finance_scale_for,
+};
 use crate::models::team::Team;
 
 /// Custo de operar UM ANO nesta divisão.
@@ -248,7 +250,12 @@ pub fn financial_health_score(team: &Team) -> f64 {
 
 pub fn choose_season_strategy(team: &Team) -> &'static str {
     let plan = calculate_financial_plan(team);
-    let scale = category_finance_scale(&team.categoria);
+    // A escala vem da DIVISÃO da equipe, não do campeonato. A forma cega à classe
+    // (`category_finance_scale`, só com a categoria) julgava um GT4 do Endurance contra o
+    // orçamento da divisão de referência: os dois limiares abaixo e o gate de dívida
+    // disparavam contra um divisor que não descrevia nenhuma equipe daquela classe.
+    // `calculate_financial_plan` já resolvia por classe — só este divisor tinha ficado para trás.
+    let scale = category_finance_scale_for(&team.categoria, team.classe.as_deref());
 
     if plan.debt_pressure >= scale.expected_cash_midpoint() * 0.75 {
         return "survival";
@@ -593,5 +600,146 @@ mod tests {
         let mut equipe_lmp2 = sample_team("endurance", 3_000_000.0, 0.0, "stable");
         equipe_lmp2.classe = Some("lmp2".to_string());
         assert!(meses_de_operacao(&equipe_gt4) > meses_de_operacao(&equipe_lmp2) * 2.5);
+    }
+
+    /// **B52.** `choose_season_strategy` lê a escala da DIVISÃO, não a do campeonato.
+    ///
+    /// Os dois limiares (0,20 e 0,50) e o gate de dívida comparam grandezas que já são
+    /// proporcionais ao custo da classe (`calculate_financial_plan` resolve por classe) contra
+    /// um divisor que vinha de `category_finance_scale`, cego à classe. No Endurance esse
+    /// divisor é o da classe de referência (gt3): uma GT4 era julgada contra um orçamento 2×
+    /// maior que o dela e uma LMP2 contra um 1,3× menor. Mesma situação relativa, veredito
+    /// diferente conforme a divisão.
+    ///
+    /// O teste fixa o fôlego em MESES — a unidade comparável entre divisões — e cobra que as
+    /// três classes concordem. Com o divisor cego elas não concordavam.
+    #[test]
+    fn a_estrategia_do_endurance_nao_depende_mais_da_classe_de_referencia() {
+        // A distorção que o divisor cego produzia, medida: sem esta diferença o teste não
+        // estaria afirmando nada.
+        let cego = category_finance_scale("endurance").operating_cost_midpoint();
+        let gt4 = category_finance_scale_for("endurance", Some("gt4")).operating_cost_midpoint();
+        let lmp2 = category_finance_scale_for("endurance", Some("lmp2")).operating_cost_midpoint();
+        assert!(
+            cego > gt4 * 1.5 && lmp2 > cego * 1.2,
+            "cego {cego:.0} · gt4 {gt4:.0} · lmp2 {lmp2:.0}"
+        );
+
+        for meses in [1.0, 4.0, 7.0, 9.0, 14.0, 30.0] {
+            for carro in [-4.0, 4.0, 12.0] {
+                let veredito = |classe: &str| {
+                    let mensal = custo_operacional_mensal("endurance", Some(classe));
+                    let mut team = sample_team("endurance", mensal * meses, 0.0, "stable");
+                    team.classe = Some(classe.to_string());
+                    team.car_performance = carro;
+                    refresh_team_financial_state(&mut team);
+                    choose_season_strategy(&team)
+                };
+                let base = veredito("gt4");
+                for classe in ["gt3", "lmp2"] {
+                    assert_eq!(
+                        base,
+                        veredito(classe),
+                        "{meses} meses, carro {carro}: gt4 decidiu '{base}' e {classe} decidiu \
+                         '{}' com o MESMO fôlego relativo",
+                        veredito(classe)
+                    );
+                }
+            }
+        }
+    }
+
+    /// O mesmo, pelo lado da DÍVIDA: o gate de `survival` compara `debt_pressure` contra
+    /// `expected_cash_midpoint × 0,75`, e o caixa de referência também sai do custo da
+    /// divisão. Dívida equivalente em meses de operação tem de dar o mesmo veredito.
+    ///
+    /// O caixa é folgado de propósito (24 meses): com caixa apertado a equipe já cai em
+    /// `survival` pela banda de estado e o gate de dívida nunca chega a decidir nada.
+    #[test]
+    fn o_gate_de_survival_le_a_divida_na_escala_da_classe() {
+        for meses_de_divida in [4.0, 5.0, 6.0, 8.0, 10.0, 14.0] {
+            let veredito = |classe: &str| {
+                let mensal = custo_operacional_mensal("endurance", Some(classe));
+                let mut team = sample_team(
+                    "endurance",
+                    mensal * 24.0,
+                    mensal * meses_de_divida,
+                    "stable",
+                );
+                team.classe = Some(classe.to_string());
+                refresh_team_financial_state(&mut team);
+                choose_season_strategy(&team)
+            };
+            let base = veredito("gt4");
+            for classe in ["gt3", "lmp2"] {
+                assert_eq!(
+                    base,
+                    veredito(classe),
+                    "{meses_de_divida} meses de dívida: gt4 '{base}' vs {classe} '{}'",
+                    veredito(classe)
+                );
+            }
+        }
+    }
+
+    /// A mesma invariância no OUTRO campeonato multi-classe. As três classes da Production
+    /// Challenger têm custo próprio, e a de referência é a `bmw`.
+    #[test]
+    fn a_estrategia_da_production_challenger_concorda_entre_as_classes() {
+        for meses in [2.0, 7.0, 9.0, 20.0] {
+            let veredito = |classe: &str| {
+                let mensal = custo_operacional_mensal("production_challenger", Some(classe));
+                let mut team = sample_team("production_challenger", mensal * meses, 0.0, "stable");
+                team.classe = Some(classe.to_string());
+                refresh_team_financial_state(&mut team);
+                choose_season_strategy(&team)
+            };
+            let base = veredito("mazda");
+            for classe in ["toyota", "bmw"] {
+                assert_eq!(
+                    base,
+                    veredito(classe),
+                    "{meses} meses: mazda '{base}' vs {classe} '{}'",
+                    veredito(classe)
+                );
+            }
+        }
+    }
+
+    /// **Categoria monoclasse não muda.** Sem classe não há o que resolver, e as duas formas
+    /// da escala respondem o mesmo número — a correção de B52 é um no-op fora dos dois
+    /// campeonatos multi-classe.
+    #[test]
+    fn categoria_monoclasse_nao_muda_com_a_escala_por_classe() {
+        for categoria in [
+            "mazda_rookie",
+            "toyota_rookie",
+            "mazda_amador",
+            "toyota_amador",
+            "bmw_m2",
+            "gt4",
+            "gt3",
+            "lmp2",
+        ] {
+            let cego = category_finance_scale(categoria);
+            let por_classe = category_finance_scale_for(categoria, None);
+            assert!(
+                (cego.operating_cost_midpoint() - por_classe.operating_cost_midpoint()).abs() < 1.0
+                    && (cego.expected_cash_midpoint() - por_classe.expected_cash_midpoint()).abs()
+                        < 1.0,
+                "{categoria}: a escala mudou numa categoria de classe única"
+            );
+
+            // E o veredito continua coerente na régua: um mês de fôlego é sobrevivência em
+            // qualquer degrau da escada, trinta meses não são.
+            let mensal = custo_operacional_mensal(categoria, None);
+            let aperta = |meses: f64| {
+                let mut team = sample_team(categoria, mensal * meses, 0.0, "stable");
+                refresh_team_financial_state(&mut team);
+                choose_season_strategy(&team)
+            };
+            assert_eq!(aperta(1.0), "survival", "{categoria} com 1 mês de fôlego");
+            assert_ne!(aperta(30.0), "survival", "{categoria} com 30 meses");
+        }
     }
 }

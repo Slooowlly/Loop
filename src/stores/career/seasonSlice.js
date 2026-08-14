@@ -153,6 +153,14 @@ export const createSeasonSlice = (set, get) => ({
       return;
     }
 
+    // A animação dura segundos e escreve no store a cada tique. Se o jogador sair para o
+    // menu e abrir outro save no meio dela, o laço continuaria rodando e carimbando as datas
+    // da carreira ANTERIOR na tela da nova. A geração é o token de aborto: toda escrita daqui
+    // para baixo confere se ainda é a mesma carreira, e desiste sem tocar em nada se não for
+    // (quem assumiu já deixou `isCalendarAdvancing` no valor certo).
+    const geracao = get().careerGeneration;
+    const carreiraTrocou = () => get().careerGeneration !== geracao;
+
     let effectiveTemporalSummary = temporalSummary;
     if (!effectiveTemporalSummary) {
       effectiveTemporalSummary = await loadTemporalSummary(careerId, season, playerTeam).catch(
@@ -161,6 +169,8 @@ export const createSeasonSlice = (set, get) => ({
           return null;
         },
       );
+
+      if (carreiraTrocou()) return;
 
       if (effectiveTemporalSummary) {
         set(buildTemporalUiState(effectiveTemporalSummary));
@@ -224,11 +234,14 @@ export const createSeasonSlice = (set, get) => ({
     try {
       for (let index = 1; index < sequence.length; index += 1) {
         await sleep(stepMs);
+        if (carreiraTrocou()) return;
         set({
           calendarDisplayDate: sequence[index],
           displayDaysUntilNextEvent: sequence.length - index - 1,
         });
       }
+
+      if (carreiraTrocou()) return;
 
       set({
         isCalendarAdvancing: false,
@@ -237,6 +250,7 @@ export const createSeasonSlice = (set, get) => ({
         displayDaysUntilNextEvent: 0,
       });
     } catch (error) {
+      if (carreiraTrocou()) throw error;
       set({
         isCalendarAdvancing: false,
         error: getErrorMessage(error, i18n.t("storeErrors.advanceCalendar")),

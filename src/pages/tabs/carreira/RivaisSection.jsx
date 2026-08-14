@@ -116,7 +116,7 @@ function RivalCard({ rival, interesse, onAbrir }) {
 
   return (
     <li
-      className="rounded-xl border border-white/8 bg-black/15 px-4 py-3.5"
+      className="rounded-xl border border-white/[0.08] bg-black/15 px-4 py-3.5"
       style={{ borderLeftColor: corDaEquipe, borderLeftWidth: 3 }}
       data-testid="carreira-rival-card"
     >
@@ -134,7 +134,7 @@ function RivalCard({ rival, interesse, onAbrir }) {
               className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
                 isNemesis
                   ? "bg-status-red/15 text-status-red"
-                  : "bg-white/8 text-text-secondary"
+                  : "bg-white/[0.08] text-text-secondary"
               }`}
             >
               {isNemesis ? t("carreiraTab.rivais.nemesis") : t("carreiraTab.rivais.rival")}
@@ -181,7 +181,7 @@ function RivalCard({ rival, interesse, onAbrir }) {
         </div>
       ) : null}
 
-      <dl className="mt-3 grid gap-x-5 gap-y-1.5 border-t border-white/8 pt-3 sm:grid-cols-2 lg:grid-cols-4">
+      <dl className="mt-3 grid gap-x-5 gap-y-1.5 border-t border-white/[0.08] pt-3 sm:grid-cols-2 lg:grid-cols-4">
         <Fato
           rotulo={t("carreiraTab.rivais.meetings")}
           valor={t("carreiraTab.rivais.meetingsValue", { count: confrontos })}

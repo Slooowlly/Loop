@@ -121,9 +121,8 @@ fn extras_do_save(app: &tauri::AppHandle, career_id: &str, estado: &EstadoAgora)
             // é feita aqui e não lá dentro. Sem esta checagem o renderizador emitiria
             // `voc_magno` antes de o arquivo existir, e a fala sairia com a primeira
             // peça faltando — que é justamente o silêncio que ninguém liga à causa.
-            let gravado = tratamento::chave_do_nome(&p.nome).is_some_and(|chave| {
-                voz_propria::arquivo(&base_dir, career_id, &chave).is_file()
-            });
+            let gravado = tratamento::chave_do_nome(&p.nome)
+                .is_some_and(|chave| voz_propria::arquivo(&base_dir, career_id, &chave).is_file());
             tratamento::decidir(
                 p.stats_carreira.corridas,
                 p.stats_carreira.vitorias,
@@ -357,18 +356,12 @@ pub struct OcasiaoEngenheiro {
 /// ocasião perdida, enquanto um trinco que só fechasse no sucesso custaria uma fala por
 /// poll enquanto o servidor estivesse fora do ar.
 #[tauri::command]
-pub fn engenheiro_ocasiao(
-    app: tauri::AppHandle,
-    career_id: String,
-) -> Option<OcasiaoEngenheiro> {
+pub fn engenheiro_ocasiao(app: tauri::AppHandle, career_id: String) -> Option<OcasiaoEngenheiro> {
     use crate::engenheiro::momento::Ocasiao;
 
     let estado = race_monitor::estado_agora();
     let ocasiao = engenheiro::momento::ocasiao(&estado)?;
-    let nome = match ocasiao {
-        Ocasiao::AntesDaLargada => "antes_da_largada",
-        Ocasiao::DepoisDaBandeirada => "depois_da_bandeirada",
-    };
+    let nome = ocasiao.chave();
 
     {
         let subsessao = race_monitor::get_subsession_id();

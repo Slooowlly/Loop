@@ -472,7 +472,8 @@ pub(super) fn build_performance_read_block(
         companheiro_nome: teammate.map(|value| value.nome.clone()),
         companheiro_pontos: teammate_points,
         companheiro_posicao: teammate_position,
-        companheiro_nacionalidade: teammate.map(|value| value.nacionalidade.clone()),
+        companheiro_nacionalidade: teammate
+            .map(|value| nationality_display_label(&value.nacionalidade, &value.genero)),
         piloto_pontos: driver.stats_temporada.pontos.round() as i32,
         leitura: reading.to_string(),
     }

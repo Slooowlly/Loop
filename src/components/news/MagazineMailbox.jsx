@@ -1,8 +1,32 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 
 import { buildInboxMessages } from "../../pages/tabs/inboxMessages";
+
+// Corpo da mensagem: lista de parágrafos, cada um uma lista de trechos tipados
+// (ver `inboxMessages.js`). Cada trecho é desenhado como filho do React, que
+// escapa o que vier — nome de piloto ou de equipe com `<b>`, `<script>` ou
+// `<img onerror=...>` aparece como texto na tela, sem virar marcação. O DOM que
+// sai daqui é o mesmo de antes (`<p>` com `<b>` dentro), então o `.reader-body b`
+// do CSS continua valendo.
+function CorpoMensagem({ paragrafos }) {
+  return (
+    <div className="reader-body">
+      {paragrafos.map((trechos, i) => (
+        <p key={i}>
+          {trechos.map((trecho, j) =>
+            trecho.tipo === "forte" ? (
+              <b key={j}>{trecho.texto}</b>
+            ) : (
+              <Fragment key={j}>{trecho.texto}</Fragment>
+            ),
+          )}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 // Caixa de e-mail da revista. Caixa de entrada real: fatos do save
 // (confronto direto + favorito) → texto PT.
@@ -94,7 +118,7 @@ function MagazineMailbox({ careerId }) {
               <span className="reader-time">{selected.time}</span>
             </div>
             <h3 className="reader-subject">{selected.subject}</h3>
-            <div className="reader-body" dangerouslySetInnerHTML={{ __html: selected.body }} />
+            <CorpoMensagem paragrafos={selected.paragrafos} />
             {selected.actions.length > 0 && (
               <div className="reader-actions">
                 {selected.actions.map((a) => (

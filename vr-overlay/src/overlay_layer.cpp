@@ -9,7 +9,7 @@
 //  Agora são DOIS painéis, cada um 100% independente (swapchain + config de pose +
 //  recentro próprios), lidos de mapeamentos de memória compartilhada separados:
 //    • TORRE  → Local\iRacerOverlayFrame  (retrato, cockpit-locked por padrão)
-//    • RÁDIO  → Local\iRacerEngineerFrame (banner, head-locked por padrão)
+//    • RÁDIO  → Local\iRacerEngineerFrame (banner, cockpit-locked por padrão)
 //
 //  Cada painel:
 //    • redesenha o CONTEÚDO a no máx ~10 Hz (gate por tempo); todo frame só reanexa
@@ -170,6 +170,69 @@ static ID3D11DeviceContext* g_context = nullptr;
 static const float kPi = 3.14159265f;
 // Gate de 10 Hz: só redesenha o conteúdo a cada 100 ms.
 static const XrTime kRenderPeriodNs = 100'000'000;
+// O escritor manda ~10 Hz. Se o contador `frame` não andar por 1 s, o app parou (fechou,
+// travou, ou o gate de VR desligou): paramos de anexar o quad em vez de deixar a última
+// imagem congelada dentro do headset.
+static const XrTime kFrameStaleNs = 1'000'000'000;
+// Mapeamento inexistente é o caso NORMAL enquanto o app não subiu. Sem freio, cada frame
+// (90 Hz × 2 painéis × 4 consultas) viraria um par de OpenFileMappingW — syscall à toa no
+// caminho mais quente que existe. Uma tentativa por segundo por painel basta.
+static const XrTime kShmRetryNs = 1'000'000'000;
+
+// ─── Formatos de cor que sabemos escrever ─────────────────────────────────────
+//
+// Os pixels da SHM são RGBA (R no primeiro byte — é o que o `getImageData` do canvas
+// entrega). Runtimes que só oferecem B8G8R8A8 esperam os canais na outra ordem, então
+// nesse caso a gente troca R↔B antes de subir. Fora destes quatro não há o que adivinhar:
+// aceitar um `formats[0]` qualquer (que pode ser 64-bit float, 10-bit ou típeless) faria o
+// `UpdateSubresource` interpretar o buffer com o stride errado e pintar lixo no headset.
+struct ColorFormat {
+    int64_t dxgi;
+    bool    bgra;  // canais em B,G,R,A → precisa da troca R↔B
+};
+static const ColorFormat kKnownFormats[] = {
+    {DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, false},
+    {DXGI_FORMAT_B8G8R8A8_UNORM_SRGB, true},
+    {DXGI_FORMAT_R8G8B8A8_UNORM,      false},
+    {DXGI_FORMAT_B8G8R8A8_UNORM,      true},
+};
+// Preenchido por PickColorFormat: o runtime escolhido quer B,G,R,A?
+static bool g_formatBgra = false;
+
+// ─── Desistência da composição (o único fallback que a spec permite) ──────────
+//
+// A spec do OpenXR trata o xrEndFrame como a submissão ÚNICA daquele frame: xrBeginFrame e
+// xrEndFrame se alternam, um par por frame, e chamar xrEndFrame duas vezes sem um
+// xrBeginFrame no meio é XR_ERROR_CALL_ORDER_INVALID — que está entre os `errorcodes`
+// declarados para xrEndFrame no registro do próprio SDK que a gente pina
+// (specification/registry/xr.xml). Ou seja: "tentou com os nossos quads, falhou, tenta de
+// novo sem eles" NÃO existe. Repetir a chamada trocaria um frame perdido por um erro de
+// protocolo, e num runtime menos tolerante isso derruba a sessão do jogador.
+//
+// O que dá pra fazer é desistir a partir do PRÓXIMO frame. Se a submissão com os nossos
+// quads falhar com um erro de CAMADA algumas vezes seguidas, a layer se desliga e volta a
+// repassar o frameEndInfo original intacto pelo resto da sessão. O jogador perde o overlay
+// e mantém o jogo, que é a troca certa.
+static bool           g_compositionOff = false;
+static uint32_t       g_layerErrStreak = 0;
+static const uint32_t kLayerErrLimit   = 3;
+
+// Erros que apontam pras CAMADAS submetidas — os únicos que os nossos quads podem causar.
+// A lista é o recorte dos `errorcodes` de xrEndFrame no xr.xml que dependem do conteúdo de
+// `layers`. Ficam de fora, de propósito: SESSION_NOT_RUNNING, CALL_ORDER_INVALID,
+// TIME_INVALID e INSTANCE/SESSION_LOST (o jogo teria do mesmo jeito sem nós) e
+// ENVIRONMENT_BLEND_MODE_UNSUPPORTED (campo do frameEndInfo que a gente nunca toca).
+static bool ErroDeCamada(XrResult r) {
+    switch (r) {
+        case XR_ERROR_LAYER_INVALID:
+        case XR_ERROR_LAYER_LIMIT_EXCEEDED:
+        case XR_ERROR_SWAPCHAIN_RECT_INVALID:
+        case XR_ERROR_POSE_INVALID:
+            return true;
+        default:
+            return false;
+    }
+}
 
 // Config de pose lida da SHM (posição/trava/escala). Se o app ainda não escreveu,
 // usamos o padrão de cada painel.
@@ -208,19 +271,49 @@ struct Panel {
     bool   shmWritable = false;
     bool   shmLogged   = false;
     bool   shmVersionLogged = false;  // já logou um mismatch de versão? (evita spam a ~10 Hz)
-    uint32_t nullTicks  = 0;          // ticks seguidos sem frame válido (throttle do log)
+    XrTime lastNullLog = 0;           // quando logamos o último "sem frame" (garganta de 10 s)
     bool   rendered    = false;
     XrTime lastRender  = 0;
     uint32_t lastRecenterSeq = 0;
     bool     recenterSeqInit = false;
     bool     prevRecenterKey = false;
+    // Vigia do contador `frame` do escritor (detecção de app parado).
+    uint32_t lastFrameCounter = 0;
+    bool     frameCounterInit = false;
+    XrTime   lastFrameAdvance = 0;
+    // Buffer da troca R↔B, só alocado em runtime BGRA.
+    std::vector<uint8_t> swizzled;
+    // Freio da abertura da SHM: relógio do frame corrente + memo da tentativa.
+    XrTime frameTime          = 0;
+    bool   openTriedThisFrame = false;
+    XrTime lastOpenTry        = 0;
+
+    // Marca o começo do frame: um único relógio para todas as consultas e a zerada do memo
+    // de abertura. Chamado uma vez por painel no topo do xrEndFrame.
+    void BeginFrame(XrTime now) {
+        frameTime          = now;
+        openTriedThisFrame = false;
+    }
 
     // Abre o mapeamento sob demanda (o app pode subir depois do iRacing). Tenta RW
     // (p/ o teclado escrever a pose); se não der, cai pra RO (overlay ainda desenha).
+    //
+    // Quatro chamadores diferentes perguntam por frame (pixels, config, recentro, teclado).
+    // Enquanto o mapeamento NÃO existe, a primeira tentativa do frame decide por todos
+    // (`openTriedThisFrame`) e só volta a tentar depois de `kShmRetryNs`.
     bool EnsureShmOpen() {
         if (shmPtr) {
             return true;
         }
+        if (openTriedThisFrame) {
+            return false;  // já respondida neste frame
+        }
+        openTriedThisFrame = true;
+        if (lastOpenTry != 0 && (frameTime - lastOpenTry) < kShmRetryNs) {
+            return false;  // ainda no intervalo do freio
+        }
+        lastOpenTry = frameTime;
+
         shm = OpenFileMappingW(FILE_MAP_WRITE, FALSE, shmName);
         shmWritable = (shm != nullptr);
         if (!shm) {
@@ -259,16 +352,21 @@ struct Panel {
         return true;
     }
 
-    // Enquanto não vem frame válido, o painel fica cinza "aguardando" — e antes isso
-    // era MUDO: dava pra ficar uma sessão inteira sem saber se o problema era SHM
-    // fechada, cabeçalho de outro build ou resolução trocada. Agora, a cada ~10 s
-    // (kNullLogEvery ticks do gate de 10 Hz), a gente loga o motivo com os números.
-    static const uint32_t kNullLogEvery = 100;
+    // Sem frame válido o painel simplesmente não aparece — e um painel que some sem dizer
+    // por quê dá pra ficar uma sessão inteira sem saber se o problema era SHM fechada,
+    // cabeçalho de outro build, resolução trocada ou app parado. A cada 10 s a gente loga o
+    // motivo com os números.
+    //
+    // A garganta é por TEMPO, não por contagem de chamadas: enquanto o painel não tem imagem
+    // válida a consulta acontece a cada frame (90 Hz e não os 10 Hz do gate de conteúdo), e
+    // um contador calibrado no gate viraria uma linha por segundo pela sessão inteira.
+    static const XrTime kNullLogEveryNs = 10'000'000'000;
 
     void LogNullReason(const char* motivo, const IracerFrameHeader* hdr) {
-        if (nullTicks++ % kNullLogEvery != 0) {
+        if (lastNullLog != 0 && (frameTime - lastNullLog) < kNullLogEveryNs) {
             return;  // já logamos há pouco; não vira spam
         }
+        lastNullLog = frameTime;
         if (hdr) {
             LogLine("Sem frame [%ls]: %s (magic=0x%08X ver=%u %ux%u frame=%u) — esperado "
                     "(magic=0x%08X ver=%u %ux%u)",
@@ -279,7 +377,12 @@ struct Panel {
         }
     }
 
-    const uint8_t* TryGetFramePixels() {
+    // Pixels VÁLIDOS E ATUAIS, ou nullptr. "Atual" é o contador `frame` do escritor: ele
+    // sobe a cada escrita, então parar de subir é a única evidência que temos de que o app
+    // do outro lado morreu — o mapeamento continua aberto e a última imagem continua lá,
+    // intacta e mentindo. Com o quad congelado o jogador veria posições de dez voltas atrás
+    // como se fossem de agora, que é pior do que não ver overlay nenhum.
+    const uint8_t* TryGetFramePixels(XrTime now) {
         if (!EnsureShmOpen()) {
             LogNullReason("SHM não abriu", nullptr);
             return nullptr;
@@ -293,11 +396,31 @@ struct Panel {
             LogNullReason("resolução diferente da do painel", hdr);
             return nullptr;
         }
+
+        const uint32_t contador = hdr->frame;
+        if (!frameCounterInit) {
+            // O escritor incrementa DEPOIS de copiar os pixels, então `frame == 0` é
+            // mapeamento recém-criado e ainda zerado: não há imagem, só a página limpa.
+            if (contador == 0) {
+                LogNullReason("nenhum frame escrito ainda", hdr);
+                return nullptr;
+            }
+            frameCounterInit = true;
+            lastFrameCounter = contador;
+            lastFrameAdvance = now;
+        } else if (contador != lastFrameCounter) {
+            lastFrameCounter = contador;
+            lastFrameAdvance = now;
+        } else if ((now - lastFrameAdvance) >= kFrameStaleNs) {
+            LogNullReason("contador de frame parado (app fechou?)", hdr);
+            return nullptr;
+        }
+
         if (!shmLogged) {
             LogLine("Primeiro frame [%ls] (frame=%u)", shmName, hdr->frame);
             shmLogged = true;
         }
-        nullTicks = 0;  // voltou a fluir: o próximo problema loga na hora
+        lastNullLog = 0;  // voltou a fluir: o próximo problema loga na hora
         return static_cast<const uint8_t*>(shmPtr) + sizeof(IracerFrameHeader);
     }
 
@@ -330,6 +453,23 @@ struct Panel {
         return HeaderValid(hdr) ? hdr : nullptr;
     }
 
+    // Devolve o painel ao estado "sem swapchain". Usado no teardown e em QUALQUER erro do
+    // Setup: um painel meio montado (swapchain viva, RTV faltando, textura indefinida) é
+    // pior que painel nenhum, porque o xrEndFrame passa a anexar um quad cujo conteúdo
+    // ninguém escreveu.
+    void DestroySwapchainResources() {
+        for (auto* rtv : rtvs) {
+            if (rtv) rtv->Release();
+        }
+        rtvs.clear();
+        textures.clear();
+        if (swapchain != XR_NULL_HANDLE && g_next_xrDestroySwapchain) {
+            g_next_xrDestroySwapchain(swapchain);
+        }
+        swapchain = XR_NULL_HANDLE;
+        rendered  = false;
+    }
+
     // Monta swapchain + RTVs deste painel (device do iRacing). Formato vem escolhido.
     void Setup(XrSession session, int64_t format) {
         XrSwapchainCreateInfo sc{XR_TYPE_SWAPCHAIN_CREATE_INFO};
@@ -343,16 +483,23 @@ struct Panel {
         sc.mipCount    = 1;
         if (g_next_xrCreateSwapchain(session, &sc, &swapchain) != XR_SUCCESS) {
             LogLine("ERRO: xrCreateSwapchain falhou [%ls]", shmName);
+            swapchain = XR_NULL_HANDLE;
             return;
         }
 
         uint32_t imgCount = 0;
-        g_next_xrEnumerateSwapchainImages(swapchain, 0, &imgCount, nullptr);
+        if (g_next_xrEnumerateSwapchainImages(swapchain, 0, &imgCount, nullptr) != XR_SUCCESS ||
+            imgCount == 0) {
+            LogLine("ERRO: contagem de imagens do swapchain falhou [%ls]", shmName);
+            DestroySwapchainResources();
+            return;
+        }
         std::vector<XrSwapchainImageD3D11KHR> images(imgCount, {XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR});
         if (g_next_xrEnumerateSwapchainImages(
                 swapchain, imgCount, &imgCount,
                 reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data())) != XR_SUCCESS) {
             LogLine("ERRO: xrEnumerateSwapchainImages falhou [%ls]", shmName);
+            DestroySwapchainResources();
             return;
         }
 
@@ -366,49 +513,85 @@ struct Panel {
         rtvs.assign(imgCount, nullptr);
         textures.assign(imgCount, nullptr);
         for (uint32_t i = 0; i < imgCount; ++i) {
+            if (images[i].texture == nullptr) {
+                LogLine("ERRO: imagem %u do swapchain veio nula [%ls]", i, shmName);
+                DestroySwapchainResources();
+                return;
+            }
             textures[i] = images[i].texture;
             HRESULT hr = g_device->CreateRenderTargetView(images[i].texture, &rtvDesc, &rtvs[i]);
             if (FAILED(hr)) {
-                LogLine("ERRO: CreateRenderTargetView[%u] hr=0x%08lX [%ls]", i,
-                        (unsigned long)hr, shmName);
+                LogLine("ERRO: CreateRenderTargetView[%u] hr=0x%08lX [%ls] — painel desativado",
+                        i, (unsigned long)hr, shmName);
+                DestroySwapchainResources();
+                return;
             }
         }
         LogLine("Painel pronto [%ls]: %ux%u, %u imagens", shmName, width, height, imgCount);
     }
 
-    // Sobe os pixels RGBA na textura (ou pinta um cinza "aguardando" se não há frame).
-    void RenderContent(uint32_t imageIndex) {
-        const uint8_t* pixels = TryGetFramePixels();
-        if (pixels && imageIndex < textures.size() && textures[imageIndex]) {
-            g_context->UpdateSubresource(textures[imageIndex], 0, nullptr, pixels, width * 4, 0);
-            return;
+    // Sobe os pixels da SHM na textura. Devolve false quando não deu pra subir — e aí o
+    // painel NÃO tem imagem válida, então o quad não pode ser anexado.
+    //
+    // Não existe mais o cinza "aguardando": ele era um retângulo opaco plantado na frente
+    // do jogador dizendo apenas que nós estávamos vivos. Sem pixels, o certo é sumir.
+    bool RenderContent(uint32_t imageIndex, const uint8_t* pixels) {
+        if (pixels == nullptr || imageIndex >= textures.size() || textures[imageIndex] == nullptr) {
+            return false;
         }
-        if (imageIndex < rtvs.size() && rtvs[imageIndex]) {
-            const float waiting[4] = {0.10f, 0.10f, 0.12f, 1.0f};
-            g_context->ClearRenderTargetView(rtvs[imageIndex], waiting);
+        const uint8_t* fonte = pixels;
+        if (g_formatBgra) {
+            // RGBA → BGRA, uma palavra por vez. Em little-endian o pixel RGBA lido como
+            // uint32 é 0xAABBGGRR; o BGRA que o runtime quer é 0xAARRGGBB. Só os bytes de
+            // R e B trocam de lugar; A e G ficam onde estão.
+            const size_t bytes = static_cast<size_t>(width) * height * 4;
+            if (swizzled.size() != bytes) {
+                swizzled.resize(bytes);
+            }
+            const uint32_t* s = reinterpret_cast<const uint32_t*>(pixels);
+            uint32_t*       d = reinterpret_cast<uint32_t*>(swizzled.data());
+            const size_t    n = bytes / 4;
+            for (size_t i = 0; i < n; ++i) {
+                const uint32_t v = s[i];
+                d[i] = (v & 0xFF00FF00u) | ((v & 0x00FF0000u) >> 16) | ((v & 0x000000FFu) << 16);
+            }
+            fonte = swizzled.data();
         }
+        g_context->UpdateSubresource(textures[imageIndex], 0, nullptr, fonte, width * 4, 0);
+        return true;
     }
 
-    // Adquire uma imagem do swapchain e redesenha o conteúdo (marca rendered).
-    void AcquireAndRender(XrTime now) {
+    // Adquire uma imagem do swapchain e sobe os pixels. `rendered` só vira true depois de
+    // pixels VÁLIDOS terem ido pra textura.
+    bool AcquireAndRender(XrTime now, const uint8_t* pixels) {
+        if (pixels == nullptr) {
+            return false;
+        }
         uint32_t index = 0;
         XrSwapchainImageAcquireInfo acq{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
         if (g_next_xrAcquireSwapchainImage(swapchain, &acq, &index) != XR_SUCCESS) {
-            return;
+            return false;
         }
         XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
         wait.timeout = XR_INFINITE_DURATION;
         if (g_next_xrWaitSwapchainImage(swapchain, &wait) != XR_SUCCESS) {
-            return;
+            // Sem o wait a imagem não foi adquirida do ponto de vista da spec; nada a
+            // liberar e nada a desenhar.
+            return false;
         }
-        RenderContent(index);
+        const bool ok = RenderContent(index, pixels);
+        // A imagem foi adquirida E esperada: a spec exige devolvê-la mesmo se não pintamos.
         XrSwapchainImageReleaseInfo rel{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
         g_next_xrReleaseSwapchainImage(swapchain, &rel);
+        if (!ok) {
+            return false;
+        }
         if (!rendered) {
             LogLine("Primeiro render enviado [%ls] (displayTime=%lld)", shmName, (long long)now);
         }
         rendered   = true;
         lastRender = now;
+        return true;
     }
 
     // Monta o quad de composição a partir da config (espaço/pose/giro/pitch/escala).
@@ -527,27 +710,33 @@ struct Panel {
         shmLogged   = false;
         shmVersionLogged = false;
         shmWritable = false;
-        for (auto* rtv : rtvs) {
-            if (rtv) rtv->Release();
-        }
-        rtvs.clear();
-        textures.clear();
-        if (swapchain != XR_NULL_HANDLE && g_next_xrDestroySwapchain) {
-            g_next_xrDestroySwapchain(swapchain);
-        }
+        lastNullLog = 0;
+        DestroySwapchainResources();
         if (anchorSpace != XR_NULL_HANDLE && g_next_xrDestroySpace) {
             g_next_xrDestroySpace(anchorSpace);
         }
-        swapchain       = XR_NULL_HANDLE;
-        anchorSpace     = XR_NULL_HANDLE;
-        rendered        = false;
-        lastRender      = 0;
-        recenterSeqInit = false;
-        prevRecenterKey = false;
+        anchorSpace      = XR_NULL_HANDLE;
+        lastRender       = 0;
+        recenterSeqInit  = false;
+        prevRecenterKey  = false;
+        frameCounterInit = false;
+        lastFrameCounter = 0;
+        lastFrameAdvance = 0;
+        swizzled.clear();
+        swizzled.shrink_to_fit();
+        frameTime          = 0;
+        openTriedThisFrame = false;
+        lastOpenTry        = 0;
     }
 };
 
 // Os dois painéis. Aggregate-init dos campos FIXOS; o resto usa os defaults acima.
+//
+// Os `defaultCfg` valem só enquanto o app não escreveu a config na SHM — e mesmo assim
+// precisam ser os MESMOS defaults do Rust (`def_*` em commands/vr_overlay.rs) e do JS
+// (`factory` em src/overlay/overlayPose.js). Divergir faz o painel nascer num lugar e
+// pular pra outro assim que o app conecta. O guard
+// scripts/tests/vr-overlay-contrato-dimensoes.test.mjs cobra a igualdade nos três lados.
 static Panel g_tower = {
     IRACER_SHM_NAME, IRACER_OVERLAY_W, IRACER_OVERLAY_H, IRACER_SHM_SIZE,
     0.45f, 0.90f,
@@ -556,7 +745,7 @@ static Panel g_tower = {
 static Panel g_engineer = {
     IRACER_ENGINEER_SHM_NAME, IRACER_ENGINEER_W, IRACER_ENGINEER_H, IRACER_ENGINEER_SHM_SIZE,
     0.90f, 0.225f,  // banner 4:1
-    {IRACER_LOCK_HEAD, 0.0f, 0.08f, -1.0f, 0.0f, 0.0f, 1.0f, true},
+    {IRACER_LOCK_WORLD, 0.0f, 0.22f, -0.73f, 0.0f, 10.0f, 0.26f, true},
 };
 static Panel* const g_panels[2] = {&g_tower, &g_engineer};
 
@@ -588,7 +777,13 @@ static void LoadNextFunctions(XrInstance instance) {
 }
 
 // ─── Escolhe um formato de cor que o runtime suporte ──────────────────────────
+//
+// Só os quatro formatos 32-bit que sabemos preencher (ver kKnownFormats). Se nenhum deles
+// estiver na lista do runtime, devolvemos 0 e o overlay não sobe: pegar `formats[0]` às
+// cegas era escolher um layout de pixel desconhecido e mandar o buffer RGBA nele — o
+// UpdateSubresource aceita, e o resultado é lixo colorido no headset sem uma linha de erro.
 static int64_t PickColorFormat(XrSession session) {
+    g_formatBgra = false;
     uint32_t count = 0;
     if (g_next_xrEnumerateSwapchainFormats(session, 0, &count, nullptr) != XR_SUCCESS || count == 0) {
         return 0;
@@ -597,25 +792,25 @@ static int64_t PickColorFormat(XrSession session) {
     if (g_next_xrEnumerateSwapchainFormats(session, count, &count, formats.data()) != XR_SUCCESS) {
         return 0;
     }
-    const int64_t preferred[] = {
-        DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
-        DXGI_FORMAT_B8G8R8A8_UNORM_SRGB,
-        DXGI_FORMAT_R8G8B8A8_UNORM,
-        DXGI_FORMAT_B8G8R8A8_UNORM,
-    };
-    for (int64_t want : preferred) {
+    for (const ColorFormat& want : kKnownFormats) {
         for (int64_t have : formats) {
-            if (have == want) {
-                return want;
+            if (have == want.dxgi) {
+                g_formatBgra = want.bgra;
+                return want.dxgi;
             }
         }
     }
-    return formats[0];
+    LogLine("ERRO: o runtime não oferece nenhum formato 32-bit conhecido (%u ofertados; "
+            "o primeiro é %lld) — overlay desativado",
+            count, formats.empty() ? 0LL : (long long)formats[0]);
+    return 0;
 }
 
 // ─── Monta os espaços de referência (compartilhados) + os dois painéis ────────
 static void SetupOverlay(XrSession session) {
-    g_session = session;
+    g_session        = session;
+    g_compositionOff = false;
+    g_layerErrStreak = 0;
 
     XrReferenceSpaceCreateInfo viewInfo{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
     viewInfo.referenceSpaceType   = XR_REFERENCE_SPACE_TYPE_VIEW;
@@ -638,7 +833,8 @@ static void SetupOverlay(XrSession session) {
         LogLine("ERRO: nenhum formato de swapchain disponível");
         return;
     }
-    LogLine("Formato de cor escolhido: %lld", (long long)format);
+    LogLine("Formato de cor escolhido: %lld (%s)", (long long)format,
+            g_formatBgra ? "BGRA — converte R<->B" : "RGBA — direto");
 
     for (Panel* p : g_panels) {
         p->Setup(session, format);
@@ -739,13 +935,18 @@ static void ProcessKeyboard(XrTime now) {
 
 // ─── Interceptação: xrEndFrame (onde anexamos os quads) ───────────────────────
 static XrResult XRAPI_CALL Layer_xrEndFrame(XrSession session, const XrFrameEndInfo* frameEndInfo) {
-    if (frameEndInfo == nullptr || g_next_xrEndFrame == nullptr || g_viewSpace == XR_NULL_HANDLE) {
+    if (frameEndInfo == nullptr || g_next_xrEndFrame == nullptr || g_viewSpace == XR_NULL_HANDLE ||
+        g_compositionOff) {
         return g_next_xrEndFrame ? g_next_xrEndFrame(session, frameEndInfo)
                                  : XR_ERROR_FUNCTION_UNSUPPORTED;
     }
 
     const XrTime now = frameEndInfo->displayTime;
 
+    // Um relógio só para o frame inteiro, e o memo da abertura da SHM zerado.
+    for (Panel* p : g_panels) {
+        p->BeginFrame(now);
+    }
     // Teclado (Ctrl direito) escreve a pose do painel-alvo de volta na SHM.
     ProcessKeyboard(now);
     // Recentro por painel (botão do app OU tecla configurável).
@@ -769,12 +970,22 @@ static XrResult XRAPI_CALL Layer_xrEndFrame(XrSession session, const XrFrameEndI
         if (!cfg.visible) {
             continue;
         }
+        // Enquanto o painel não tem imagem válida, reconsulta todo frame: é barato (leitura
+        // de cabeçalho, com o freio da abertura da SHM por trás) e é o que faz o quad voltar
+        // assim que o app reconecta.
         const bool timeToRender = !p->rendered || (now - p->lastRender) >= kRenderPeriodNs;
         if (timeToRender) {
-            p->AcquireAndRender(now);
+            const uint8_t* pixels = p->TryGetFramePixels(now);
+            if (pixels == nullptr) {
+                // Sem SHM, cabeçalho de outro build, resolução trocada ou contador parado:
+                // o painel perde a validade e o quad SAI da composição neste frame mesmo.
+                p->rendered = false;
+            } else {
+                p->AcquireAndRender(now, pixels);
+            }
         }
         if (!p->rendered) {
-            continue;  // ainda sem imagem liberada
+            continue;  // sem pixels válidos: não anexa nada
         }
         p->BuildQuad(quads[quadCount], cfg);
         layers.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quads[quadCount]));
@@ -788,7 +999,26 @@ static XrResult XRAPI_CALL Layer_xrEndFrame(XrSession session, const XrFrameEndI
     XrFrameEndInfo mutated = *frameEndInfo;
     mutated.layers     = layers.data();
     mutated.layerCount = static_cast<uint32_t>(layers.size());
-    return g_next_xrEndFrame(session, &mutated);
+    const XrResult res = g_next_xrEndFrame(session, &mutated);
+
+    // `res >= 0` e não `== XR_SUCCESS`: em XrResult o negativo é erro e o resto é sucesso, e
+    // xrEndFrame também devolve XR_SESSION_LOSS_PENDING, que é sucesso e não tem nada a ver
+    // com as nossas camadas.
+    if (res >= 0) {
+        g_layerErrStreak = 0;
+    } else if (ErroDeCamada(res)) {
+        if (++g_layerErrStreak >= kLayerErrLimit) {
+            g_compositionOff = true;
+            LogLine("Composição DESLIGADA: xrEndFrame recusou as nossas camadas %u vezes "
+                    "seguidas (último erro %d). O jogo segue; o overlay some até a próxima "
+                    "sessão.",
+                    g_layerErrStreak, (int)res);
+        } else {
+            LogLine("AVISO: xrEndFrame devolveu erro de camada (%d), %u/%u", (int)res,
+                    g_layerErrStreak, kLayerErrLimit);
+        }
+    }
+    return res;
 }
 
 // ─── Interceptação: xrCreateSession (pegamos o device D3D11 aqui) ─────────────
@@ -839,6 +1069,11 @@ static void TeardownOverlay() {
     g_localSpace = XR_NULL_HANDLE;
     g_session    = XR_NULL_HANDLE;
     g_device     = nullptr;
+    // A desistência da composição é POR SESSÃO: a próxima começa limpa (o motivo pode ter
+    // sido a contagem de camadas daquele frame, não um defeito permanente).
+    g_compositionOff = false;
+    g_layerErrStreak = 0;
+    g_formatBgra     = false;
 }
 
 static XrResult XRAPI_CALL Layer_xrDestroySession(XrSession session) {

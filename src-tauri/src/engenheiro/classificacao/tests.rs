@@ -46,7 +46,11 @@ fn a_despedida_nao_atravessa_a_linha() {
     // desta família, e por isso a janela tem piso e não só teto.
     let mut o = Observador::novo();
     for restante in [0.5, 0.2, 0.0, -1.0] {
-        assert_eq!(o.observar(preparacao(restante)), None, "despediu a {restante}s da linha");
+        assert_eq!(
+            o.observar(preparacao(restante)),
+            None,
+            "despediu a {restante}s da linha"
+        );
     }
 }
 
@@ -55,7 +59,11 @@ fn na_volta_lancada_ele_cala() {
     let mut o = Observador::novo();
     o.observar(preparacao(4.0));
     for pct in [0.9, 0.5, 0.1] {
-        assert_eq!(o.observar(voando(90.0 * pct, false)), None, "falou na volta boa");
+        assert_eq!(
+            o.observar(voando(90.0 * pct, false)),
+            None,
+            "falou na volta boa"
+        );
     }
 }
 
@@ -63,7 +71,9 @@ fn na_volta_lancada_ele_cala() {
 fn a_volta_morta_reconhece_e_conta_as_tentativas() {
     let mut o = Observador::novo();
     o.observar(preparacao(4.0));
-    let f = o.observar(voando(45.0, true)).expect("calou na volta morta");
+    let f = o
+        .observar(voando(45.0, true))
+        .expect("calou na volta morta");
     assert_eq!(f.pecas.len(), 2);
     assert!(f.pecas[0].starts_with("cl_perdeu_"));
     // 600 s de sessão, menos os 45 até a linha, dividido por duas voltas de 90 = 3 tentativas.
@@ -81,7 +91,11 @@ fn sem_tempo_para_outra_ele_nao_consola() {
     let mut m = voando(30.0, true);
     m.restante_s = 100.0; // sobra 70 s, e uma tentativa custa 180
     let f = o.observar(m).expect("calou");
-    assert!(f.pecas[1].starts_with("cl_acabou_"), "prometeu tentativa que não cabe: {:?}", f.pecas);
+    assert!(
+        f.pecas[1].starts_with("cl_acabou_"),
+        "prometeu tentativa que não cabe: {:?}",
+        f.pecas
+    );
 }
 
 #[test]
@@ -111,7 +125,11 @@ fn cada_tentativa_ganha_uma_despedida_nova() {
         o.observar(voando(45.0, false));
         o.observar(preparacao(60.0));
     }
-    assert_eq!(vistas.len(), 4, "repetiu despedida na mesma sessão: {vistas:?}");
+    assert_eq!(
+        vistas.len(),
+        4,
+        "repetiu despedida na mesma sessão: {vistas:?}"
+    );
 }
 
 #[test]

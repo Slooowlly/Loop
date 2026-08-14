@@ -241,7 +241,13 @@ pub fn catalogo_real() -> IncidentCatalog {
     if crate::db::migrations::run_all(&conn).is_err() {
         return IncidentCatalog::empty();
     }
-    IncidentCatalog::load(&conn).unwrap_or_else(|_| IncidentCatalog::empty())
+    IncidentCatalog::load(&conn).unwrap_or_else(|e| {
+        crate::diagnostico::linha(
+            "catalogo",
+            &format!("incident_catalog não carregou no harness de calibração: {e}"),
+        );
+        IncidentCatalog::empty()
+    })
 }
 
 /// Catálogo coerente com a configuração — vazio quando os incidentes estão desligados.

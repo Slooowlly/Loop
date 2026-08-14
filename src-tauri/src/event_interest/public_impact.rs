@@ -137,7 +137,10 @@ pub fn compute_public_media_impacts(
     // delegada ao call site, senão um vencedor listado também no top10 somaria as faixas.
     let mut ja_classificado: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut add_chegada =
-        |id: &str, base: f64, reason: MediaImpactReason, vistos: &mut std::collections::HashSet<String>| {
+        |id: &str,
+         base: f64,
+         reason: MediaImpactReason,
+         vistos: &mut std::collections::HashSet<String>| {
             if id.is_empty() || vistos.contains(id) {
                 return;
             }
@@ -146,21 +149,41 @@ pub fn compute_public_media_impacts(
         };
 
     // Win
-    add_chegada(ctx.winner_id, crate::fame::FAME_FINISH_WIN, MediaImpactReason::Win, &mut ja_classificado);
+    add_chegada(
+        ctx.winner_id,
+        crate::fame::FAME_FINISH_WIN,
+        MediaImpactReason::Win,
+        &mut ja_classificado,
+    );
 
     // Podium P2 e P3
     for &id in ctx.podium_ids {
-        add_chegada(id, crate::fame::FAME_FINISH_PODIUM, MediaImpactReason::Podium, &mut ja_classificado);
+        add_chegada(
+            id,
+            crate::fame::FAME_FINISH_PODIUM,
+            MediaImpactReason::Podium,
+            &mut ja_classificado,
+        );
     }
 
     // P4–P5: aparece no resumo, não na manchete
     for &id in ctx.top5_ids {
-        add_chegada(id, crate::fame::FAME_FINISH_TOP5, MediaImpactReason::Top5, &mut ja_classificado);
+        add_chegada(
+            id,
+            crate::fame::FAME_FINISH_TOP5,
+            MediaImpactReason::Top5,
+            &mut ja_classificado,
+        );
     }
 
     // P6–P10: presença mínima — o suficiente para não sumir do mapa
     for &id in ctx.top10_ids {
-        add_chegada(id, crate::fame::FAME_FINISH_TOP10, MediaImpactReason::Top10, &mut ja_classificado);
+        add_chegada(
+            id,
+            crate::fame::FAME_FINISH_TOP10,
+            MediaImpactReason::Top10,
+            &mut ja_classificado,
+        );
     }
 
     // Pole — papel de CLASSIFICAÇÃO, soma com o de chegada (o polesitter que termina em
@@ -463,7 +486,11 @@ mod tests {
             category_tier: 6, // Endurance
         };
         let impacts = compute_public_media_impacts(&ctx, &[], &make_realized(InterestTier::Alto));
-        let ganho_bruto = impacts.iter().find(|d| d.driver_id == "P004").unwrap().delta;
+        let ganho_bruto = impacts
+            .iter()
+            .find(|d| d.driver_id == "P004")
+            .unwrap()
+            .delta;
         let ganho = crate::fame::apply_carisma_to_fame_delta(ganho_bruto, 50.0);
         // Contra o decaimento de um piloto já bem acima do piso pessoal de estreante.
         let fama = 45.0;
@@ -490,12 +517,14 @@ mod tests {
             excluded_driver_id: "PLAYER",
             category_tier: tier,
         };
-        let rookie =
-            compute_public_media_impacts(&mk(0), &[], &make_realized(InterestTier::Alto));
+        let rookie = compute_public_media_impacts(&mk(0), &[], &make_realized(InterestTier::Alto));
         let endurance =
             compute_public_media_impacts(&mk(6), &[], &make_realized(InterestTier::Alto));
         let d = |v: &[DriverMediaImpact]| v.iter().find(|x| x.driver_id == "P001").unwrap().delta;
-        assert!(d(&endurance) > d(&rookie) * 1.4, "a pirâmide tem inclinação");
+        assert!(
+            d(&endurance) > d(&rookie) * 1.4,
+            "a pirâmide tem inclinação"
+        );
     }
 
     #[test]

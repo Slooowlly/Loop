@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import { bestEffortComRetorno } from "../utils/bestEffort";
+
 // Race Control: a macro de bandeira amarela no `app.ini` do iRacing, o disparo automático
 // e o chat de texto livre que valida o caminho sem macro.
 //
@@ -30,9 +32,13 @@ export function useRaceControl(t) {
         console.error("Falha ao preparar a macro de bandeira:", err);
       }
     })();
-    invoke("iracing_auto_yellow_enabled")
-      .then((v) => setAutoYellow(Boolean(v)))
-      .catch(() => {});
+    // Este NÃO é best-effort silencioso: o valor lido é o que pinta o interruptor. Falhar
+    // calado deixava a tela dizendo "desligado" enquanto o backend podia estar ligado, e o
+    // jogador ia correr confiando no que leu. Cai no `yellowMsg`, que é a mesma linha onde
+    // o erro de ligar/desligar já aparece.
+    bestEffortComRetorno(invoke("iracing_auto_yellow_enabled"), "iracing_auto_yellow_enabled").then(
+      (r) => (r.ok ? setAutoYellow(Boolean(r.valor)) : setYellowMsg(String(r.falha))),
+    );
   }, []);
 
   const raceControlOn = Boolean(yellowStatus?.installed && autoYellow);

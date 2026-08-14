@@ -14,7 +14,7 @@ use rusqlite::Connection;
 
 use crate::db::connection::DbError;
 use crate::db::queries::teams as team_queries;
-use crate::finance::planning::category_finance_scale;
+use crate::finance::planning::category_finance_scale_for;
 use crate::models::team::Team;
 
 /// Pilar D: categorias premium que sustentam dinastias (3 equipes elite por classe).
@@ -67,10 +67,21 @@ pub fn designate_elite_teams(teams: &[Team]) -> HashSet<String> {
 }
 
 /// Piso de recursos das elites (Pilar D): garante um caixa mínimo (patrocínio de
-/// dinastia) por categoria para sustentar investimento máximo no carro temporada
+/// dinastia) por DIVISÃO para sustentar investimento máximo no carro temporada
 /// após temporada — é o motor que separa a elite do meio do grid.
+///
+/// A escala vem de [`category_finance_scale_for`] com a classe da própria equipe. A forma
+/// sem classe lia só `team.categoria`, e nos dois campeonatos multi-classe (`endurance` e
+/// `production_challenger`) ela caía na divisão de referência: o GT4 e o LMP2 do Endurance
+/// recebiam o mesmo piso, o da classe típica. É erro dimensional, do mesmo tipo que
+/// `car::cost::category_ceiling_for` já resolvia para teto de peça — um piso de LMP2 num
+/// GT4 é caixa de graça, e um piso de GT4 num LMP2 não sustenta dinastia nenhuma.
+///
+/// Os meses do piso não mudam: continua sendo o `expected_cash_midpoint`, que é
+/// [`crate::economia::temporada::caixa_meses_de_referencia`] meses de operação da divisão.
 pub fn apply_elite_resource_floor(team: &mut Team) {
-    let floor = category_finance_scale(&team.categoria).expected_cash_midpoint();
+    let floor = category_finance_scale_for(&team.categoria, team.classe.as_deref())
+        .expected_cash_midpoint();
     if team.cash_balance < floor {
         team.cash_balance = floor;
     }
@@ -388,11 +399,92 @@ mod tests {
         let mut broke = team("BROKE", -200_000.0, "collapse", 15.0);
         broke.categoria = "gt3".to_string();
         apply_elite_resource_floor(&mut broke);
-        let midpoint = category_finance_scale("gt3").expected_cash_midpoint();
+        let midpoint = category_finance_scale_for("gt3", None).expected_cash_midpoint();
         assert!(
             (broke.cash_balance - midpoint).abs() < 1.0,
-            "piso deve elevar o caixa ao midpoint da categoria ({midpoint:.0}), veio {:.0}",
+            "piso deve elevar o caixa ao midpoint da divisão ({midpoint:.0}), veio {:.0}",
             broke.cash_balance
         );
+    }
+
+    /// **O piso enxerga a classe.** Nos campeonatos multi-classe a categoria sozinha não
+    /// nomeia uma operação: um GT4 e um LMP2 do Endurance custam coisas diferentes de
+    /// operar. Lendo só `team.categoria`, os dois recebiam o piso da classe de referência —
+    /// caixa de graça para o mais barato e piso curto demais para o mais caro.
+    #[test]
+    fn resource_floor_uses_the_class_scale_in_multiclass_championships() {
+        for (categoria, classes) in [
+            ("endurance", ["gt4", "gt3", "lmp2"].as_slice()),
+            (
+                "production_challenger",
+                ["mazda", "toyota", "bmw"].as_slice(),
+            ),
+        ] {
+            let mut pisos = Vec::new();
+            for classe in classes {
+                let mut t = team("ELITE", -200_000.0, "collapse", 15.0);
+                t.categoria = categoria.to_string();
+                t.classe = Some((*classe).to_string());
+                apply_elite_resource_floor(&mut t);
+
+                let esperado =
+                    category_finance_scale_for(categoria, Some(classe)).expected_cash_midpoint();
+                assert!(
+                    (t.cash_balance - esperado).abs() < 1.0,
+                    "{categoria}:{classe} deveria receber o piso da própria classe \
+                     ({esperado:.0}) e recebeu {:.0}",
+                    t.cash_balance
+                );
+                pisos.push(t.cash_balance);
+            }
+            // Se as classes não se separam, a correção não está fazendo nada.
+            let menor = pisos.iter().cloned().fold(f64::MAX, f64::min);
+            let maior = pisos.iter().cloned().fold(f64::MIN, f64::max);
+            assert!(
+                maior > menor,
+                "{categoria}: as classes receberam todas o mesmo piso ({menor:.0}) — a \
+                 escala continua cega à classe"
+            );
+        }
+    }
+
+    /// Monoclasse não muda: sem classe, o piso é o mesmo de antes da correção.
+    #[test]
+    fn resource_floor_is_unchanged_for_single_class_categories() {
+        for categoria in [
+            "mazda_rookie",
+            "mazda_amador",
+            "bmw_m2",
+            "gt4",
+            "gt3",
+            "lmp2",
+        ] {
+            let mut t = team("ELITE", -200_000.0, "collapse", 15.0);
+            t.categoria = categoria.to_string();
+            t.classe = None;
+            apply_elite_resource_floor(&mut t);
+
+            let esperado = category_finance_scale_for(categoria, None).expected_cash_midpoint();
+            assert!(
+                (t.cash_balance - esperado).abs() < 1.0,
+                "{categoria}: piso mudou em categoria monoclasse — esperado {esperado:.0}, \
+                 veio {:.0}",
+                t.cash_balance
+            );
+        }
+    }
+
+    /// O piso não rebaixa quem já tem mais caixa que ele. É um PISO, e a correção de classe
+    /// não pode ter transformado ele em alvo.
+    #[test]
+    fn resource_floor_never_lowers_a_rich_elite() {
+        let mut rica = team("RICA", 0.0, "healthy", 15.0);
+        rica.categoria = "endurance".to_string();
+        rica.classe = Some("lmp2".to_string());
+        let acima =
+            category_finance_scale_for("endurance", Some("lmp2")).expected_cash_midpoint() * 3.0;
+        rica.cash_balance = acima;
+        apply_elite_resource_floor(&mut rica);
+        assert_eq!(rica.cash_balance, acima);
     }
 }

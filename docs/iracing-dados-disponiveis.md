@@ -38,7 +38,8 @@ do engenheiro leva meio segundo e clonar o vetor de carros sessenta vezes por se
 pagar caro por uma resolução que ninguém ouve.
 
 Em paralelo, o [`race_capture`](../src-tauri/src/iracing_sdk/race_capture.rs) **grava sempre**:
-todo frame cru vai para um JSONL comprimido, ~0,8 MB por corrida, 23,7 µs por frame (0,14% de
+todo frame cru vai para um JSONL comprimido, ~1,1 MB por minuto de corrida com o campo cheio
+(19 MB em 17,1 min com 40 carros, medido em Lime Rock), 23,7 µs por frame (0,14% de
 um núcleo). É a fonte-verdade para rebalancear o app com dado real de pista, e é o que sai
 junto quando o jogador manda o log pelo botão de diagnóstico. Uma captura que só liga quando
 alguém lembra de ligar nunca pega o bug que aconteceu ontem no PC do jogador.
@@ -174,22 +175,62 @@ trocar pneu é um bloco fixo de ~21,5 s **por cima** do abastecimento — medido
 Acima de 20 s a parada trocou pneu; abaixo, só abasteceu. O limiar fica entre o maior
 abastecimento sozinho observado (~19 s) e o serviço mínimo de pneu (~21 s).
 
-### 4.2 Situacional — os quatro spotters
+### 4.2 Situacional — a família de spotters
 
-| módulo | deduz |
-|---|---|
-| [`spotter.rs`](../src-tauri/src/iracing_sdk/spotter.rs) | vizinhança lateral, com **histerese** |
-| [`spotter_frente.rs`](../src-tauri/src/iracing_sdk/spotter_frente.rs) | obstáculo à frente — carro fora da pista ou parado |
-| [`spotter_lento.rs`](../src-tauri/src/iracing_sdk/spotter_lento.rs) | carro muito mais devagar que o resto, ainda andando |
-| [`spotter_tras.rs`](../src-tauri/src/iracing_sdk/spotter_tras.rs) | carro chegando por trás |
+São **sete detectores vivos**, e a lista deste documento estava três atrás. Todos são alimentados
+pelo mesmo ponto de entrada, `spotter::observar(&t)`, chamado pelo amostrador a 60 Hz
+(`amostrador.rs:97`); cada irmão roda em **toda** amostra, aconteça o que acontecer nos outros,
+porque um tique pulado é um buraco no histórico que a regra lê como outra coisa.
 
-**Só o lateral vem pronto do SDK**, e mesmo ele não vem utilizável: o `CarLeftRight` é cru e
-nervoso, e na borda da zona de detecção pisca de quadro em quadro. A 60 Hz isso viraria um
-spotter gago dizendo "esquerda, livre, esquerda, livre". Todo o valor daquele módulo está em
-confirmar antes de falar.
+| módulo | deduz | vem do SDK? |
+|---|---|---|
+| [`spotter.rs`](../src-tauri/src/iracing_sdk/spotter.rs) | vizinhança lateral, com **histerese** | `CarLeftRight`, cru |
+| [`spotter_voltar.rs`](../src-tauri/src/iracing_sdk/spotter_voltar.rs) | retorno à pista: "segura, vem carro" / "pode ir" | não |
+| [`spotter_frente.rs`](../src-tauri/src/iracing_sdk/spotter_frente.rs) | obstáculo à frente — carro fora da pista ou parado | não |
+| [`spotter_boxe.rs`](../src-tauri/src/iracing_sdk/spotter_boxe.rs) | carro saindo do box, devagar, na sua trajetória | não (transição de estado) |
+| [`spotter_tras.rs`](../src-tauri/src/iracing_sdk/spotter_tras.rs) | carro chegando por trás | não |
+| [`spotter_bandeira.rs`](../src-tauri/src/iracing_sdk/spotter_bandeira.rs) | o que a bandeira diz da prova e do seu carro | `session_flags`, pronto |
+| [`spotter_clima.rs`](../src-tauri/src/iracing_sdk/spotter_clima.rs) | a pista molhando, molhada, secando | `TrackWetness`, pronto |
 
-Os outros três são inferência sobre posição, superfície e velocidade — o SDK não diz "há um
+**A ordem da tabela é a ordem da arbitragem** de quem ganha o tique, e ela está no `match` de
+`spotter.rs`: lateral → retorno → obstáculo → saída de box → trás → bandeira → clima. Nada é
+descartado — cada detector só marca o aviso como dado quando o anúncio sai, então quem perde a vez
+volta 16 ms depois. Lateral vem primeiro porque o carro que já está do seu lado é o que machuca
+agora; bandeira e clima vêm por último porque são estados que duram minutos e podem esperar um
+tique.
+
+**Só o lateral, a bandeira e o clima vêm prontos do SDK**, e o lateral não vem utilizável: o
+`CarLeftRight` é cru e nervoso, e na borda da zona de detecção pisca de quadro em quadro. A 60 Hz
+isso viraria um spotter gago dizendo "esquerda, livre, esquerda, livre". Todo o valor daquele módulo
+está em confirmar antes de falar. Bandeira e clima também não têm inferência nenhuma — o valor deles
+é decidir **quando** vale falar.
+
+Os outros quatro são inferência sobre posição, superfície e velocidade — o SDK não diz "há um
 carro fora da pista à sua frente".
+
+#### `spotter_base.rs` — o esqueleto compartilhado
+
+[`spotter_base.rs`](../src-tauri/src/iracing_sdk/spotter_base.rs) é o único `mod` privado da família
+(os outros são `pub mod`), e existe porque os irmãos somam milhares de linhas das quais a parte que
+os torna **diferentes** é pequena: meia dúzia de limiares medidos numa captura de corrida cada um. O
+resto era igual e foi para lá — o singleton do observador, o teto da fila de episódios, a detecção
+de salto do `SessionTime`, a distância adiante na volta e os valores de superfície do SDK.
+
+Seis módulos herdam dele: `spotter_frente`, `spotter_tras`, `spotter_lento`, `spotter_voltar`,
+`spotter_bandeira` e `spotter_boxe`. Os dois de fora são o `spotter.rs` (é o coordenador, e o
+observador lateral dele é anterior à extração) e o `spotter_clima`, que é o menor da família e não
+precisa de nada disso — sem geometria, sem fila, sem carro. Ao escrever um detector novo, é do
+`spotter_base` que se herda o esqueleto; ao mexer num limiar, é no irmão.
+
+#### O oitavo, que não está no ar
+
+[`spotter_lento.rs`](../src-tauri/src/iracing_sdk/spotter_lento.rs) — "carro muito mais devagar que
+o resto, ainda andando" — está declarado em `iracing_sdk/mod.rs` e **não é chamado por ninguém**:
+foi construído, calibrado e engavetado. O motivo é medido, e é a lição do subsistema: sendo um
+limiar num contínuo, ele **não disparou uma única vez em corrida verde** e 100% dos avisos dele
+saíram sob amarela. O `spotter_boxe` é o subconjunto da mesma situação que sobrevive à prova — em
+Lime Rock, uma corrida sem bandeira nenhuma, ele dispara 19 vezes. O arquivo fica como registro da
+medição; não conte com ele numa feature.
 
 ### 4.3 Pós-corrida — `telemetry_analysis`
 

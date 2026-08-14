@@ -426,6 +426,30 @@ fn test_load_career_returns_season() {
     let _ = fs::remove_dir_all(base_dir);
 }
 
+/// TEMPORADA 1, ANTES DA PRIMEIRA VIRADA: a `meta` do banco tem de contar o mesmo ano
+/// da temporada ativa. O seed das migrações é de 2024 e só a virada de temporada tocava
+/// em `current_year`, então a carreira inteira até a virada era jogada com o ano errado
+/// no banco, e `career_start_year` nunca saía do seed.
+#[test]
+fn temporada_1_ja_nasce_com_o_ano_do_mundo_na_meta() {
+    let base_dir = create_test_career_dir("meta_ano_do_mundo");
+    let config = AppConfig::load_or_default(&base_dir);
+    let db_path = config.saves_dir().join("career_001").join("career.db");
+    let db = Database::open_existing(&db_path).expect("db");
+
+    let esperado = crate::constants::historical_timeline::PLAYABLE_START_YEAR.to_string();
+    for chave in ["current_year", "career_start_year"] {
+        assert_eq!(
+            meta_queries::get_meta_value(&db.conn, chave).expect("meta"),
+            Some(esperado.clone()),
+            "meta '{chave}' devia nascer no ano jogável"
+        );
+    }
+
+    drop(db);
+    let _ = fs::remove_dir_all(base_dir);
+}
+
 #[test]
 fn test_load_career_includes_next_race_briefing() {
     let base_dir = create_test_career_dir("load_briefing_contract");
@@ -1556,4 +1580,114 @@ fn triagem_do_reparo_respeita_o_aposentado_sentado_da_janela() {
 
     drop(db);
     let _ = fs::remove_dir_all(base_dir);
+}
+
+// ─── Contexto de interesse da próxima etapa ──────────────────────────────────
+//
+// `next_race_interest_context` saiu de dentro de `build_next_race_interest_summary`, que
+// misturava a leitura da classificação com as duas regras abaixo. Separada a consulta, as
+// regras passaram a ser conferíveis sem banco e sem carreira aberta.
+
+fn etapa_de_teste(rodada: i32) -> crate::calendar::CalendarEntry {
+    crate::calendar::CalendarEntry {
+        id: format!("R-{rodada}"),
+        season_id: "S-1".to_string(),
+        categoria: "gt3".to_string(),
+        rodada,
+        nome: "Etapa de teste".to_string(),
+        track_id: 1,
+        track_name: "Interlagos".to_string(),
+        track_config: "GP".to_string(),
+        clima: crate::models::enums::WeatherCondition::Dry,
+        temperatura: 24.0,
+        voltas: 30,
+        duracao_corrida_min: 45,
+        duracao_classificacao_min: 15,
+        status: crate::models::enums::RaceStatus::Pendente,
+        horario: "14:00".to_string(),
+        week_of_year: 20,
+        season_phase: SeasonPhase::BlocoRegular,
+        display_date: "18/05".to_string(),
+        thematic_slot: crate::models::enums::ThematicSlot::NaoClassificado,
+        season_week: Some(20),
+    }
+}
+
+fn piloto_de_teste() -> Driver {
+    Driver::new(
+        "DRV-1".to_string(),
+        "Piloto Teste".to_string(),
+        "Brasil".to_string(),
+        "M".to_string(),
+        24,
+        2026,
+    )
+}
+
+#[test]
+fn a_penultima_etapa_com_o_titulo_perto_e_decisiva() {
+    // Restam 2 rodadas (limite), 30 pontos de distância e o jogador está classificado.
+    let ctx = next_race_interest_context(
+        &etapa_de_teste(12),
+        &piloto_de_teste(),
+        14,
+        &ChampionshipContext {
+            player_position: 2,
+            gap_to_leader: 30,
+        },
+    );
+    assert!(ctx.is_title_decider_candidate);
+    assert_eq!(ctx.player_championship_position, Some(2));
+    assert_eq!(ctx.championship_gap_to_leader, Some(30));
+}
+
+#[test]
+fn meio_de_temporada_nao_e_decisiva_por_mais_perto_que_esteja_o_lider() {
+    let ctx = next_race_interest_context(
+        &etapa_de_teste(4),
+        &piloto_de_teste(),
+        14,
+        &ChampionshipContext {
+            player_position: 1,
+            gap_to_leader: 0,
+        },
+    );
+    assert!(
+        !ctx.is_title_decider_candidate,
+        "faltando 10 rodadas nenhuma etapa decide o título"
+    );
+}
+
+#[test]
+fn jogador_fora_da_classificacao_nao_manda_posicao_nem_vira_decisiva() {
+    // `player_position == 0` é o retorno de quem ainda não pontuou na categoria — e é
+    // também o fallback quando a consulta falha. Nos dois casos a etapa não é decisiva.
+    let ctx = next_race_interest_context(
+        &etapa_de_teste(14),
+        &piloto_de_teste(),
+        14,
+        &ChampionshipContext {
+            player_position: 0,
+            gap_to_leader: 0,
+        },
+    );
+    assert!(!ctx.is_title_decider_candidate);
+    assert_eq!(ctx.player_championship_position, None);
+    assert_eq!(ctx.championship_gap_to_leader, None);
+}
+
+#[test]
+fn o_lider_manda_a_distancia_zero_em_vez_de_omiti_la() {
+    // Distância 0 com posição 1 é informação (o jogador lidera), e não ausência de dado.
+    let ctx = next_race_interest_context(
+        &etapa_de_teste(13),
+        &piloto_de_teste(),
+        14,
+        &ChampionshipContext {
+            player_position: 1,
+            gap_to_leader: 0,
+        },
+    );
+    assert_eq!(ctx.championship_gap_to_leader, Some(0));
+    assert!(ctx.is_title_decider_candidate);
 }

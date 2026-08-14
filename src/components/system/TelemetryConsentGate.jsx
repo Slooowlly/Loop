@@ -102,7 +102,7 @@ export default function TelemetryConsentGate() {
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div className="glass-strong relative w-[420px] rounded-2xl border border-white/12 p-6 shadow-2xl">
+      <div className="glass-strong relative w-[420px] rounded-2xl border border-white/[0.12] p-6 shadow-2xl">
         <h3 className="mb-2 text-[15px] font-semibold text-text-primary">
           {t("telemetryConsent.title")}
         </h3>
@@ -113,7 +113,7 @@ export default function TelemetryConsentGate() {
         {/* Rótulo separado do conteúdo: com os dois na mesma cor e peso, o item virava
             um parágrafo e a lista perdia a função. O rótulo usa o mesmo estilo dos
             cabeçalhos de seção das Configurações. */}
-        <div className="mb-4 flex flex-col gap-3 rounded-xl border border-white/8 bg-white/[0.04] p-3.5">
+        <div className="mb-4 flex flex-col gap-3 rounded-xl border border-white/[0.08] bg-white/[0.04] p-3.5">
           {["sends", "never"].map((key) => (
             <div key={key}>
               <p

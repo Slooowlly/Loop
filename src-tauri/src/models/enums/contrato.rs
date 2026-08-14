@@ -21,15 +21,6 @@ impl ContractStatus {
             ContractStatus::Pendente => "Pendente",
         }
     }
-
-    pub fn from_str(s: &str) -> Self {
-        match s.trim() {
-            "Expirado" => ContractStatus::Expirado,
-            "Rescindido" => ContractStatus::Rescindido,
-            "Pendente" => ContractStatus::Pendente,
-            _ => ContractStatus::Ativo,
-        }
-    }
 }
 
 impl std::fmt::Display for ContractStatus {
@@ -54,16 +45,9 @@ impl TeamRole {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
-        match s.trim() {
-            "Numero1" | "N1" | "Titular" => TeamRole::Numero1,
-            "Numero2" | "N2" | "Reserva" | "Junior" => TeamRole::Numero2,
-            _ => TeamRole::Numero2,
-        }
-    }
-
-    /// Parser estrito para leitura de banco de dados.
-    /// Preserva aliases legacy aceitos pelo parser permissivo.
+    /// Parser estrito para leitura de banco de dados. Aceita os aliases legados
+    /// (`N1`/`Titular`, `N2`/`Reserva`/`Junior`) porque eles estão gravados em saves
+    /// antigos; qualquer outro valor vira erro, sem fallback silencioso.
     pub fn from_str_strict(s: &str) -> Result<Self, String> {
         match s.trim() {
             "Numero1" | "N1" | "Titular" => Ok(TeamRole::Numero1),

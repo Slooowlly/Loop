@@ -24,7 +24,7 @@ function DifficultyCard({ difficulty, selected, onSelect }) {
       </div>
 
       <div className="mt-8 space-y-4">
-        <div className="h-2 overflow-hidden rounded-full bg-white/8">
+        <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
           <div
             className="h-full rounded-full transition-glass"
             style={{

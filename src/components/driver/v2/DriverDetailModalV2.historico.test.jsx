@@ -756,7 +756,7 @@ describe("DriverDetailModalV2 — historico", () => {
 
     fireEvent.mouseEnter(screen.getByText("Temporadas sem pódio").closest("[data-has-detail]"));
     // Sem podio, a melhor chegada e o unico resultado que da tamanho ao ano.
-    expect(screen.getByTestId("dossier-detail-tooltip")).toHaveTextContent("melhor: P5");
+    expect(screen.getByTestId("dossier-detail-tooltip")).toHaveTextContent("Melhor: P5");
   });
 
   it("a taxa de abandono e o rival mais duro abrem o proprio detalhe", async () => {
@@ -796,7 +796,7 @@ describe("DriverDetailModalV2 — historico", () => {
     // quebravam cada uma em duas e dobravam a altura dos nove cards.
     const escopo = screen.getByTestId("driver-detail-records-scope");
     expect(escopo).toHaveTextContent("Grid de 24");
-    expect(escopo).toHaveTextContent("mundo de 610");
+    expect(escopo).toHaveTextContent("Mundo de 610");
     // O número exato de cada linha, que varia, fica no title do próprio ordinal.
     expect(within(marcas[0]).getByText("2º")).toHaveAttribute("data-tooltip", "2º de 24 no grid");
 

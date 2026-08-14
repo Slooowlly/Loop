@@ -4,7 +4,7 @@
 //! do arquivo. Ele foi substituído em produção por `economia::desenvolvimento` e mora agora
 //! no submódulo `offseason`, que só existe sob `cfg(test)` — ver o cabeçalho de lá.
 
-use crate::finance::planning::category_finance_scale;
+use crate::finance::planning::category_finance_scale_for;
 use crate::models::team::Team;
 
 /// O offseason aposentado. **Só existe em teste**, de propósito: é o braço de controle do
@@ -32,8 +32,19 @@ const DEBT_AMORTIZATION_RATE: f64 = 0.25;
 const DEBT_AMORTIZATION_RESERVE_FACTOR: f64 = 0.05;
 
 /// Caixa mínimo que a equipe mantém antes de usar a folga para pagar dívida.
-fn debt_amortization_reserve(category: &str) -> f64 {
-    category_finance_scale(category).operating_cost_midpoint() * DEBT_AMORTIZATION_RESERVE_FACTOR
+///
+/// A âncora é a mesma que o resto do planejamento usa, e é class-aware:
+/// [`category_finance_scale_for`] com a classe da própria equipe. Ela recebia só a
+/// categoria, e nos dois campeonatos multi-classe (`endurance` e `production_challenger`)
+/// isso resolvia para a divisão de referência — a reserva de um GT4 do Endurance era
+/// calculada sobre o custo de operar a classe típica, e não o dele. Erro dimensional
+/// gêmeo do de `finance::strategy::apply_elite_resource_floor`.
+///
+/// A fração continua sendo [`DEBT_AMORTIZATION_RESERVE_FACTOR`]: só a base mudou de
+/// divisão de referência para a divisão real.
+fn debt_amortization_reserve(category: &str, classe: Option<&str>) -> f64 {
+    category_finance_scale_for(category, classe).operating_cost_midpoint()
+        * DEBT_AMORTIZATION_RESERVE_FACTOR
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -298,7 +309,7 @@ pub fn apply_round_cashflow(
     // e o único caminho de recuperação para equipes endividadas — sem isso, a
     // dívida só cresce e "collapse" vira estado absorvente.
     if team.debt_balance > 0.0 {
-        let reserve = debt_amortization_reserve(&team.categoria);
+        let reserve = debt_amortization_reserve(&team.categoria, team.classe.as_deref());
         let surplus = team.cash_balance - reserve;
         if surplus > 0.0 {
             let payment = (surplus * DEBT_AMORTIZATION_RATE).min(team.debt_balance);
@@ -491,6 +502,99 @@ mod tests {
         assert_eq!(
             team.debt_balance, 6_000_000.0,
             "sem caixa acima da reserva, nada de dívida é pago"
+        );
+    }
+
+    /// **A reserva enxerga a classe.** Num campeonato multi-classe a categoria sozinha não
+    /// nomeia uma operação, e a reserva saía toda da divisão de referência: o GT4 e o LMP2
+    /// do Endurance guardavam o mesmo caixa antes de amortizar.
+    #[test]
+    fn reserva_de_amortizacao_segue_a_classe_no_multiclasse() {
+        for (categoria, classes) in [
+            ("endurance", ["gt4", "gt3", "lmp2"].as_slice()),
+            (
+                "production_challenger",
+                ["mazda", "toyota", "bmw"].as_slice(),
+            ),
+        ] {
+            let mut reservas = Vec::new();
+            for classe in classes {
+                let lida = debt_amortization_reserve(categoria, Some(classe));
+                let esperada = category_finance_scale_for(categoria, Some(classe))
+                    .operating_cost_midpoint()
+                    * DEBT_AMORTIZATION_RESERVE_FACTOR;
+                assert!(
+                    (lida - esperada).abs() < 1.0,
+                    "{categoria}:{classe} deveria reservar sobre o custo da própria classe \
+                     ({esperada:.0}) e reservou {lida:.0}"
+                );
+                reservas.push(lida);
+            }
+            let menor = reservas.iter().cloned().fold(f64::MAX, f64::min);
+            let maior = reservas.iter().cloned().fold(f64::MIN, f64::max);
+            assert!(
+                maior > menor,
+                "{categoria}: todas as classes reservaram o mesmo ({menor:.0}) — a base \
+                 continua cega à classe"
+            );
+        }
+    }
+
+    /// Monoclasse não muda, e a fração de 5% continua sendo a fração de 5%.
+    #[test]
+    fn reserva_de_amortizacao_preserva_a_fracao_em_categoria_monoclasse() {
+        assert!((DEBT_AMORTIZATION_RESERVE_FACTOR - 0.05).abs() < 1e-12);
+
+        for categoria in [
+            "mazda_rookie",
+            "mazda_amador",
+            "bmw_m2",
+            "gt4",
+            "gt3",
+            "lmp2",
+        ] {
+            let lida = debt_amortization_reserve(categoria, None);
+            let esperada = category_finance_scale_for(categoria, None).operating_cost_midpoint()
+                * DEBT_AMORTIZATION_RESERVE_FACTOR;
+            assert!(
+                (lida - esperada).abs() < 1.0,
+                "{categoria}: reserva mudou em categoria monoclasse — esperado {esperada:.0}, \
+                 veio {lida:.0}"
+            );
+            // Classe vazia é o mesmo caso de "sem classe" e não pode divergir.
+            assert!((debt_amortization_reserve(categoria, Some("")) - lida).abs() < 1.0);
+        }
+    }
+
+    /// A classe da equipe chega até a amortização — o caminho inteiro, não só a função.
+    #[test]
+    fn a_classe_da_equipe_chega_ate_a_amortizacao() {
+        let amortizado = |classe: &str| {
+            let mut team = placeholder_team_from_db(
+                "T003".to_string(),
+                "Equipe Multiclasse".to_string(),
+                "endurance".to_string(),
+                "2026-01-01".to_string(),
+            );
+            team.classe = Some(classe.to_string());
+            // Caixa entre as duas reservas: acima da do GT4, abaixo da do LMP2.
+            team.cash_balance = (debt_amortization_reserve("endurance", Some("gt4"))
+                + debt_amortization_reserve("endurance", Some("lmp2")))
+                / 2.0;
+            team.debt_balance = 50_000_000.0;
+
+            apply_round_cashflow(&mut team, TeamRoundFinanceContext::default());
+            50_000_000.0 - team.debt_balance
+        };
+
+        assert!(
+            amortizado("gt4") > 0.0,
+            "com caixa acima da reserva do GT4, a equipe tinha que amortizar"
+        );
+        assert_eq!(
+            amortizado("lmp2"),
+            0.0,
+            "com caixa abaixo da reserva do LMP2, a equipe não podia amortizar nada"
         );
     }
 }

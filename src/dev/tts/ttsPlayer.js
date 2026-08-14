@@ -1,3 +1,4 @@
+// i18n-ignore-file — bancada da POC de TTS, fora do caminho do jogador.
 // Reprodutor de PCM em STREAMING sobre Web Audio, com instrumentação.
 //
 // A regra da POC: não esperar a fala inteira. Assim que houver uma quantidade segura

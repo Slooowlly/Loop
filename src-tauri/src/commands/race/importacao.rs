@@ -155,7 +155,7 @@ pub(crate) fn import_iracing_race_result(
     // `apply_special_class_scoring` reconcilia posição/pontos (DNF vai pro fim da classe, 0 ponto)
     // e o bloco de quebra abaixo carimba o `dnf_catalog_id`/motivo (o carro agora é `is_dnf`).
     if crate::iracing_sdk::race_monitor::chat_send_blocked() {
-        let player_break_label: Option<String> = result
+        let player_break: Option<(String, Option<String>)> = result
             .race_results
             .iter()
             .find(|d| d.is_jogador && !d.is_dnf)
@@ -163,13 +163,13 @@ pub(crate) fn import_iracing_race_result(
                 breakdowns
                     .iter()
                     .find(|b| b.severity.e_abandono() && b.driver_id == player.pilot_id)
-                    .map(|b| b.label.clone())
+                    .map(|b| (b.label.clone(), b.problem_key()))
             });
-        if let Some(label) = player_break_label {
+        if let Some((label, chave)) = player_break {
             if let Some(player) = result.race_results.iter_mut().find(|d| d.is_jogador) {
                 player.is_dnf = true;
                 player.classification_status = crate::simulation::race::ClassificationStatus::Dnf;
-                player.dnf_reason = Some(label);
+                player.marcar_dnf_de_quebra(label, chave);
             }
             // Mantém a contagem de abandonos coerente (narrativa "corrida mais caótica" etc.).
             result.total_dnfs = result.race_results.iter().filter(|r| r.is_dnf).count() as i32;
@@ -209,7 +209,7 @@ pub(crate) fn import_iracing_race_result(
                 if let Some(id) = &mech_id {
                     dr.dnf_catalog_id = Some(id.clone());
                 }
-                dr.dnf_reason = Some(b.label.clone());
+                dr.marcar_dnf_de_quebra(b.label.clone(), b.problem_key());
             }
         }
     }
@@ -369,7 +369,10 @@ pub(crate) fn import_iracing_race_result(
                 }
             }
             Ok(None) => {}
-            Err(e) => eprintln!("[narrative] Falha ao gerar boletim do import iRacing: {e}"),
+            Err(e) => crate::diagnostico::linha(
+                "narrative",
+                &format!("falha ao gerar o boletim do import do iRacing: {e}"),
+            ),
         }
     }
 
@@ -481,7 +484,10 @@ pub(crate) fn import_iracing_race_result(
                 get_category_config(&race_entry.categoria)
                     .map(|c| c.corridas_por_temporada as f64)
                     .unwrap_or(12.0),
-                global_economic_health_for_season(active_season.numero as i32),
+                // Mesma saúde macroeconômica que `persist_race_result_tx` já cobrou do caixa
+                // acima: a posição do boom/recessão no ciclo é semeada pelo SAVE, e as duas
+                // pontas leem a identidade do mesmo lugar (o caminho do banco).
+                global_economic_health_do_save(&career_id_from_db(db), active_season.numero as i32),
                 repair_cost,
                 pior_severity,
                 active_season.numero as i32,

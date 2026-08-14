@@ -1,6 +1,11 @@
 import { useEffect } from "react";
 import useCareerStore from "../stores/useCareerStore";
-import { useBreakdownFeed, usePaceFeed, usePlayerWarnings } from "./useBreakdownFeed";
+import {
+  useBreakdownFeed,
+  useClassificacaoFeed,
+  usePaceFeed,
+  usePlayerWarnings,
+} from "./useBreakdownFeed";
 import { anunciar, pausasDoRadio } from "../lib/engenheiroVoz";
 
 // Voz do RÁDIO DA EQUIPE, ao vivo. Só LÓGICA — não desenha nada. O card continua na janela
@@ -31,6 +36,11 @@ export default function EngenheiroVozAuto() {
   // banco do save. Sem carreira não há o que dizer, e não há como dizer.
   const quebra = useBreakdownFeed(careerId);
   const ritmo = usePaceFeed(careerId);
+  // A CLASSIFICAÇÃO também não passa pela carreira, e pelo mesmo motivo do aviso: nenhuma fala
+  // dela nomeia piloto ou equipe. Ela é a família com o prazo mais curto do rádio — a despedida
+  // termina pouco antes da linha —, então é aqui, na janela que nunca é estrangulada, que ela
+  // precisa estar.
+  const classificacao = useClassificacaoFeed(true);
 
   useEffect(() => {
     if (!aviso?.pecas?.length) return;
@@ -58,6 +68,15 @@ export default function EngenheiroVozAuto() {
       texto: ritmo.text ?? "",
     }).catch(() => {});
   }, [ritmo]);
+
+  useEffect(() => {
+    if (!classificacao?.pecas?.length) return;
+    anunciar(classificacao.pecas, {
+      pausasMs: pausasDoRadio(classificacao.pecas),
+      canal: "classificacao",
+      texto: classificacao.text ?? "",
+    }).catch(() => {});
+  }, [classificacao]);
 
   return null;
 }

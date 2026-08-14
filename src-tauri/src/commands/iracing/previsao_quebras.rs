@@ -56,6 +56,29 @@ struct RaceBreakdownCtx {
     track_pha: (f64, f64, f64),
     ev_seed: u64,
     is_enduro: bool,
+    /// Voltas da ETAPA (`CalendarEntry::voltas`). O forecast roda sobre elas, não sobre uma
+    /// referência fixa — ver [`voltas_do_forecast`].
+    voltas: u32,
+}
+
+/// Piso de voltas do forecast. `CalendarEntry::voltas` já nasce grampeado em
+/// [`crate::calendar::montagem::PISO_DE_VOLTAS`], mas o campo é lido do banco e um save
+/// estranho não pode fazer o Monte Carlo rodar zero volta e devolver risco zero.
+const PISO_DE_VOLTAS_DO_FORECAST: u32 = 5;
+
+/// As voltas que o forecast deve simular para esta etapa.
+///
+/// **B20.** Os dois call sites passavam `18` — o `car::wear::REF_RACE_LAPS`, que é a
+/// referência de DESGASTE de uma corrida de sprint, não a duração da etapa. Medido no
+/// harness `car::breakdown::pendencias::b20_previsao_de_18_voltas`: em sprint de 20 min
+/// (~13 voltas) o card superestimava o risco, e no Endurance de 360 min ele subestimava em
+/// ~3,5×, porque a prova fecha muito mais que 18 voltas e o hazard é acumulado por volta.
+///
+/// O conserto é ler a etapa. Nada da física de quebra mudou: `forecast_breakdown_risk` é o
+/// MESMO Monte Carlo sobre o MESMO modelo que a corrida roda, e passar a contagem certa faz
+/// o card convergir para o risco real por construção, em vez de ser recalibrado contra ele.
+fn voltas_do_forecast(voltas_da_etapa: i32) -> u32 {
+    (voltas_da_etapa.max(0) as u32).max(PISO_DE_VOLTAS_DO_FORECAST)
 }
 
 fn resolve_race_breakdown_ctx(
@@ -92,10 +115,11 @@ fn resolve_race_breakdown_ctx(
     let track_pha = maintenance_demand(&[race.track_id]);
 
     // Enduro (corrida longa) → o forecast reflete o DNF raro (severidade abrandada).
-    // A duração vem da ETAPA (`CalendarEntry::duracao_efetiva_min`), nunca da constante
+    // A duração vem da ETAPA (`CalendarEntry::duracao_efetiva`), nunca da constante
     // da categoria: no Endurance ela é a sentinela 0, e com ela o gate dava falso — o
     // forecast de uma prova de 6 horas saía com a régua de sprint.
-    let is_enduro = crate::car::breakdown::is_enduro_duration(race.duracao_efetiva_min());
+    let is_enduro = race.duracao_efetiva().e_enduro();
+    let voltas = voltas_do_forecast(race.voltas);
 
     Some(RaceBreakdownCtx {
         player_team_id: team_id,
@@ -104,6 +128,7 @@ fn resolve_race_breakdown_ctx(
         track_pha,
         ev_seed,
         is_enduro,
+        voltas,
     })
 }
 
@@ -156,16 +181,10 @@ pub fn get_breakdown_forecast(
         return Ok(none);
     };
 
-    // 18 voltas = referência de sprint (a escala calibrada). 400 amostras dão um % estável.
-    //
-    // CALIBRAÇÃO PENDENTE (enduro): a prova de Endurance dura de 120 a 360 min e fecha muito
-    // mais que 18 voltas, então o card subestima o risco lá. Trocar 18 pela contagem real da
-    // etapa mudaria a escala inteira do card sem medição por trás — a régua do hazard foi
-    // calibrada nesta referência. Fica pendente de uma medição do harness de quebra nas
-    // durações reais do calendário (o mesmo dado que falta ao teto do sobrecusto de enduro).
+    // Voltas da ETAPA (B20, ver `voltas_do_forecast`). 400 amostras dão um % estável.
     let f = crate::car::breakdown::forecast_breakdown_risk(
         &car,
-        18,
+        ctx.voltas,
         ctx.ev_seed,
         team.pit_crew_quality,
         ctx.track_pha,
@@ -272,7 +291,7 @@ pub fn get_grid_breakdown_risk(
         });
         let f = crate::car::breakdown::forecast_breakdown_risk(
             &car,
-            18,
+            ctx.voltas,
             ctx.ev_seed ^ team_hash,
             team.pit_crew_quality,
             ctx.track_pha,
@@ -295,4 +314,47 @@ pub fn get_grid_breakdown_risk(
     }
 
     Ok(risky)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **B20** — o forecast conta as voltas da ETAPA, e nunca as 18 fixas.
+    ///
+    /// O número não é escolhido aqui: ele vem de `CalendarEntry::voltas`, que o calendário
+    /// monta com o teto por duração de B19. O que este teste trava é o contrato entre os
+    /// dois — sprint continua na casa das dezenas, prova longa passa de 50, e nenhuma etapa
+    /// consegue empurrar o Monte Carlo para zero volta.
+    #[test]
+    fn o_forecast_conta_as_voltas_da_etapa() {
+        use crate::constants::tracks::get_all_tracks;
+
+        let curta = get_all_tracks()
+            .iter()
+            .min_by(|a, b| {
+                a.comprimento_km
+                    .partial_cmp(&b.comprimento_km)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .expect("catálogo de pistas");
+
+        // Sprint: continua abaixo do teto antigo, e o forecast não usa mais 18 por decreto.
+        let sprint = crate::calendar::estimate_laps_de_teste(curta, 20);
+        assert!(voltas_do_forecast(sprint) < 50);
+        assert_eq!(voltas_do_forecast(sprint), sprint.max(5) as u32);
+
+        // Endurance: passa das 18 de referência por larga margem, que é o defeito medido.
+        for min in [120, 180, 240, 360] {
+            let voltas = voltas_do_forecast(crate::calendar::estimate_laps_de_teste(curta, min));
+            assert!(
+                voltas > 50,
+                "prova de {min} min ficaria com {voltas} voltas no forecast"
+            );
+        }
+
+        // Save estranho não faz o Monte Carlo rodar zero volta e devolver risco zero.
+        assert_eq!(voltas_do_forecast(0), PISO_DE_VOLTAS_DO_FORECAST);
+        assert_eq!(voltas_do_forecast(-7), PISO_DE_VOLTAS_DO_FORECAST);
+    }
 }

@@ -175,11 +175,11 @@ tabela history_seasons
   coluna id | tipo=INTEGER | notnull=0 | default=- | pk=1
   coluna temporada_id | tipo=TEXT | notnull=1 | default=- | pk=0
 tabela incident_catalog
-  coluna description_short | tipo=TEXT | notnull=1 | default=- | pk=0
-  coluna dnf_template | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna description_key | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna dnf_key | tipo=TEXT | notnull=1 | default=- | pk=0
   coluna id | tipo=TEXT | notnull=0 | default=- | pk=1
   coluna incident_source | tipo=TEXT | notnull=1 | default=- | pk=0
-  coluna non_dnf_template | tipo=TEXT | notnull=0 | default=- | pk=0
+  coluna non_dnf_key | tipo=TEXT | notnull=0 | default=- | pk=0
   coluna race_format | tipo=TEXT | notnull=1 | default=- | pk=0
   coluna severity_context | tipo=TEXT | notnull=1 | default=- | pk=0
   coluna trigger_type | tipo=TEXT | notnull=1 | default=- | pk=0
@@ -188,6 +188,12 @@ tabela incident_catalog
   coluna weight_sprint | tipo=INTEGER | notnull=1 | default=0 | pk=0
   indice idx_incident_catalog_class_format | unique=0 | origem=c | parcial=0 | colunas=vehicle_class,race_format
   indice idx_incident_catalog_source | unique=0 | origem=c | parcial=0 | colunas=incident_source
+tabela incident_catalog_texto_legado
+  coluna description_short | tipo=TEXT | notnull=0 | default=- | pk=0
+  coluna dnf_template | tipo=TEXT | notnull=0 | default=- | pk=0
+  coluna id | tipo=TEXT | notnull=0 | default=- | pk=1
+  coluna migrado_em | tipo=TEXT | notnull=1 | default=- | pk=0
+  coluna non_dnf_template | tipo=TEXT | notnull=0 | default=- | pk=0
 tabela injuries
   coluna active | tipo=INTEGER | notnull=1 | default=1 | pk=0
   coluna id | tipo=TEXT | notnull=0 | default=- | pk=1
@@ -293,6 +299,7 @@ tabela race_results
   coluna dnf | tipo=INTEGER | notnull=1 | default=0 | pk=0
   coluna dnf_catalog_id | tipo=TEXT | notnull=0 | default=- | pk=0
   coluna dnf_reason | tipo=TEXT | notnull=0 | default=- | pk=0
+  coluna dnf_reason_key | tipo=TEXT | notnull=0 | default=- | pk=0
   coluna dnf_segment | tipo=TEXT | notnull=0 | default=- | pk=0
   coluna equipe_id | tipo=TEXT | notnull=1 | default=- | pk=0
   coluna estrategia_id | tipo=TEXT | notnull=1 | default='' | pk=0
@@ -624,6 +631,8 @@ tabela teams
   coluna pit_strategy_risk | tipo=REAL | notnull=1 | default=50.0 | pk=0
   coluna reputacao | tipo=REAL | notnull=1 | default=50.0 | pk=0
   coluna season_strategy | tipo=TEXT | notnull=1 | default='balanced' | pk=0
+  coluna socorros_na_temporada | tipo=INTEGER | notnull=1 | default=0 | pk=0
+  coluna socorros_temporada_ref | tipo=INTEGER | notnull=1 | default=0 | pk=0
   coluna stats_melhor_resultado | tipo=INTEGER | notnull=1 | default=99 | pk=0
   coluna stats_podios | tipo=INTEGER | notnull=1 | default=0 | pk=0
   coluna stats_poles | tipo=INTEGER | notnull=1 | default=0 | pk=0

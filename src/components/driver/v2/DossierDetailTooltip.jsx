@@ -167,7 +167,7 @@ function LinhaDetalhe({ entrada, legenda, reservaEquipe, onAbrirEquipe }) {
           <span
             data-testid="dossier-detail-sem-equipe"
             aria-label={t("driverDetail.history.tooltipNoTeam")}
-            className="flex h-6 w-[36px] shrink-0 items-center justify-center rounded-md border border-dashed border-white/12 text-text-muted"
+            className="flex h-6 w-[36px] shrink-0 items-center justify-center rounded-md border border-dashed border-white/[0.12] text-text-muted"
           >
             <svg viewBox="0 0 10 10" width="9" height="9" aria-hidden="true">
               <path

@@ -86,7 +86,7 @@ export function NumeroDaFicha({ rotulo, valor, destaque = false }) {
 /// linha inteira para não dizer nada — a cor faz o vínculo sem escrever.
 export function SecaoDaFicha({ titulo, cor, children }) {
   return (
-    <div className="border-t border-white/8 px-3 py-2.5">
+    <div className="border-t border-white/[0.08] px-3 py-2.5">
       <p
         className="mb-1.5 flex items-center gap-1.5 text-[8.5px] font-bold uppercase tracking-[0.18em]"
         style={{ color: cor ?? "var(--text-muted)" }}
@@ -152,7 +152,7 @@ function Painel({ rect, largura, rotuloFechar, testId, onClose, children }) {
       }}
       onMouseDown={(evento) => evento.stopPropagation()}
     >
-      <div className="relative overflow-hidden rounded-xl border border-white/12 bg-[rgba(13,19,32,0.98)] shadow-[0_18px_48px_rgba(0,0,0,0.6)]">
+      <div className="relative overflow-hidden rounded-xl border border-white/[0.12] bg-[rgba(13,19,32,0.98)] shadow-[0_18px_48px_rgba(0,0,0,0.6)]">
         <button
           type="button"
           onClick={onClose}

@@ -9,7 +9,7 @@ function DailyLogMovement({ entry, color }) {
 
   if (!isStructured) {
     return (
-      <p className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2 text-body text-[color:var(--text-secondary)]">
+      <p className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-body text-[color:var(--text-secondary)]">
         {entry.message}
       </p>
     );
@@ -84,7 +84,7 @@ export default function PainelDecisao({
 
       <div
         data-testid="daily-log-market"
-        className="mt-4 rounded-xl border border-white/8 bg-black/18 px-4 py-4"
+        className="mt-4 rounded-xl border border-white/[0.08] bg-black/[0.18] px-4 py-4"
       >
         <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[color:var(--text-muted)]">
           {t("convocation.dailyLog.title")}
@@ -126,7 +126,7 @@ export default function PainelDecisao({
         )}
       </div>
 
-      <div className="mt-4 rounded-xl border border-white/8 bg-black/18 px-4 py-4">
+      <div className="mt-4 rounded-xl border border-white/[0.08] bg-black/[0.18] px-4 py-4">
         <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[color:var(--text-muted)]">
           {t("convocation.nextStep.title")}
         </p>

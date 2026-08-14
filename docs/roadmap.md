@@ -25,6 +25,18 @@ serem escritas.
 A correção estrutural do roadmap é: **promover assuntos a cidadãos de primeira classe**,
 reusando a lógica que já existe.
 
+**Aplicada em 11/08/2026, e o diagnóstico se confirmou por inteiro.** O assunto "eu" ganhou
+lugar permanente — a aba **Carreira**, com cinco seções — e nenhuma das cinco precisou de
+simulação nova. O único comando escrito foi `get_season_market_board`, que lista assentos
+vazios; todo o resto saiu de payloads que já cruzavam a ponte e eram desenhados de esguelha,
+ou nem isso. A previsão "quase tudo que falta existe" não era otimismo: era medida.
+
+O assunto "o mundo ao longo do tempo" continua parcialmente órfão. Ele existe no recorte de
+EQUIPE (`TeamHistoryDrawer`, `AtlasChampionsPanel`, `TeamRecordsTab`) e ganhou o recorte do
+JOGADOR agora; o que não tem lugar é a história do mundo pela ótica dos PILOTOS de IA ao longo
+das décadas. Isso não está no backlog e não é pedido de ninguém — fica registrado aqui só
+para a próxima varredura não o descobrir como novidade.
+
 ---
 
 ## Correção de uma leitura anterior
@@ -72,113 +84,120 @@ técnica.
 
 ---
 
-### 2. História das temporadas passadas — o maior buraco de produto
+### 2. ~~História das temporadas passadas~~ ✅ resolvido, 11/08/2026
 
-**O que falta:** o jogador não consegue olhar para trás. Não existe tela de temporadas
-anteriores, de recordes, de títulos acumulados, de campeões do passado.
+**Era o maior buraco de produto.** O jogador não conseguia olhar para trás: nenhuma tela de
+temporadas anteriores, de recordes, de títulos acumulados.
 
-**Como falta:** o backend está pronto e é rico — `db/queries/race_history/` responde
-recordes por pista (`pistas.rs`), títulos por categoria (`recordes.rs`), e o `world/`
-já arquiva a temporada inteira. `get_global_team_history` e `get_team_history_dossier`
-existem e são consumidos, mas **só no recorte de uma equipe** (`TeamHistoryDrawer`,
-`GlobalTeamsTab`). Não há a visão do mundo ao longo do tempo, nem a do próprio jogador.
+**Fechado pela aba Carreira** (`src/pages/tabs/carreira/`), seções História e Troféus:
+a carreira em números, a escada de categorias percorrida, a curva de campeonato e a tabela
+temporada por temporada, mais a prateleira de títulos com ano e equipe, as primeiras vezes e
+o auge. F-03, F-04 e F-05 fecharam juntos, como esta seção previa.
 
-O `EndOfSeasonView.jsx` (665 linhas) mostra o balanço do ano — promoções, licenças,
-evolução de atributos — mas é uma **cerimônia de passagem**: aparece uma vez, na virada,
-e nunca mais. A informação é gerada, exibida por um instante e some.
+**O que a execução ensinou, e que a análise não tinha visto:** o backend não precisou de uma
+linha. A leitura era que a informação estava presa no `EndOfSeasonView` (uma cerimônia de
+passagem que aparece uma vez e some) e que faltava expor `race_history`. Na verdade
+`get_driver_detail` já servia trajetória, curva de campeonato com posição/grid/esperado,
+títulos detalhados, marcos, auge, queda, confiabilidade e sábado — tudo pronto, para
+QUALQUER piloto, inclusive o jogador. O buraco era só de lugar.
 
-**Por que falta:** é o caso mais puro do diagnóstico. Olhar para o passado não é um
-evento — é algo que o jogador quer fazer numa terça-feira qualquer, por curiosidade.
-O app nunca teve esse gatilho.
-
-**Por que importa mais do que parece:** um simulador de carreira sem memória consultável
-é um jogo sem consequência sentida. O mundo do Loop tem 200+ pilotos que sobem, caem e
-se aposentam — e nada disso é visitável depois que rola a tela.
-
-**Como fazer:** uma aba de História no Dashboard cobrindo temporadas passadas, sala de
-troféus e recordes. As três coisas comem da mesma `race_history`; separar em três telas
-seria triplicar navegação para uma fonte só.
+**Uma decisão de custo que vale registrar:** a posição do jogador nos recordes do MUNDO ficou
+de fora. Ela existe em `get_driver_dossier_ranks`, e custa uma varredura de `race_results` e
+do arquivo inteiro (~500ms num save maduro, medido antes de ser separado do payload da ficha
+justamente por isso). A sala de troféus tem que abrir na hora, e "205º de 610 em vitórias" é
+a pergunta seguinte, não esta — quem quer o ranking abre a lista global de pilotos.
 
 ---
 
-### 3. Mercado fora da janela — o buraco de continuidade
+### 3. ~~Mercado fora da janela~~ ✅ resolvido, 11/08/2026
 
-**O que falta:** visibilidade do mercado **durante** a temporada.
+**Era o buraco de continuidade:** o mercado só era navegável na pré-temporada. Durante o ano
+o jogador recebia eventos pontuais — assédio, ofertas especiais, interesses — que chegavam,
+exigiam resposta e desapareciam.
 
-**Como falta:** o mercado só é navegável na pré-temporada, via `PreSeasonView`. Durante
-o ano, o jogador recebe eventos pontuais — assédio (`PoachAuctionHost`, global),
-ofertas especiais (`get_player_special_offers`), interesses (`get_player_interests`) —
-que chegam, exigem resposta e desaparecem. Não há onde consultar, no meio da temporada:
-quanto tempo resta do meu contrato, quem está de olho em mim, que vagas abriram.
+**Fechado pela seção Mercado da aba Carreira:** estado do contrato com aviso de último ano,
+valor de mercado contra o salário atual (a distância entre os dois é o que diz se ele está
+barato ou caro), quem está de olho em você, e as vagas abertas do mundo. Um comando novo,
+`get_season_market_board`, que anota em cada assento vazio o veredito de elegibilidade pela
+MESMA regra da proposta emergencial (licença da divisão mais faixa de tier).
 
-`advance_transfer_window` está registrado e nunca é chamado pelo frontend — indício de
-que a janela de transferências no meio do ano existe no backend e não tem condução na UI.
+**Correção de uma leitura desta seção.** Ela dizia: "`advance_transfer_window` está registrado
+e nunca é chamado pelo frontend — indício de que a janela de transferências no meio do ano
+existe no backend e não tem condução na UI". O indício era falso. O corpo do comando era
+IDÊNTICO ao de `get_transfer_window_state`, com o único parâmetro que os distinguia
+(`accepted_seat_id`) ignorado, e o próprio doc-comment em `transfer_market.rs` dizia isso:
+"ficou legado: apenas devolve o estado atual das ofertas, sem avançar nada". Quem avança o
+mercado é `advance_market_week` → `preseason::advance_week`.
 
-**Por que falta:** o mercado foi construído como um capítulo do calendário. Enquanto o
-jogo só perguntasse "o que você faz nesta pré-temporada?", isso bastava.
+Ligá-lo teria produzido um botão que não faz nada. O comando foi **removido** em 11/08/2026,
+e saiu de `SEM_CONSUMIDOR_CONHECIDO` no guard.
 
-**Como fazer:** não é uma aba nova do zero. É um painel de estado contratual permanente
-que reusa os mesmos comandos do `marketSlice`, mais a condução de
-`advance_transfer_window`. Barato perto do valor.
-
----
-
-### 4. Ficha do piloto — o buraco de identidade
-
-**O que falta:** uma tela do seu próprio piloto.
-
-**Como falta:** os dados existem e são exibidos, mas sempre de esguelha.
-`PlayerSkillSection.jsx` mostra atributos dentro do modal de detalhe do piloto;
-o `EndOfSeasonView` mostra a evolução na virada do ano. `get_driver_detail` serve o
-`DriverDetailModal`, que é a mesma ferramenta usada para olhar **qualquer** piloto do grid.
-
-Ou seja: o jogador enxerga a si mesmo com a lente de observador do mundo, não com a de
-protagonista. Motivação, licença, forma recente, lesões, progressão de carreira e
-histórico de contratos estão espalhados ou invisíveis.
-
-**Por que falta:** o `DriverDetailModal` resolveu o problema "ver um piloto" bem demais.
-Serviu para o jogador também, e a falta nunca doeu o suficiente para virar tarefa.
-
-**Por que importa:** o Loop é sobre controlar **um** piloto. A ausência de uma ficha
-própria é a distância mais curta entre "simulador que roda sozinho" e "jogo com dono".
+**A lição de método:** comando registrado sem consumidor é indício de tela que falta OU de
+código morto, e as duas hipóteses se separam lendo o CORPO — não a lista de registro. Este
+ficou dois anos classificado como "feature futura, esperando o F-01" porque ninguém abriu a
+função.
 
 ---
 
-### 5. Espectadores e interesse de evento — o buraco de feedback
+### 4. ~~Ficha do piloto~~ ✅ resolvido, 11/08/2026
 
-**O que falta:** a UI que o próprio `DESIGN.md` §17.1 já registra como pendente.
+**Era o buraco de identidade:** o jogador se enxergava com a lente de observador do mundo, o
+mesmo `DriverDetailModal` usado para olhar qualquer piloto do grid.
 
-**Como falta:** `event_interest/` e `public_presence/` calculam interesse por evento e
-presença pública por equipe/piloto. No frontend, a palavra aparece em três lugares
-(`EngineerBriefingPanel`, `OfferCardRich`, `RivalMarker`) — sempre como tempero, nunca
-como leitura própria.
+**Fechado pela seção Meu piloto da aba Carreira**, e o que resolve o item não é a seção — é o
+CABEÇALHO. Ele fica fora das pílulas, sempre visível, e carrega nome, título, licença, lesão,
+momento, motivação e posição no campeonato. O modal continua existindo e continua servindo
+para olhar qualquer um, inclusive o jogador; o que ele nunca foi é um LUGAR, porque abre por
+cima de outra tela e some quando o jogador clica fora.
 
-**Por que falta:** é um sistema que modula outros sistemas (economia, ofertas, narrativa)
-sem ter um momento próprio. Sente-se o efeito sem ver a causa.
+A seção abre pela habilidade MEDIDA (`get_player_dossier`), que é a única leitura do jogo que
+existe para o jogador e não existe para a IA: atributos inferidos das corridas que ele
+realmente correu, e não um número escrito no save.
 
-**Por que é médio e não alto:** o jogador não sente falta do que não sabe que existe.
-Vale depois dos quatro primeiros da ordem sugerida, e sobe de prioridade se a economia
-começar a parecer arbitrária ao jogador.
+---
+
+### 5. ~~Espectadores e interesse de evento~~ ✅ resolvido, 11/08/2026
+
+**Era o buraco de feedback:** o sistema modulava economia, narrativa e motivação, e o jogador
+sentia o efeito sem ver a causa.
+
+**Dois terços já estavam prontos quando esta seção foi conferida**, feitos depois que o
+briefing F07 foi escrito (o arquivo `briefings/F07-espectadores-interesse.md` foi removido em
+11/08/2026 junto com o fechamento do item — ver o [README dos briefings](briefings/README.md)):
+
+- a repercussão pós-corrida (`EventRepercussionSummary` → `RepercussionSegment` e
+  `RepercussionCard` no `RaceResultViewV2`), que era a fatia P1 do briefing e a mais valiosa:
+  o confronto entre esperado e entregue, com o `delta_vs_expected` e o `headline_strength`;
+- a presença pública da equipe (`presenca_publica` → `LineupStrip` no `MyTeamTabV2`), a fatia
+  P2, com a linha que diz que ela multiplica o patrocínio.
+
+**Faltava a exibição rica do interesse ESPERADO**, que o `DESIGN.md` §17.1 pedia junto da
+outra: o público era um número no canto direito do card de clima, sem tier, sem escala e sem
+relação com o jogador — dentro de um botão que abre a previsão do tempo. Virou card próprio,
+`EventInterestCard.jsx`, com o tier (`tier_label`, traduzido pelo backend), o público, o porte
+da ocasião e a cota de plateia que a estrela do jogador puxa (`public_fame_share`), que é o
+fio entre a fama dele e a bilheteria.
+
+**Segue fora de escopo, e continua verdade:** os três multiplicadores marcados como "uso
+futuro" (`pressure_modifier`, `media_multiplier`, `motivation_multiplier`) são calculados em
+`event_interest/calculator.rs` e não têm nenhum leitor. Ligá-los é design de equilíbrio, não
+exposição de dado.
 
 ---
 
-### 6. Rivalidades — quase pronto, sem sala própria
+### 6. ~~Rivalidades~~ ✅ resolvido, 11/08/2026
 
-**O que falta:** menos do que o backlog dizia.
+Rivalidade tinha nascido como **adjetivo**: uma marcação que qualificava nove outras telas e
+nunca precisou virar substantivo. Faltava a visão consolidada — quem são meus rivais, desde
+quando, qual o placar.
 
-**Como falta:** rivalidade já aparece em nove componentes — `RivalMarker`, marcação no
-calendário (`DayCellV2`), seções do detalhe do piloto, análise de corrida, movimento
-semanal da pré-temporada, e um painel dedicado no lado iRacing
-(`RivalryPerceptionPanel`). O que não existe é a visão consolidada: quem são meus
-rivais, desde quando, qual o placar.
+**Fechado pela seção Rivais da aba Carreira**, de carona na tela que F-03 já montava, como
+esta seção previa. Um card por rivalidade com placar de corrida e de sábado, gap médio, box
+dividido, origem e nível; o Nemesis sobe ao topo, e o nome da rivalidade aparece quando há
+capítulo registrado. Os rótulos de nível e de origem reusam as chaves `driverDetail.rivals.*`
+de propósito: a faixa de intensidade sai de `rivalry::intensity_level` no Rust, e um segundo
+jogo de rótulos no JS divergiria do primeiro na primeira recalibração.
 
-**Por que falta:** rivalidade nasceu como **adjetivo** — uma marcação que qualifica
-outras telas. Nunca precisou virar substantivo.
-
-**Custo real:** baixo, e cai mais ainda se entrar de carona na aba de História (item 2),
-que já vai montar a navegação e a leitura de histórico.
-
----
 
 ### 7. Outras categorias — provavelmente já resolvido
 
@@ -204,14 +223,18 @@ Correr de verdade é o caminho principal.
 versão anterior desta seção (que dizia "exportar virou ler") estavam certos. `export/` foi
 deletado, mas a exportação **mudou de casa** para `iracing_sdk/roster_gen.rs` e
 `season_gen.rs`. A integração é um ciclo fechado: exporta roster+temporada → o jogador
-corre → importa o resultado oficial + os sinais do monitor ao vivo. São 49 comandos (não
-~15) e 16.910 linhas.
+corre → importa o resultado oficial + os sinais do monitor ao vivo. Eram 49 comandos (não ~15) e
+16.910 linhas em 27/07; **recontado em 11/08/2026 são 57 comandos e 33.101 linhas de
+`iracing_sdk/`**, mais 5.738 em `commands/iracing/`.
 
 **O que sobrou de trabalho real** (reconferido em 11/08/2026, com duas correções):
 
 Os dois painéis continuam órfãos: `RosterGenPanel` (726 linhas) e `PostRacePanel` (696)
-não são importados por nenhum arquivo de `src/`. Segue valendo a decisão pendente — ligar
-ou apagar.
+não são importados por nenhum arquivo de `src/` além dos próprios testes de contrato. Segue valendo
+a decisão pendente — ligar ou apagar. **Com eles ficam presos 6 comandos** que não têm outro
+consumidor: `iracing_dump_session_yaml`, `iracing_preview_race_result`,
+`iracing_apply_player_paint`, `iracing_player_custid`, `iracing_player_paint` e
+`iracing_export_rain_test`. Recontado na §4 do [iracing-escopo.md](iracing-escopo.md).
 
 **Correção 1: a exportação não depende deles.** O ciclo que o jogador percorre hoje passa
 por `src/components/race/nextrace/useIracingExport.js`, que chama os mesmos
@@ -219,16 +242,29 @@ por `src/components/race/nextrace/useIracingExport.js`, que chama os mesmos
 com controles de diagnóstico que a tela do jogador não tem. O que está preso neles é o
 diagnóstico, e não o caminho principal.
 
-**Correção 2: a dificuldade adaptativa RODA.** A leitura de que
-`iracing_process_race_result` estaria "implementada e nunca executada" ficou velha: hoje ela
-é chamada de dentro do próprio Rust, em `commands/iracing/importacao.rs:127`, amarrada à
-corrida entrar na carreira. O que não tem consumidor é o COMANDO registrado, e não a lógica
-— o painel desligado deixou de ser o único caminho. (O próprio `PostRacePanel` documenta a
-escolha em comentário: processar ali duplicaria o ajuste.)
+**Correção 2: a dificuldade adaptativa está LIGADA — e ligada não é o mesmo que executada.** A
+leitura de que `iracing_process_race_result` estaria "implementada e nunca executada" ficou velha
+pela metade. O **wiring** existe: ela é chamada de dentro do próprio Rust, em
+`commands/iracing/importacao.rs:138`, amarrada à corrida entrar na carreira. O que não tem
+consumidor é o COMANDO registrado, e não a lógica — o painel desligado deixou de ser o único
+caminho. (O próprio `PostRacePanel` documenta a escolha em comentário: processar ali duplicaria o
+ajuste.)
 
-O inventário completo dos 22 comandos sem consumidor, com a natureza de cada um, está em
-D-05 no [backlog.md](backlog.md) e congelado no guard
-[`invoke-contra-generate-handler`](../scripts/tests/invoke-contra-generate-handler.test.mjs).
+A **execução** é outra pergunta, e ela continua aberta até uma corrida real. A prova é o par de
+linhas `[import]` + `[adaptativo]` no `loop.log`, e o `[adaptativo]` agora é log explícito de
+sucesso: sai sempre que o ajuste roda, terminando em `gravado` ou `sem mudança`. A receita completa
+está na §6.1 do [iracing-escopo.md](iracing-escopo.md) e no §19.3 do [DESIGN.md](DESIGN.md).
+
+O inventário dos comandos sem consumidor está em D-05 no [backlog.md](backlog.md) e congelado no
+guard [`invoke-contra-generate-handler`](../scripts/tests/invoke-contra-generate-handler.test.mjs).
+**O guard é a contagem oficial; nenhum número escrito aqui é.** Este parágrafo dizia 22, e a lista
+mudou duas vezes só em 11/08/2026 — um comando removido (`advance_transfer_window`) e três que
+ganharam tela (os de desfazer pintura e modo janela). Para contar hoje:
+
+```bash
+node --test scripts/tests/invoke-contra-generate-handler.test.mjs
+```
+
 Backlog derivado na §6 do `iracing-escopo.md`.
 
 ---
@@ -266,19 +302,27 @@ episódio do `MarketTab` neste documento é exatamente esse erro em outra forma.
 
 ## Ordem sugerida
 
-| # | o quê | por que agora |
+**A fila de produto fechou em 11/08/2026**, e ela se cumpriu em UMA tela em vez de quatro.
+
+| # | o quê | como saiu |
 |---|---|---|
-| 1 | **Aba de História** (F-03 + F-04 + F-05) | Maior ganho de produto por linha escrita. Três itens do backlog numa tela só, todos comendo da mesma `race_history`. Devolve consequência ao mundo simulado. |
-| 2 | **Ficha do piloto** (F-02) | Transforma o app em jogo com protagonista. Depende de decidir o que é "meu piloto" contra "um piloto". |
-| 3 | **Mercado em temporada** (F-01 revisado) | Extensão do que já funciona, sem construção nova. Inclui conduzir `advance_transfer_window`. |
-| 4 | **Etapa B do boletim + consequência da hierarquia** (o que sobrou do D-09) | Deixou de ser dívida e virou design: quais beats de carreira entram no boletim com que peso, e o que a briga interna N1/N2 passa a causar. Discutir junto do produto, não como refactor. |
-| 5 | **Espectadores** (F-07) | Depois que houver telas onde a informação caiba. |
-| — | ~~**Backup/restauração** (F-06)~~ ✅ 11/08/2026 | Já existe: `BackupsModal.jsx` aberto pelo `LoadSave.jsx`. Ver §1. |
+| 1 | ~~**Aba de História** (F-03 + F-04 + F-05)~~ ✅ | Virou as seções História, Troféus e Rivais da aba **Carreira**. Ver §2 e §6. |
+| 2 | ~~**Ficha do piloto** (F-02)~~ ✅ | Virou a seção Meu piloto e, principalmente, o cabeçalho fixo da aba. Ver §4. |
+| 3 | ~~**Mercado em temporada** (F-01)~~ ✅ | Virou a seção Mercado, com o comando novo `get_season_market_board`. O `advance_transfer_window` que esta tabela mandava conduzir era um no-op e foi removido. Ver §3. |
+| 4 | **Etapa B do boletim + consequência da hierarquia** (o que sobrou do D-09) | **Único item de produto ainda aberto.** Deixou de ser dívida e virou design: quais beats de carreira entram no boletim com que peso, e o que a briga interna N1/N2 passa a causar. Discutir junto do produto, não como refactor. |
+| 5 | ~~**Espectadores** (F-07)~~ ✅ | Dois terços já estavam prontos; faltava o card de interesse esperado. Ver §5. |
+| — | ~~**Backup/restauração** (F-06)~~ ✅ 11/08/2026 | Já existia: `BackupsModal.jsx` aberto pelo `LoadSave.jsx`. Ver §1. |
 | — | ~~**Decidir o escopo do iRacing** (F-10)~~ ✅ 27/07/2026 | Decidido: ferramenta de iRacing com carreira dentro. Ver [iracing-escopo.md](iracing-escopo.md) §6 para o backlog derivado. |
 
-**Fora da fila:** F-08 (outras categorias) até alguém responder o que ele mostraria que
-as abas globais já não mostram. F-09 (previsões) é sabor, e só entra depois dos quatro
-primeiros.
+**A previsão de sequenciamento estava certa e o custo estava superestimado.** A tabela pedia
+quatro entregas em ordem porque cada uma parecia uma tela. Três delas eram seções de uma tela
+só, e o argumento que justificava juntar F-03+F-04+F-05 ("comem da mesma `race_history`")
+valia igual para F-02 e F-01, que comem do mesmo `get_driver_detail(jogador)`. O sinal de que
+os cinco eram um item só estava à vista desde a primeira varredura: todos eram sobre **eu**.
+
+**Fora da fila:** F-08 (outras categorias) até alguém responder o que ele mostraria que as
+abas globais já não mostram. F-09 (previsões) é sabor; estava bloqueado por F-01 e F-02 e
+agora está livre — e o lugar dele é uma sexta seção da aba Carreira, não uma aba nova.
 
 ---
 

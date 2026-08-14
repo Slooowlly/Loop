@@ -4,11 +4,11 @@ use crate::constants::categories::runs_in_special_phase;
 use crate::db::queries::contracts as contract_queries;
 use crate::db::queries::drivers as driver_queries;
 use crate::db::queries::teams as team_queries;
-use crate::models::enums::ContractStatus;
-use crate::models::license::{
+use crate::licensing::{
     driver_has_required_license_level, grant_driver_license_for_division_if_needed,
-    required_license_for_division,
 };
+use crate::models::enums::ContractStatus;
+use crate::models::license::required_license_for_division;
 use crate::promotion::{MovementType, PilotEffect, PilotEffectType, TeamMovement};
 
 use crate::db::savepoint::with_savepoint;
@@ -158,6 +158,12 @@ pub fn apply_pilot_effect(
             }
             PilotEffectType::FreedNoLicense => {
                 driver.categoria_atual = Some(movement.from_category.clone());
+                // O outro instante em que a vaga se perde de verdade: a equipe subiu, o
+                // piloto não tinha a licença e fica para trás com o contrato rescindido
+                // logo abaixo. Este braço é IA por construção — o jogador sem licença
+                // sai por `FreedPlayerStays`, que não aplica nada. A gravação vai junto
+                // do `update_driver` abaixo, no mesmo write do evento.
+                crate::evolution::motivation::adjust_lost_seat_motivation(&mut driver);
                 driver_queries::update_driver(conn, &driver).map_err(|e| {
                     format!("Falha ao atualizar piloto livre '{}': {e}", driver.nome)
                 })?;
@@ -439,7 +445,7 @@ mod tests {
                 Some("production_challenger")
             );
             assert!(driver.categoria_especial_ativa.is_none());
-            let has_license = crate::models::license::driver_has_required_license_for_category(
+            let has_license = crate::licensing::driver_has_required_license_for_category(
                 &conn,
                 driver_id,
                 "production_challenger",

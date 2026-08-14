@@ -994,9 +994,15 @@ fn test_can_advance_from_second_season_after_finalizing_preseason() {
         .expect("active season query")
         .expect("active season");
 
-    assert_eq!(result.new_year, crate::constants::historical_timeline::PLAYABLE_START_YEAR + 2);
+    assert_eq!(
+        result.new_year,
+        crate::constants::historical_timeline::PLAYABLE_START_YEAR + 2
+    );
     assert_eq!(active_season.numero, 3);
-    assert_eq!(active_season.ano, crate::constants::historical_timeline::PLAYABLE_START_YEAR + 2);
+    assert_eq!(
+        active_season.ano,
+        crate::constants::historical_timeline::PLAYABLE_START_YEAR + 2
+    );
 
     let _ = fs::remove_dir_all(base_dir);
 }
@@ -1018,7 +1024,10 @@ fn test_cannot_accept_already_resolved_proposal() {
     let error = respond_to_proposal_in_base_dir(&base_dir, "career_001", "MP-T001-P001", true)
         .expect_err("should reject resolved proposal");
 
-    assert_eq!(error, crate::commands::career::errors::proposal_not_pending());
+    assert_eq!(
+        error,
+        crate::commands::career::errors::proposal_not_pending()
+    );
 
     let _ = fs::remove_dir_all(base_dir);
 }
@@ -1180,4 +1189,287 @@ fn medir_populacao_apos_a_janela() {
         conta(livres)
     );
     let _ = fs::remove_dir_all(base_dir);
+}
+
+/// B85 — A SEMANA DE MERCADO CRUZA ARQUIVO E BANCO. O plano da janela é um arquivo, e
+/// ele era gravado ANTES do commit: uma queda entre as duas escritas deixava o plano
+/// descrevendo uma semana que o banco nunca comitou, e a janela seguia de um estado que
+/// nunca existiu. Com o staging, a falha antes do commit devolve os dois ao mesmo lado.
+#[test]
+fn semana_de_mercado_nao_publica_o_plano_quando_a_operacao_morre_antes_do_commit() {
+    let base_dir = create_test_career_dir("semana_antes_do_commit");
+    mark_all_races_completed(&base_dir, "career_001");
+    advance_season_in_base_dir(&base_dir, "career_001").expect("advance season");
+
+    let config = AppConfig::load_or_default(&base_dir);
+    let career_dir = config.saves_dir().join("career_001");
+    let semana_antes = semana_do_plano(&career_dir);
+
+    sabotar_commit_da_janela(true);
+    let falha = advance_market_week_in_base_dir(&base_dir, "career_001", None);
+    sabotar_commit_da_janela(false);
+
+    assert!(falha.is_err(), "a falha injetada devia derrubar a semana");
+    assert_eq!(
+        semana_do_plano(&career_dir),
+        semana_antes,
+        "o plano nao pode andar sozinho com o banco em rollback"
+    );
+    assert!(
+        !career_dir.join("preseason_plan.json.novo").exists(),
+        "o staging do plano nao pode sobreviver a falha"
+    );
+
+    // E o caminho feliz continua movendo os dois juntos.
+    advance_market_week_in_base_dir(&base_dir, "career_001", None).expect("advance market week");
+    assert!(semana_do_plano(&career_dir) > semana_antes);
+
+    let _ = fs::remove_dir_all(base_dir);
+}
+
+/// B85 — A QUEBRA DE CONTRATO CRUZA NA ORDEM INVERSA: o banco comitava primeiro e a
+/// oferta só era consumida do plano depois. Morrer entre as duas deixava o contrato já
+/// mexido e a oferta ainda viva, e o jogador decidia duas vezes sobre a mesma quebra.
+#[test]
+fn quebra_de_contrato_nao_mexe_no_banco_sem_consumir_a_oferta_do_plano() {
+    let base_dir = create_test_career_dir("poach_antes_do_commit");
+    mark_all_races_completed(&base_dir, "career_001");
+    advance_season_in_base_dir(&base_dir, "career_001").expect("advance season");
+
+    let config = AppConfig::load_or_default(&base_dir);
+    let career_dir = config.saves_dir().join("career_001");
+    let db_path = career_dir.join("career.db");
+
+    let oferta = semear_oferta_de_quebra(&career_dir, &db_path);
+    let salario_antes = salario_do_contrato(&db_path, &oferta.current_contract_id);
+
+    sabotar_commit_da_janela(true);
+    let falha = resolve_player_poach_offer_in_base_dir(&base_dir, "career_001", &oferta, false);
+    sabotar_commit_da_janela(false);
+
+    assert!(
+        falha.is_err(),
+        "a falha injetada devia derrubar a resolucao"
+    );
+    assert_eq!(
+        salario_do_contrato(&db_path, &oferta.current_contract_id),
+        salario_antes,
+        "o aumento de retencao nao podia ter sido comitado"
+    );
+    let plano = crate::market::preseason::load_preseason_plan(&career_dir)
+        .expect("plano")
+        .expect("plano da janela");
+    assert!(
+        plano.player_poach_offer.is_some(),
+        "a oferta tem de continuar viva enquanto o banco nao mudou"
+    );
+    assert!(
+        !career_dir.join("preseason_plan.json.novo").exists(),
+        "o staging do plano nao pode sobreviver a falha"
+    );
+
+    // Caminho feliz: o aumento entra no banco E a oferta sai do plano, juntos.
+    let outcome = resolve_player_poach_offer_in_base_dir(&base_dir, "career_001", &oferta, false)
+        .expect("resolve poach");
+    assert!(outcome.applied, "a oferta viva devia ser aplicada");
+    assert!(salario_do_contrato(&db_path, &oferta.current_contract_id) > salario_antes);
+    let plano = crate::market::preseason::load_preseason_plan(&career_dir)
+        .expect("plano")
+        .expect("plano da janela");
+    assert!(
+        plano.player_poach_offer.is_none(),
+        "a oferta devia ter sido consumida junto do commit"
+    );
+
+    let _ = fs::remove_dir_all(base_dir);
+}
+
+/// B85, TERCEIRO CAMINHO: o aceite de proposta comitava o banco primeiro e reconciliava o
+/// plano depois, em best-effort. Morrer entre as duas escritas deixava o contrato já
+/// trocado e o plano ainda carregando os eventos do jogador — que a semana seguinte
+/// executaria por cima do assento recém-assinado. Com o staging, a falha antes do commit
+/// devolve os dois ao mesmo lado.
+#[test]
+fn aceite_de_proposta_nao_publica_o_plano_quando_a_operacao_morre_antes_do_commit() {
+    let base_dir = create_test_career_dir("aceite_antes_do_commit");
+    mark_all_races_completed(&base_dir, "career_001");
+    advance_season_in_base_dir(&base_dir, "career_001").expect("advance season");
+
+    let config = AppConfig::load_or_default(&base_dir);
+    let career_dir = config.saves_dir().join("career_001");
+    let db_path = career_dir.join("career.db");
+
+    let (player_id, proposal_id, contrato_antes) = {
+        let db = Database::open_existing(&db_path).expect("db");
+        let player = driver_queries::get_player_driver(&db.conn).expect("jogador");
+        let season = season_queries::get_active_season(&db.conn)
+            .expect("temporada")
+            .expect("temporada ativa");
+        let contrato = latest_regular_contract_for_driver(&db.conn, &player.id);
+        seed_player_proposal(
+            &db.conn,
+            &season.id,
+            &player.id,
+            &contrato.equipe_id,
+            "Pendente",
+        );
+        (
+            player.id.clone(),
+            format!("MP-{}-{}", contrato.equipe_id, player.id),
+            contrato.id.clone(),
+        )
+    };
+
+    // Um evento pendente do jogador no plano: é ele que a reconciliação tem de remover, e
+    // é por ele que se enxerga o plano andando sozinho.
+    let mut plano = crate::market::preseason::load_preseason_plan(&career_dir)
+        .expect("plano")
+        .expect("plano da janela");
+    plano.planned_events.push(PlannedEvent {
+        week: 2,
+        executed: false,
+        event: PendingAction::ExpireContract {
+            contract_id: contrato_antes.clone(),
+            driver_id: player_id.clone(),
+            driver_name: "jogador".to_string(),
+            team_id: "T001".to_string(),
+            team_name: "equipe".to_string(),
+        },
+    });
+    plano.state.player_has_pending_proposals = true;
+    crate::market::preseason::save_preseason_plan(&career_dir, &plano).expect("plano semeado");
+
+    sabotar_commit_da_janela(true);
+    let falha = respond_to_proposal_in_base_dir(&base_dir, "career_001", &proposal_id, true);
+    sabotar_commit_da_janela(false);
+
+    assert!(falha.is_err(), "a falha injetada devia derrubar o aceite");
+    assert_eq!(
+        status_da_proposta(&db_path, &proposal_id),
+        "Pendente",
+        "a proposta nao podia ter sido aceita com o banco em rollback"
+    );
+    assert!(
+        eventos_pendentes_do_jogador(&career_dir, &player_id) > 0,
+        "o plano nao pode avancar sozinho com o banco em rollback"
+    );
+    assert!(
+        !career_dir.join("preseason_plan.json.novo").exists(),
+        "o staging do plano nao pode sobreviver a falha"
+    );
+
+    // E o caminho feliz continua movendo os dois juntos.
+    let resposta = respond_to_proposal_in_base_dir(&base_dir, "career_001", &proposal_id, true)
+        .expect("aceite");
+    assert!(resposta.success);
+    assert_eq!(status_da_proposta(&db_path, &proposal_id), "Aceita");
+    assert_eq!(
+        eventos_pendentes_do_jogador(&career_dir, &player_id),
+        0,
+        "o aceite comitado tem de levar a reconciliacao do plano junto"
+    );
+    assert!(!career_dir.join("preseason_plan.json.novo").exists());
+
+    let _ = fs::remove_dir_all(base_dir);
+}
+
+fn status_da_proposta(db_path: &Path, proposal_id: &str) -> String {
+    let db = Database::open_existing(db_path).expect("db");
+    db.conn
+        .query_row(
+            "SELECT status FROM market_proposals WHERE id = ?1",
+            rusqlite::params![proposal_id],
+            |row| row.get(0),
+        )
+        .expect("status da proposta")
+}
+
+fn eventos_pendentes_do_jogador(career_dir: &Path, player_id: &str) -> usize {
+    crate::market::preseason::load_preseason_plan(career_dir)
+        .expect("plano")
+        .expect("plano da janela")
+        .planned_events
+        .iter()
+        .filter(|event| !event.executed)
+        .filter(|event| {
+            crate::commands::career::market_window::pending_player_event_team_ids(
+                &event.event,
+                player_id,
+            )
+            .is_some()
+        })
+        .count()
+}
+
+/// Liga e desliga a falha injetada entre o staging do arquivo e o commit do banco.
+fn sabotar_commit_da_janela(ligado: bool) {
+    crate::commands::career::market_window::SABOTAR_COMMIT_DA_JANELA_DE_MERCADO
+        .with(|interruptor| interruptor.set(ligado));
+}
+
+fn semana_do_plano(career_dir: &Path) -> i32 {
+    crate::market::preseason::load_preseason_plan(career_dir)
+        .expect("plano")
+        .expect("plano da janela")
+        .state
+        .current_week
+}
+
+fn salario_do_contrato(db_path: &Path, contract_id: &str) -> f64 {
+    let db = Database::open_existing(db_path).expect("db");
+    db.conn
+        .query_row(
+            "SELECT salario_anual FROM contracts WHERE id = ?1",
+            rusqlite::params![contract_id],
+            |row| row.get(0),
+        )
+        .expect("salario do contrato")
+}
+
+/// Planta no plano da janela uma oferta de quebra de contrato do jogador, montada a
+/// partir do contrato ativo dele. O braço escolhido é o de FICAR com aumento: ele mexe
+/// no banco sem depender do grid do pretendente, então o que o teste mede é so a
+/// coerencia entre o arquivo e o banco.
+fn semear_oferta_de_quebra(
+    career_dir: &Path,
+    db_path: &Path,
+) -> crate::market::pipeline::PlayerPoachOffer {
+    let db = Database::open_existing(db_path).expect("db");
+    let player = driver_queries::get_player_driver(&db.conn).expect("jogador");
+    let contrato = contract_queries::get_active_regular_contract_for_pilot(&db.conn, &player.id)
+        .expect("contrato do jogador")
+        .expect("jogador com contrato ativo");
+    let pretendente = team_queries::get_all_teams(&db.conn)
+        .expect("equipes")
+        .into_iter()
+        .find(|team| team.id != contrato.equipe_id)
+        .expect("outra equipe no mundo");
+    drop(db);
+
+    let oferta = crate::market::pipeline::PlayerPoachOffer {
+        current_contract_id: contrato.id.clone(),
+        current_team_id: contrato.equipe_id.clone(),
+        suitor_team_id: pretendente.id.clone(),
+        buyout: 0.0,
+        current_salary: contrato.salario_anual,
+        poacher_best: contrato.salario_anual * 2.0,
+        holder_best: contrato.salario_anual + 50_000.0,
+        suitor_name: pretendente.nome.clone(),
+        suitor_color: pretendente.cor_primaria.clone(),
+        suitor_car_rating: 50,
+        current_team_name: contrato.equipe_nome.clone(),
+        current_team_color: "#ffffff".to_string(),
+        category_label: contrato.categoria.clone(),
+        incumbent_name: None,
+        player_fama: 50,
+        bids: Vec::new(),
+        poacher_wins: false,
+    };
+
+    let mut plano = crate::market::preseason::load_preseason_plan(career_dir)
+        .expect("plano")
+        .expect("plano da janela");
+    plano.player_poach_offer = Some(oferta.clone());
+    crate::market::preseason::save_preseason_plan(career_dir, &plano).expect("plano semeado");
+    oferta
 }

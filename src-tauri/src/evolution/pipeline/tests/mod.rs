@@ -834,6 +834,361 @@ fn equipe_recuperada_nao_gera_nem_alerta_nem_venda() {
     );
 }
 
+/// FALHA DE LEITURA NÃO É AUTORIZAÇÃO DE CORTE. O filtro fechava com
+/// `unwrap_or(true)`, ou seja "não consegui ler o piloto, então trate como IA e
+/// pode cortar" — e a única promessa da regra é justamente nunca tirar o assento
+/// do jogador. Aqui o jogador é o mais caro do elenco (o alvo natural do corte) e
+/// a tabela `drivers` está inacessível: nenhum contrato pode ser encurtado.
+#[test]
+fn falha_ao_ler_o_piloto_nao_corta_o_contrato() {
+    let (conn, season, team) = falencia_fixture();
+    conn.execute("UPDATE drivers SET is_jogador = 1 WHERE id = 'PN1'", [])
+        .expect("marca jogador");
+    team_queries::set_collapse_streak(&conn, &team.id, 1).expect("streak");
+    // A FK `contracts → drivers` existe justamente para o dado não ficar assim; o
+    // que o teste encena é a leitura falhando em runtime, então a checagem sai.
+    conn.execute_batch("PRAGMA foreign_keys = OFF;")
+        .expect("desliga a FK");
+    conn.execute("DROP TABLE drivers", [])
+        .expect("derruba a leitura de piloto");
+    let mut rng = StdRng::seed_from_u64(7);
+
+    process_collapse_lifecycle(&conn, &season, &mut rng).expect("ciclo de colapso");
+
+    // A venda acontece — a quebra é um fato do balanço e não depende do elenco.
+    assert_eq!(eventos_de_propriedade(&conn, &team.id), vec!["sale"]);
+    let contratos =
+        contract_queries::get_active_regular_contracts_by_team(&conn, &team.id).expect("contratos");
+    assert!(
+        contratos.iter().all(|c| c.temporada_fim > season.numero),
+        "sem conseguir identificar ninguém, o corte de folha não pode escolher um alvo"
+    );
+}
+
+/// O outro lado do mesmo fail-safe: quando só a linha DO JOGADOR não é legível, a
+/// operação segue em quem ela consegue identificar. O jogador fica com o assento
+/// mesmo sendo o contrato mais caro, e quem sai é o companheiro.
+#[test]
+fn falha_ao_ler_o_jogador_faz_o_corte_cair_no_companheiro() {
+    let (conn, season, team) = falencia_fixture();
+    conn.execute("UPDATE drivers SET is_jogador = 1 WHERE id = 'PN1'", [])
+        .expect("marca jogador");
+    conn.execute_batch("PRAGMA foreign_keys = OFF;")
+        .expect("desliga a FK");
+    conn.execute("DELETE FROM drivers WHERE id = 'PN1'", [])
+        .expect("apaga a linha do jogador");
+    team_queries::set_collapse_streak(&conn, &team.id, 1).expect("streak");
+    let mut rng = StdRng::seed_from_u64(8);
+
+    process_collapse_lifecycle(&conn, &season, &mut rng).expect("ciclo de colapso");
+
+    let contratos =
+        contract_queries::get_active_regular_contracts_by_team(&conn, &team.id).expect("contratos");
+    let ilegivel = contratos
+        .iter()
+        .find(|c| c.piloto_id == "PN1")
+        .expect("contrato do piloto ilegível");
+    let legivel = contratos
+        .iter()
+        .find(|c| c.piloto_id == "PN2")
+        .expect("contrato do companheiro");
+    assert!(
+        ilegivel.temporada_fim > season.numero,
+        "piloto que não se consegue ler fica fora da operação, não vira alvo"
+    );
+    assert_eq!(
+        legivel.temporada_fim, season.numero,
+        "o corte cai em quem a operação consegue identificar"
+    );
+}
+
+// ── A régua da superação da máquina é o GRUPO competitivo ────────────────────
+
+/// Equipe do Endurance numa classe, com a força de carro pedida.
+fn equipe_de_classe(id: &str, classe: &str, car_performance: f64) -> Team {
+    let mut team = crate::models::team::placeholder_team_from_db(
+        id.to_string(),
+        format!("Equipe {id}"),
+        "endurance".to_string(),
+        "2026-01-01".to_string(),
+    );
+    team.classe = Some(classe.to_string());
+    team.car_performance = car_performance;
+    team
+}
+
+/// Grid de Endurance com duas classes de força bem separada — `lmp2` rápida,
+/// `gt4` lenta —, um piloto por equipe. O piloto de `equipe_do_alvo` termina em
+/// 1º da classe gt4; devolve os motivos de motivação dele.
+fn motivos_do_campeao_gt4(equipe_do_alvo: &str) -> Vec<String> {
+    let conn = Connection::open_in_memory().expect("in-memory db");
+    migrations::run_all(&conn).expect("schema");
+    let season = Season::new("S_END".to_string(), 4, 2027);
+
+    // (equipe, classe, força do carro). LMP2 é MAIS RÁPIDA que qualquer GT4.
+    let grid = [
+        ("LMP_A", "lmp2", 15.0),
+        ("LMP_B", "lmp2", 14.0),
+        ("LMP_C", "lmp2", 13.0),
+        ("GT4_A", "gt4", 5.0),
+        ("GT4_B", "gt4", 4.0),
+        ("GT4_C", "gt4", 3.0),
+    ];
+
+    let mut teams_by_id = HashMap::new();
+    let mut contracts_by_driver = HashMap::new();
+    let mut standings_by_driver = HashMap::new();
+    // Posição na classe: o alvo é o campeão do gt4; os outros entram na sequência.
+    let mut proxima_posicao_gt4 = 2;
+    let mut proxima_posicao_lmp2 = 1;
+
+    for (team_id, classe, forca) in grid {
+        let team = equipe_de_classe(team_id, classe, forca);
+        teams_by_id.insert(team.id.clone(), team.clone());
+
+        let driver_id = format!("P_{team_id}");
+        let driver = sample_driver(&driver_id, &driver_id, "endurance", 50.0, 0, 10, 0);
+        driver_queries::insert_driver(&conn, &driver).expect("insere piloto");
+
+        let mut contract = Contract::new(
+            format!("C_{team_id}"),
+            driver_id.clone(),
+            driver_id.clone(),
+            team.id.clone(),
+            team.nome.clone(),
+            season.numero,
+            2,
+            100_000.0,
+            TeamRole::Numero1,
+            "endurance".to_string(),
+        );
+        contract.classe = Some(classe.to_string());
+        contracts_by_driver.insert(driver_id.clone(), contract);
+
+        let posicao = if classe == "gt4" {
+            if team_id == equipe_do_alvo {
+                1
+            } else {
+                let p = proxima_posicao_gt4;
+                proxima_posicao_gt4 += 1;
+                p
+            }
+        } else {
+            let p = proxima_posicao_lmp2;
+            proxima_posicao_lmp2 += 1;
+            p
+        };
+        standings_by_driver.insert(
+            driver_id.clone(),
+            StandingEntry {
+                driver_id: driver_id.clone(),
+                driver_name: driver_id.clone(),
+                category: "endurance".to_string(),
+                classe: Some(classe.to_string()),
+                team_id: Some(team.id.clone()),
+                position: posicao,
+                total_drivers: 3,
+                seasons_in_category: 1,
+                stats: crate::evolution::growth::SeasonStats {
+                    posicao_campeonato: posicao,
+                    total_pilotos: 3,
+                    pontos: 100 - posicao * 10,
+                    vitorias: 0,
+                    podios: 1,
+                    corridas: 10,
+                    dnfs: 0,
+                },
+            },
+        );
+    }
+
+    let mut rng = StdRng::seed_from_u64(31);
+    let (_growth, motivacao, _retirements, _names) = process_driver_evolution(
+        &conn,
+        &season,
+        &standings_by_driver,
+        &HashMap::new(),
+        &contracts_by_driver,
+        &teams_by_id,
+        &mut rng,
+    )
+    .expect("evolução dos pilotos");
+
+    let alvo = format!("P_{equipe_do_alvo}");
+    motivacao
+        .into_iter()
+        .find(|r| r.driver_id == alvo)
+        .unwrap_or_else(|| panic!("sem relatório de motivação para {alvo}"))
+        .reasons
+}
+
+/// **VENCER A PRÓPRIA CLASSE COM O MELHOR CARRO DELA NÃO É SUPERAR A MÁQUINA.** A
+/// posição de campeonato do Endurance é apurada POR CLASSE, e a expectativa era
+/// medida contra a categoria inteira: o campeão do GT4 aparecia com três LMP2 mais
+/// rápidas "à frente" dele, a expectativa saía em 7º, e ele levava o crédito de ter
+/// carregado o carro por ter feito exatamente o que o carro dele previa.
+#[test]
+fn campeao_da_classe_no_melhor_carro_da_classe_nao_superou_a_maquina() {
+    let motivos = motivos_do_campeao_gt4("GT4_A");
+    assert!(
+        !motivos.iter().any(|m| m.contains("Superou o carro")),
+        "melhor carro do gt4 vencendo o gt4 não é superação: {motivos:?}"
+    );
+}
+
+/// E o sinal continua existindo onde ele é verdadeiro: o pior carro da classe
+/// vencendo a classe superou a máquina de verdade.
+#[test]
+fn campeao_da_classe_no_pior_carro_da_classe_superou_a_maquina() {
+    let motivos = motivos_do_campeao_gt4("GT4_C");
+    assert!(
+        motivos.iter().any(|m| m.contains("Superou o carro")),
+        "pior carro do gt4 vencendo o gt4 é superação: {motivos:?}"
+    );
+}
+
+// ── Renovação de contrato: o passe de offseason não julga renovação ──────────
+
+/// Cenário do segundo passe da motivação: três pilotos que entraram o offseason na
+/// T1 e saíram dele de jeitos diferentes. Devolve os relatórios do passe.
+fn passe_de_offseason_com_tres_desfechos() -> Vec<MotivationReport> {
+    const TEMPORADA_QUE_ACABOU: i32 = 3;
+    const TEMPORADA_NOVA: i32 = 4;
+
+    let conn = Connection::open_in_memory().expect("in-memory db");
+    migrations::run_all(&conn).expect("schema");
+    for (id, nome) in [("T1", "Equipe Um"), ("T2", "Equipe Dois")] {
+        let mut team = sample_named_team("gt3", id, nome, None, 77);
+        team.nome = nome.to_string();
+        team_queries::insert_team(&conn, &team).expect("insere equipe");
+    }
+
+    // (piloto, equipe do contrato ATUAL, temporada de início do contrato ATUAL)
+    let depois = [
+        // No meio de um plurianual assinado na temporada 3: continua, não renovou.
+        ("P_MEIO", "T1", TEMPORADA_QUE_ACABOU),
+        // Assinou de novo com a MESMA equipe neste fechamento: renovou.
+        ("P_RENOVA", "T1", TEMPORADA_NOVA),
+        // Assinou com OUTRA equipe no mesmo degrau: trocou de endereço.
+        ("P_TROCA", "T2", TEMPORADA_NOVA),
+    ];
+
+    let mut seats_before = HashMap::new();
+    let tier_gt3 = get_category_config("gt3").expect("config do gt3").tier;
+    for (driver_id, equipe, inicio) in depois {
+        let driver = sample_driver(driver_id, driver_id, "gt3", 60.0, 0, 10, 0);
+        driver_queries::insert_driver(&conn, &driver).expect("insere piloto");
+
+        let contract = Contract::new(
+            format!("C_{driver_id}"),
+            driver_id.to_string(),
+            driver_id.to_string(),
+            equipe.to_string(),
+            equipe.to_string(),
+            inicio,
+            3,
+            120_000.0,
+            TeamRole::Numero1,
+            "gt3".to_string(),
+        );
+        contract_queries::insert_contract(&conn, &contract).expect("insere contrato");
+
+        // Todo mundo entrou o offseason na T1, no mesmo degrau. Para quem está no
+        // meio do plurianual, o retrato de antes é o MESMO contrato.
+        seats_before.insert(
+            driver_id.to_string(),
+            Assento {
+                tier: Some(tier_gt3),
+            },
+        );
+    }
+
+    apply_offseason_motivation(&conn, &seats_before).expect("passe de offseason")
+}
+
+fn motivos_de(reports: &[MotivationReport], driver_id: &str) -> Vec<String> {
+    reports
+        .iter()
+        .filter(|r| r.driver_id == driver_id)
+        .flat_map(|r| r.reasons.clone())
+        .collect()
+}
+
+/// **O PASSE DE OFFSEASON NÃO PAGA RENOVAÇÃO, e nenhum dos três desfechos muda isso.**
+///
+/// O sinal já foi derivado aqui de duas formas. A primeira era "está na mesma equipe de
+/// antes", e um contrato de 3 anos pagava o bônus três viradas seguidas sem que nenhuma
+/// renovação tivesse acontecido. A segunda exigia contrato assinado neste fechamento, e
+/// estava certa — só chegava cedo: no modo jogável este passe roda antes da pré-passe do
+/// mercado, então não havia renovação nenhuma para reconhecer e o bônus nunca saía.
+///
+/// O bônus mora agora no instante da renovação (`market::pipeline`), e este teste é o
+/// contrato negativo: aqui não se fala mais de renovação, para ninguém.
+#[test]
+fn o_passe_de_offseason_nao_paga_renovacao_a_ninguem() {
+    let reports = passe_de_offseason_com_tres_desfechos();
+    for piloto in ["P_MEIO", "P_RENOVA", "P_TROCA"] {
+        let motivos = motivos_de(&reports, piloto);
+        assert!(
+            !motivos.iter().any(|m| m.contains("Contrato renovado")),
+            "{piloto} recebeu bônus de renovação no passe de offseason: {motivos:?}"
+        );
+    }
+}
+
+/// **O passe de offseason também não julga mais PERDA DE VAGA.**
+///
+/// Mesma história da renovação, mesma causa: o sinal era "não tem assento depois", e no
+/// modo jogável este passe roda antes de a pré-passe expirar contrato nenhum — então a
+/// resposta era sempre "tem assento", e o -10 nunca saía. O gatilho mudou para o instante
+/// em que o assento se esvazia (`evolution::motivation::adjust_lost_seat_motivation`), e
+/// aqui fica o contrato negativo: nem quem entra o passe SEM assento nenhum leva o -10 por
+/// este caminho.
+#[test]
+fn o_passe_de_offseason_nao_cobra_vaga_perdida_a_ninguem() {
+    let reports = passe_de_offseason_com_tres_desfechos();
+    for report in &reports {
+        assert!(
+            !report
+                .reasons
+                .iter()
+                .any(|motivo| motivo.contains("Perdeu a vaga")),
+            "{} levou perda de vaga no passe de offseason: {:?}",
+            report.driver_id,
+            report.reasons
+        );
+    }
+
+    // O caso duro: piloto que entrou o offseason com assento e não tem NENHUM depois. É a
+    // fotografia que produzia o -10 aqui; agora ele nem entra no passe, porque ficar sem
+    // vaga não é um degrau e já foi cobrado onde aconteceu.
+    let conn = Connection::open_in_memory().expect("in-memory db");
+    migrations::run_all(&conn).expect("schema");
+    let orfao = sample_driver("P_SEM_VAGA", "P_SEM_VAGA", "gt3", 60.0, 0, 10, 0);
+    let motivacao_antes = orfao.motivacao;
+    driver_queries::insert_driver(&conn, &orfao).expect("insere piloto");
+    let seats_before: HashMap<String, Assento> = [(
+        orfao.id.clone(),
+        Assento {
+            tier: Some(get_category_config("gt3").expect("config do gt3").tier),
+        },
+    )]
+    .into_iter()
+    .collect();
+
+    let reports = apply_offseason_motivation(&conn, &seats_before).expect("passe de offseason");
+
+    assert!(
+        reports.is_empty(),
+        "quem ficou sem assento não tem degrau a julgar: {reports:?}"
+    );
+    let depois = driver_queries::get_driver(&conn, &orfao.id).expect("piloto");
+    assert_eq!(
+        depois.motivacao, motivacao_antes,
+        "o passe de offseason mexeu na motivação de quem ficou sem vaga"
+    );
+}
+
 fn retention_fixture() -> (Connection, Season, Team, Driver, Contract) {
     let conn = Connection::open_in_memory().expect("in-memory db");
     migrations::run_all(&conn).expect("schema");
@@ -943,6 +1298,109 @@ fn test_retains_irreplaceable_veteran_even_on_player_team() {
     let retained = try_retain_irreplaceable_veteran(&conn, &veteran, &contracts_by_driver, &season)
         .expect("retention check");
     assert!(retained, "retenção vale inclusive para o time do jogador");
+}
+
+/// Falha injetada no ÚLTIMO passo antes do commit. É o caso que o `remove_file`
+/// pendurado no erro de `commit` não cobria: o banco volta atrás, e o
+/// `preseason_plan.json` novo ficava publicado descrevendo um mercado que o banco não
+/// tem. As três asserções são o contrato: banco no estado anterior, plano novo não
+/// publicado, plano anterior intacto.
+#[test]
+fn falha_no_ultimo_passo_desfaz_o_banco_e_nao_publica_o_plano_da_pre_temporada() {
+    let (mut conn, season) = setup_pipeline_fixture();
+    let save_path = unique_test_dir("eos_falha_no_ultimo_passo");
+
+    let plano_anterior = save_path.join("preseason_plan.json");
+    let conteudo_anterior = "{\"plano\":\"da temporada passada\"}";
+    std::fs::write(&plano_anterior, conteudo_anterior).expect("plano anterior");
+
+    let ano_antes = meta_valor(&conn, "current_year");
+    let temporadas_antes = contagem(&conn, "SELECT COUNT(*) FROM seasons");
+    let status_antes: String = conn
+        .query_row(
+            "SELECT status FROM seasons WHERE id = ?1",
+            [&season.id],
+            |row| row.get(0),
+        )
+        .expect("status da temporada");
+
+    FALHAR_ANTES_DO_COMMIT.with(|interruptor| interruptor.set(true));
+    let erro = run_end_of_season(&mut conn, &season, &save_path)
+        .expect_err("a falha injetada tem que derrubar a virada");
+    FALHAR_ANTES_DO_COMMIT.with(|interruptor| interruptor.set(false));
+
+    assert!(erro.contains("falha injetada"), "erro inesperado: {erro}");
+
+    assert_eq!(
+        meta_valor(&conn, "current_year"),
+        ano_antes,
+        "o ano da carreira avançou apesar do rollback"
+    );
+    assert_eq!(
+        contagem(&conn, "SELECT COUNT(*) FROM seasons"),
+        temporadas_antes,
+        "a temporada nova sobreviveu ao rollback"
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT status FROM seasons WHERE id = ?1",
+            [&season.id],
+            |row| row.get::<_, String>(0)
+        )
+        .expect("status da temporada"),
+        status_antes,
+        "a temporada que ia ser fechada continuou fechada depois do rollback"
+    );
+
+    assert_eq!(
+        std::fs::read_to_string(&plano_anterior).expect("o plano anterior tem que sobreviver"),
+        conteudo_anterior,
+        "o plano da pré-temporada anterior foi destruído por uma virada que falhou"
+    );
+    assert!(
+        !save_path.join("preseason_plan.json.novo").exists(),
+        "o staging do plano tem que ser descartado em qualquer saída de erro"
+    );
+
+    let _ = std::fs::remove_dir_all(save_path);
+}
+
+/// A virada que dá certo publica o plano novo por cima do anterior, sem deixar staging
+/// para trás. É o outro lado do teste acima.
+#[test]
+fn virada_bem_sucedida_publica_o_plano_e_nao_deixa_staging() {
+    let (mut conn, season) = setup_pipeline_fixture();
+    let save_path = unique_test_dir("eos_publica_o_plano");
+
+    let plano = save_path.join("preseason_plan.json");
+    std::fs::write(&plano, "{\"plano\":\"da temporada passada\"}").expect("plano anterior");
+
+    run_end_of_season(&mut conn, &season, &save_path).expect("a virada tem que concluir");
+
+    let publicado = std::fs::read_to_string(&plano).expect("plano publicado");
+    assert!(
+        publicado.contains("state"),
+        "o plano publicado não é o novo: {publicado}"
+    );
+    assert!(!save_path.join("preseason_plan.json.novo").exists());
+    assert!(
+        !save_path.join("preseason_plan.json.old").exists(),
+        "o `.old` só vive durante a troca"
+    );
+
+    let _ = std::fs::remove_dir_all(save_path);
+}
+
+fn meta_valor(conn: &Connection, chave: &str) -> String {
+    conn.query_row("SELECT value FROM meta WHERE key = ?1", [chave], |row| {
+        row.get(0)
+    })
+    .unwrap_or_else(|e| panic!("meta.{chave}: {e}"))
+}
+
+fn contagem(conn: &Connection, sql: &str) -> i64 {
+    conn.query_row(sql, [], |row| row.get(0))
+        .unwrap_or_else(|e| panic!("contagem '{sql}': {e}"))
 }
 
 fn unique_test_dir(label: &str) -> std::path::PathBuf {

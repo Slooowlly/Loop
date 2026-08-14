@@ -26,7 +26,7 @@ export default function OffersModal({
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="glass-strong animate-fade-in flex max-h-[90vh] w-full max-w-5xl flex-col rounded-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-white/8 px-6 py-5">
+        <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] px-6 py-5">
           <div>
             <div className="text-body-sm font-bold uppercase tracking-[0.22em] text-[color:var(--accent-primary)]">
               {modalCatLabel ? t("preSeason.offersModal.eyebrowCat", { label: modalCatLabel }) : t("preSeason.offersModal.eyebrow")}

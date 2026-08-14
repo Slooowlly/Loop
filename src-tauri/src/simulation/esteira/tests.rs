@@ -510,17 +510,16 @@ fn anulacao_em_carreira_viva_mostra_elo_condicional_e_nao_morto() {
                 outperformed_machinery: posicao <= 4,
             };
             adjust_end_of_season_motivation(d, &stats, &ctx, &mut rng);
-            // O desfecho do offseason virou um SEGUNDO PASSE no pipeline real (só
-            // depois da promoção e do mercado é que se sabe quem subiu, caiu,
-            // renovou ou ficou sem vaga). Aqui os dois rodam em sequência, que é a
-            // ordem em que o piloto os vive.
+            // O degrau do offseason virou um SEGUNDO PASSE no pipeline real (só depois
+            // da promoção e do mercado é que se sabe quem subiu e quem caiu). Aqui os
+            // dois rodam em sequência, que é a ordem em que o piloto os vive. Renovação
+            // e perda de vaga não entram: deixaram de ser desfechos inferidos do
+            // offseason e passaram a ser aplicadas no instante do próprio evento.
             adjust_offseason_motivation(
                 d,
                 &OffseasonContext {
                     was_promoted: posicao <= 2,
                     was_relegated: posicao > total - 3,
-                    contract_renewed: posicao <= total / 2,
-                    lost_seat: posicao > total - 2,
                 },
             );
         }

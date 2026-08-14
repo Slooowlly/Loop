@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runAudit } from "../../scripts/i18nAudit.mjs";
+import { baselineOrfa, runAudit } from "../../scripts/i18nAudit.mjs";
 
 // Guarda de COBERTURA de i18n: falha quando aparece texto de UI em português que ainda
 // não passou por `t()` — o aviso de "tem coisa nova pra traduzir". Roda junto com a suíte
@@ -21,5 +21,21 @@ describe("i18n coverage (UI sem string PT crua fora de t())", () => {
       );
     }
     expect(violations).toEqual([]);
+  });
+
+  // O baseline de `.js` (scripts/i18nBaseline.mjs) congela o passivo anterior a 11/08/2026.
+  // Entrada que sobra depois da frase ser traduzida volta a liberar aquele texto: o próximo
+  // que escrever a mesma coisa passa batido, e o guard perde justamente o caso que ele existe
+  // para pegar.
+  it("não há entrada morta no baseline de .js", () => {
+    const orfas = baselineOrfa();
+    if (orfas.length > 0) {
+      const list = orfas.map((o) => `  ${o.file}  "${o.text}"`).join("\n");
+      throw new Error(
+        `${orfas.length} entrada(s) do baseline que o auditor não acha mais:\n${list}\n\n` +
+          `→ Apague essas linhas de scripts/i18nBaseline.mjs.`,
+      );
+    }
+    expect(orfas).toEqual([]);
   });
 });

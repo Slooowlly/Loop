@@ -135,8 +135,12 @@ pub fn iracing_auto_import_if_ready(
     // O Err é engolido de propósito, mas vai pro log: a causa mais provável de "a
     // dificuldade não mexeu" é o monitor não ter o histórico vivo (app reaberto entre
     // correr e importar), e sem esta linha isso é invisível.
+    // O rótulo diz "(erro)" para não se confundir com o "Sem ajuste (nada a mudar)" que a
+    // própria passada loga: ali o adaptativo rodou e decidiu não mexer; aqui ele nem chegou
+    // a rodar. Os três desfechos possíveis do bloco são, no log, "Ajuste aplicado",
+    // "Sem ajuste (nada a mudar)" e esta linha. Ver `iracing/adaptativo.rs::linha_do_rastro`.
     if let Err(e) = iracing_process_race_result(app.clone()) {
-        crate::diagnostico::linha("adaptativo", &format!("Sem ajuste: {e}"));
+        crate::diagnostico::linha("adaptativo", &format!("Sem ajuste (erro): {e}"));
     }
 
     // Telemetria de produto: fecha o bloco de leitura da rodada anterior e abre o

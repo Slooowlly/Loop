@@ -11,9 +11,7 @@ use std::path::Path;
 
 use rusqlite::OptionalExtension;
 
-use crate::commands::career::{
-    get_teams_standings_in_base_dir, open_career_resources_read_only,
-};
+use crate::commands::career::{get_teams_standings_in_base_dir, open_career_resources_read_only};
 use crate::commands::career_types::{
     TeamFinanceCashPoint, TeamFinanceReport, TeamFinanceRound, TeamHistoryCashPoint,
     TeamHistoryCategoryStep, TeamHistoryCategoryTime, TeamHistoryChampionshipLine,

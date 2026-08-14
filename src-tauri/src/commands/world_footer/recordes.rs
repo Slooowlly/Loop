@@ -181,7 +181,9 @@ pub(super) fn record_broken_notes(
             )
             .to_string(),
             _ => {
-                let noun = metric_noun(metric_noun_id(&m.metric), 2);
+                // O substantivo concorda com o VALOR do recorde citado no texto
+                // (`%{value}`), não com um plural fixo: recorde de 1 vira "1 vitória".
+                let noun = metric_noun(metric_noun_id(&m.metric), m.value);
                 match m.previous_value {
                     Some(prev) => rust_i18n::t!(
                         "world_footer.record_broken.generic_prev",
@@ -235,8 +237,8 @@ pub(super) fn record_watch_notes(
         return out;
     };
 
-    // (gap, driver_id, texto) — coleta e ordena por proximidade.
-    let mut cands: Vec<(i32, String, String)> = Vec::new();
+    // (gap, driver_id, nome, texto) — coleta e ordena por proximidade.
+    let mut cands: Vec<(i32, String, String, String)> = Vec::new();
     for d in &field {
         if d.status != DriverStatus::Ativo {
             continue;
@@ -264,8 +266,10 @@ pub(super) fn record_watch_notes(
             let text = if gap == 0 {
                 rust_i18n::t!(
                     "world_footer.record_watch.tied",
+                    // Concorda com `%{value}` (o recorde igualado), não com um plural
+                    // fixo — recorde de 1 lê "o recorde histórico de vitória: 1".
                     name = d.nome.as_str(),
-                    noun = metric_noun(noun_id, 2),
+                    noun = metric_noun(noun_id, r.value),
                     value = r.value,
                     holder = r.pilot_name.as_str()
                 )
@@ -286,12 +290,12 @@ pub(super) fn record_watch_notes(
             }
         }
         if let Some((gap, text)) = best {
-            cands.push((gap, d.id.clone(), text));
+            cands.push((gap, d.id.clone(), d.nome.clone(), text));
         }
     }
 
-    cands.sort_by_key(|(gap, _, _)| *gap);
-    for (_, driver_id, text) in cands {
+    cands.sort_by_key(|(gap, _, _, _)| *gap);
+    for (_, driver_id, nome, text) in cands {
         if out.len() >= budget {
             break;
         }
@@ -301,7 +305,9 @@ pub(super) fn record_watch_notes(
         out.push(WorldNote {
             id: format!("record:{driver_id}"),
             tag: tag_label("record"),
-            subject: text.clone(),
+            // `subject` é o NOME de quem a nota fala (igual às demais notas), não uma
+            // segunda cópia do texto: o front usa este campo como rótulo curto.
+            subject: nome,
             kind: "recorde_a_caminho".to_string(),
             tone: "recorde".to_string(),
             text,

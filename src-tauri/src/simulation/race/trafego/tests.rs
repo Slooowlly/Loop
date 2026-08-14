@@ -238,8 +238,11 @@ fn contra_rival_ataca_sem_ter_ritmo_mas_com_chance_baixa() {
 /// ultrapassagem limpa — e duelo longo é chegada colada.
 #[test]
 fn contra_rival_a_defesa_endurece() {
-    let estranho = prob_de_ultrapassagem(3.0, 70.0, 50.0, 60.0, 1.0, 0.0, PAR);
-    let rival = prob_de_ultrapassagem(3.0, 70.0, 50.0, 60.0, 1.0, 1.0, PAR);
+    // O delta tem que ficar ABAIXO de `delta_de_ritmo_que_satura` (2,0 desde a calibração de
+    // B9): saturado, os dois lados batem no teto de 0,95 e a comparação não mede a defesa.
+    let delta = PAR.delta_de_ritmo_que_satura / 2.0;
+    let estranho = prob_de_ultrapassagem(delta, 70.0, 50.0, 60.0, 1.0, 0.0, PAR);
+    let rival = prob_de_ultrapassagem(delta, 70.0, 50.0, 60.0, 1.0, 1.0, PAR);
     assert!(
         rival < estranho,
         "passar o rival tem que ser mais dificil: {rival} vs {estranho}"

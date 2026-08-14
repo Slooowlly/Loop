@@ -18,6 +18,7 @@
 #![allow(dead_code)] // wiring no import da corrida vem depois.
 
 use crate::car::cost::part_cost;
+use crate::car::wear::reroll_unit_seed;
 use crate::car::{Car, PartType};
 
 /// Wear em que uma peça atingida é DESTRUÍDA (em vez de só amassada).
@@ -138,9 +139,14 @@ pub struct CrashDamage {
 }
 
 /// Aplica o dano da batida ao carro do jogador (in-place) e devolve o resumo + custo.
-/// Destruída → peça nova (wear zera), custo cheio. Amassada → wear sobe (cap 1.0), custo
-/// parcial. O carro danificado é persistido depois; o cérebro de manutenção responde à
-/// próxima corrida (trocar/degradar conforme o caixa).
+/// Destruída → peça nova (wear zera, `unit_seed` re-rolado), custo cheio. Amassada → wear sobe
+/// (cap 1.0), custo parcial. O carro danificado é persistido depois; o cérebro de manutenção
+/// responde à próxima corrida (trocar/degradar conforme o caixa).
+///
+/// A peça destruída aqui é uma INSTALAÇÃO, igual à do caminho normal (`PartAction::Replace` em
+/// [`crate::car::wear::apply_action`]), então passa pela mesma fonte de identidade:
+/// [`reroll_unit_seed`]. Sem isso a unidade nova herdava a sorte de vida da que morreu na
+/// batida, e um "limão" trocado por batida voltava limão (redesign 2026-07-22 §4.1).
 pub fn apply_crash_damage(
     car: &mut Car,
     category_id: &str,
@@ -159,6 +165,8 @@ pub fn apply_crash_damage(
             out.cost += part_cost(category_id, pt, part.level);
             part.wear = 0.0; // peça nova instalada
             part.spent = false;
+            // Unidade NOVA → nova sorte de vida, o mesmo re-roll do caminho `Replace`.
+            part.unit_seed = reroll_unit_seed(part.unit_seed);
             out.destroyed.push(pt);
         } else {
             let dmg = dent.unwrap();
@@ -385,6 +393,94 @@ mod tests {
         assert!(d.destroyed.contains(&PartType::Suspension));
         assert!((car.part(PartType::Suspension).unwrap().wear).abs() < 1e-9);
         assert!(d.cost >= part_cost("gt3", PartType::Suspension, 5));
+    }
+
+    /// **A peça que a batida troca é outra unidade.** A destruição em [`apply_crash_damage`] é
+    /// uma instalação, então tem de re-rolar o `unit_seed` igual ao caminho `Replace` — senão a
+    /// peça nova nasce com a sorte de vida da que morreu, e o limão continua limão.
+    #[test]
+    fn peca_destruida_na_batida_ganha_identidade_nova() {
+        let mut car = Car::uniform(5);
+        car.set_wear(PartType::Suspension, 0.90); // já perto do fim → destrói
+        let antes = car.part(PartType::Suspension).unwrap().unit_seed;
+        assert_ne!(antes, 0, "o carro de teste tem de nascer semeado");
+
+        let d = apply_crash_damage(
+            &mut car,
+            "gt3",
+            CrashSeverity::Light,
+            ImpactDirection::Front,
+        );
+
+        assert!(d.destroyed.contains(&PartType::Suspension));
+        let depois = car.part(PartType::Suspension).unwrap();
+        assert_ne!(
+            depois.unit_seed, antes,
+            "unidade nova tinha que ter identidade nova"
+        );
+        assert_eq!(
+            depois.unit_seed,
+            crate::car::wear::reroll_unit_seed(antes),
+            "a identidade tem de sair da mesma fonte do caminho Replace"
+        );
+        // E o resto da instalação segue coerente: peça nova, sem bônus emprestado.
+        assert!(depois.wear.abs() < 1e-9);
+        assert!(!depois.spent);
+    }
+
+    /// A peça só AMASSADA continua sendo a MESMA unidade: nada foi instalado, então a sorte de
+    /// vida dela não pode mudar no meio da corrida.
+    #[test]
+    fn peca_amassada_mantem_a_identidade() {
+        let mut car = Car::uniform(5); // tudo novo → só amassa
+        let antes: Vec<(PartType, u32)> = car
+            .parts
+            .iter()
+            .map(|p| (p.part_type, p.unit_seed))
+            .collect();
+
+        let d = apply_crash_damage(
+            &mut car,
+            "gt3",
+            CrashSeverity::Moderate,
+            ImpactDirection::Front,
+        );
+
+        assert!(d.destroyed.is_empty(), "peça nova não se destrói aqui");
+        for (pt, seed) in antes {
+            assert_eq!(
+                car.part(pt).unwrap().unit_seed,
+                seed,
+                "{pt:?} amassou, não foi trocada"
+            );
+        }
+    }
+
+    /// A peça esticada (`spent`) que morre na batida volta inteira: identidade nova, desgaste
+    /// zerado e o bônus emprestado devolvido.
+    #[test]
+    fn peca_esticada_destruida_volta_inteira() {
+        let mut car = Car::uniform(5);
+        car.set_wear(PartType::Gearbox, 0.95);
+        let antes = {
+            let p = car
+                .parts
+                .iter_mut()
+                .find(|p| p.part_type == PartType::Gearbox)
+                .unwrap();
+            p.spent = true;
+            p.unit_seed
+        };
+
+        apply_crash_damage(&mut car, "gt3", CrashSeverity::Light, ImpactDirection::Rear);
+
+        let depois = car.part(PartType::Gearbox).unwrap();
+        assert_ne!(depois.unit_seed, antes);
+        assert!(depois.wear.abs() < 1e-9);
+        assert!(
+            !depois.spent,
+            "unidade nova não herda o `spent` da anterior"
+        );
     }
 
     #[test]

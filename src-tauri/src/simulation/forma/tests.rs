@@ -613,6 +613,7 @@ mod demonstracao {
                     corridas_na_categoria: 40,
                     pressure_error_mult: 1.0,
                     duelo_de_pista: None,
+                    vehicle_class: None,
                 }
             })
             .collect()
@@ -751,15 +752,22 @@ mod demonstracao {
         // Depois que o pacote da classificação entrou (melhor de N, trim de quali do carro
         // e volta perdida), a própria linha de base já se mexe um pouco sozinha — por isso
         // aqui vale "no máximo 2 formações", e não mais exatamente 1.
+        // Atualizado em 12/08/2026 com a calibração de ultrapassagem de B9
+        // (`trafego::DELTA_DE_RITMO_QUE_SATURA`): com a manobra convertendo, a linha de base
+        // sem as camadas já troca um pouco mais o pódio sozinha — mede 3 formações onde media
+        // 2, e continuam sendo sempre os mesmos dois ou três nomes. Por isso o limite virou
+        // "no máximo 3", e o que o teste cobra do DEPOIS deixou de ser um número fixo: é a
+        // COMPARAÇÃO, que é o que a demonstração sempre quis mostrar.
         assert!(
-            podios_distintos(&antes) <= 2,
+            podios_distintos(&antes) <= 3,
             "o sintoma tem que estar presente ANTES: {} formações de pódio em 5 etapas",
             podios_distintos(&antes)
         );
         assert!(
-            podios_distintos(&depois) >= 3,
-            "DEPOIS o pódio tem que trocar de gente: só {} formações distintas em 5 etapas",
-            podios_distintos(&depois)
+            podios_distintos(&depois) > podios_distintos(&antes),
+            "DEPOIS o pódio tem que trocar mais de gente: {} formações contra {} do ANTES",
+            podios_distintos(&depois),
+            podios_distintos(&antes)
         );
         // E o reembaralho não pode ser só na ponta: a ordem inteira tem que mudar.
         let ordens_depois: std::collections::HashSet<&Vec<String>> =

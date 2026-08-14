@@ -90,7 +90,18 @@ pub(super) fn start_sampler() {
                         if tick % TICKS_PORTAO == 0 {
                             let estado = lock().montar_estado_agora();
                             crate::engenheiro::momento::registrar_transicao(&estado);
+                            // E a OCASIÃO, na mesma carona. Ela é uma JANELA de tempo — a volta
+                            // de formação, a bandeirada —, e o front a procura por poll de 2 s:
+                            // com a janela do webview coberta, o poll estrangulado atravessa a
+                            // janela inteira sem vê-la e a fala não acontece. Aqui sai um toque
+                            // no ombro na borda de abertura. Ver `race_monitor::cutucao`.
+                            super::cutucao::conferir_ocasiao(
+                                crate::engenheiro::momento::ocasiao(&estado).map(|o| o.chave()),
+                            );
                         }
+                        // Os três logs do rádio cresceram? Fora do lock e sem tocar em produtor
+                        // nenhum — só o retrato dos tamanhos, comparado com o do tique anterior.
+                        super::cutucao::conferir(super::radio_tamanhos());
                         // Spotter: a vizinhança lateral precisa ser vista a 60 Hz.
                         // A 2 Hz do overlay, um carro que entra e sai do seu lado
                         // numa freada simplesmente não teria acontecido.
@@ -99,24 +110,10 @@ pub(super) fn start_sampler() {
                         // se já há uma gravando) e despeja o frame. Custa ~24 µs por frame.
                         crate::iracing_sdk::race_capture::ensure_started();
                         crate::iracing_sdk::race_capture::record_frame(&t);
-                        // Disparo de quebra ESTRANGULADO: 1 comando a cada ~1,5s (a ~60 Hz),
-                        // FORA do lock (o send_chat_text foca a janela + SendInput; não pode
-                        // segurar o lock). Espaça o roubo de foco pra o jogador seguir dirigindo.
+                        // Disparo de quebra ESTRANGULADO: 1 comando a cada ~1,5s (a ~60 Hz).
+                        // Espaça o roubo de foco pra o jogador seguir dirigindo.
                         if tick % 90 == 0 {
-                            if let Some(cmd) = lock().take_one_breakdown_cmd() {
-                                // NÃO engole o erro: se o comando não chegou ao sim (janela
-                                // não encontrada / foreground recusado / SendInput bloqueado),
-                                // a penalidade sumiria em silêncio. Loga e arma UM aviso âmbar
-                                // no rádio (latch por corrida) pra o jogador saber que precisa
-                                // rodar o sim em janela/borderless.
-                                if let Err(err) = crate::iracing_sdk::send_chat_text(&cmd) {
-                                    if lock().note_chat_send_failure() {
-                                        eprintln!(
-                                            "[breakdown] comando '{cmd}' não chegou ao iRacing: {err}"
-                                        );
-                                    }
-                                }
-                            }
+                            despachar_um_comando(crate::iracing_sdk::send_chat_text);
                         }
                         // Sim conectado de novo: cancela qualquer janela de foco pendente.
                         clear_focus_self();
@@ -209,6 +206,41 @@ pub(super) fn start_sampler() {
             std::thread::sleep(std::time::Duration::from_millis(period));
         }
     });
+}
+
+/// Tira UM comando de quebra da fila e o entrega ao sim, com o lock do monitor SOLTO durante o
+/// envio.
+///
+/// A separação em três passos não é estética. O guard de um `if let` vive até o fim do CORPO do
+/// `if`, então o `if let Some(cmd) = lock().take_one_breakdown_cmd() { … }` de antes rodava o
+/// envio inteiro com o monitor na mão — e o `lock()` da linha de falha, dentro daquele mesmo
+/// corpo, pedia um mutex que a própria thread já segurava. Autodeadlock: o amostrador parava de
+/// vez, e parava justamente no caso que o aviso existe para cobrir (sim em fullscreen exclusivo,
+/// `SendInput` recusado). Enquanto o envio dava certo o defeito ficava invisível, e o único
+/// sintoma era o overlay inteiro esperando o `send_chat_text` — que foca a janela e digita.
+///
+/// O envio entra por parâmetro para o teste poder conferir, de dentro dele, que o lock está livre.
+pub(super) fn despachar_um_comando<E: std::fmt::Display>(
+    enviar: impl FnOnce(&str) -> Result<(), E>,
+) {
+    // Escopo próprio: o guard morre nesta chave, antes de qualquer coisa cara acontecer.
+    let cmd = {
+        let mut m = lock();
+        m.take_one_breakdown_cmd()
+    };
+    let Some(cmd) = cmd else {
+        return;
+    };
+    let Err(err) = enviar(&cmd) else {
+        return;
+    };
+    // NÃO engole o erro: se o comando não chegou ao sim (janela não encontrada / foreground
+    // recusado / SendInput bloqueado), a penalidade sumiria em silêncio. O lock volta à mão SÓ
+    // aqui, com o envio já terminado, e só para armar UM aviso âmbar no rádio (latch por corrida)
+    // pra o jogador saber que precisa rodar o sim em janela/borderless.
+    if lock().note_chat_send_failure() {
+        eprintln!("[breakdown] comando '{cmd}' não chegou ao iRacing: {err}");
+    }
 }
 
 /// Liga o sampler de fundo (idempotente). Chamado no boot do app e ao exportar

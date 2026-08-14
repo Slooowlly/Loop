@@ -1,9 +1,32 @@
 #!/usr/bin/env node
-// Gera o PACOTE DE VOZ do engenheiro: as 1.056 peças pré-gravadas do rádio da equipe.
+// Gera o PACOTE DE VOZ do engenheiro: as peças pré-gravadas do rádio da equipe.
+//
+// A CONTAGEM não é escrita aqui de propósito. Ela sai de `engenheiro::catalogo()` no Rust e
+// é publicada em `docs/engenheiro-catalogo.md`, que é gerado — número colado em comentário
+// envelhece na primeira fala nova, e este arquivo já teve quatro contagens divergindo entre
+// si. Quando precisar do total, leia o catálogo.
 //
 // Irmão mais velho do `spotter-pack.mjs`, e as decisões da POC valem iguais aqui — Cloud TTS
 // com OAuth2 do ADC, Chirp 3 HD Algenib a 24 kHz, silêncio das bordas aparado, cadeia de
 // rádio gravada dentro do arquivo. O que muda é a ESCALA e a origem da lista.
+//
+// ## As duas defesas contra a peça muda
+//
+// A Chirp 3 devolve 200 OK com silêncio dentro, e um `.wav` mudo no disco é PIOR que arquivo
+// nenhum: a rodada seguinte o pula pelo "já existe", o `audio-para-opus` converte, e o
+// engenheiro fica calado naquela resposta sem erro em lugar nenhum. As duas travas nasceram no
+// pacote do spotter e desceram para cá em 12/08/2026:
+//
+//   • Nada vira arquivo antes de ser MEDIDO. `gerarUmaTomada` devolve amostras, quem grava é a
+//     rodada, e só depois do veredito. Antes o `escreverWav` vinha primeiro e o apagamento
+//     depois, então uma interrupção no meio (Ctrl+C, queda de rede, 429 numa das seis chamadas
+//     simultâneas) deixava o inválido gravado e definitivo.
+//   • O "já existe" RELÊ o arquivo (`jaEstaBoa`) em vez de olhar só o nome. Peça inutilizável
+//     de rodada antiga volta para a fila sozinha.
+//
+// O piso que separa fala de silêncio é o mesmo dos dois pacotes, importado de
+// `tts-poc/filtro-radio.mjs`, e o guard `scripts/tests/peca-de-voz-utilizavel.test.mjs` cobra
+// as duas travas nos dois geradores.
 //
 // ## A lista não mora aqui
 //
@@ -32,8 +55,9 @@
 //
 // Os WAV daqui são os MASTERS: ficam no disco, fora do git, e servem ao auditor
 // (`engenheiro-auditar.mjs`, que mede forma de onda). O que o app importa — e o que vai para o
-// commit — é o Opus. São 3.943 peças, e em PCM elas somam 328 MB de repositório que não
-// delta-comprime. Depois de gerar, converta:
+// commit — é o Opus. São milhares de peças, e em PCM elas somam centenas de MB de repositório
+// que não delta-comprime (a conta com os números do dia está em `audio-para-opus.mjs`).
+// Depois de gerar, converta:
 //
 //   node scripts/audio-para-opus.mjs
 //
@@ -55,10 +79,10 @@ import process from "node:process";
 import {
   aparar,
   aplicarRadio,
+  avaliarPeca,
   buracoInterno,
   escreverWav,
   lerWav,
-  pico,
 } from "./tts-poc/filtro-radio.mjs";
 
 const ENDPOINT = "https://texttospeech.googleapis.com/v1/text:synthesize";
@@ -191,25 +215,9 @@ async function sintetizar(texto) {
   throw new Error(`${TENTATIVAS} tentativas recusadas. Última: ${ultima}`);
 }
 
-/// Sintetiza, apara o silêncio, aplica o rádio e grava. Devolve o que o resumo precisa saber.
-/// Abaixo deste pico a peça é MUDA na prática, e o pacote a estava empacotando calada.
-///
-/// Descoberto gerando `"e,"`: o modelo devolveu 0,20 s com pico 0,008 — 1% do nível das
-/// outras — de forma reprodutível, enquanto a MESMA frase saiu em 0,38 s com pico 0,939 numa
-/// audição minutos antes. Texto de uma letra é o caso em que a Chirp 3 às vezes não gera nada,
-/// e ela não erra: devolve 200 OK com silêncio.
-///
-/// O acervo inteiro tem pico mediano 0,966, então 0,2 é um piso com margem enorme. O que ele
-/// pega não é "peça baixa", é "peça que não existe".
-const PICO_MINIMO = 0.2;
-
-/// Abaixo desta duração a peça foi CORTADA, não gerada.
-///
-/// O pico sozinho não pega: a segunda tentativa do `"e,"` voltou com pico 0,92 e 0,08 s — alta
-/// e vazia, um pedaço de vogal. Medida a duração dos 3.226 arquivos do acervo, a peça legítima
-/// mais curta é `nm_hu` com 0,320 s, e a mediana é 1,57 s. Um piso de 0,2 s tem margem para os
-/// dois lados: nada real chega perto dele por baixo, e a tomada picada não chega perto por cima.
-const DURACAO_MINIMA_S = 0.2;
+/// Os pisos de pico e duração que separam "peça" de "silêncio com status 200" moram em
+/// `tts-poc/filtro-radio.mjs` (`PICO_MINIMO`, `DURACAO_MINIMA_S`, `avaliarPeca`), junto com a
+/// medição que os produziu, porque o pacote do spotter aplica exatamente os mesmos.
 
 /// Silêncio DENTRO da tomada acima do qual ela é refeita.
 ///
@@ -239,19 +247,20 @@ async function gerarUma(chave, texto) {
   // Texto de uma letra é o caso patológico: `"e,"` devolveu silêncio duas vezes e meia vogal
   // na terceira. O modelo não erra — devolve 200 OK com lixo dentro.
   //
-  // Vence a ÚLTIMA tentativa, não a melhor — o arquivo é gravado dentro de `gerarUmaTomada` e
-  // guardar a melhor pediria uma cópia por tentativa. A troca é boa de propósito: um fôlego que
-  // sobrevive a cinco tomadas não é azar, é o texto, e o aviso do fim passa a ser diagnóstico em
-  // vez de ruído.
+  // Vence a ÚLTIMA tentativa, e não a melhor: guardar a melhor pediria manter uma cópia por
+  // tentativa em memória. A troca é boa de propósito — um fôlego que sobrevive a cinco tomadas
+  // não é azar, é o texto, e o aviso do fim passa a ser diagnóstico em vez de ruído.
+  //
+  // Nada é gravado aqui. Quem grava é o chamador, e só depois de ler o veredito.
   const respiro = respiroEsperado(texto);
   for (let tentativa = 1; ; tentativa += 1) {
     const r = await gerarUmaTomada(chave, texto);
-    const existe = r.pico >= PICO_MINIMO && r.depois >= DURACAO_MINIMA_S;
+    const existe = r.utilizavel;
     const inteira = respiro || r.buraco <= BURACO_MAXIMO_S;
     if ((existe && inteira) || tentativa >= TENTATIVAS) {
-      // MUDA é a peça que não existe — essa vai para falhas e o arquivo é apagado. Fôlego
-      // teimoso não: a peça é utilizável, e apagá-la deixaria um buraco no pacote por um
-      // defeito de prosódia.
+      // MUDA é a peça que não existe — essa vai para falhas e NÃO vira arquivo. Fôlego teimoso
+      // não: a peça é utilizável, e descartá-la deixaria um buraco no pacote por um defeito de
+      // prosódia.
       if (!existe) r.mudo = true;
       else if (!inteira) r.folego = true;
       return r;
@@ -260,6 +269,15 @@ async function gerarUma(chave, texto) {
   }
 }
 
+/// Uma tomada: sintetiza, apara e aplica o rádio. NÃO grava nada.
+///
+/// Separar o processamento da gravação é o ponto todo, e é a mesma defesa que o pacote do
+/// spotter já tinha. Aqui o `escreverWav` acontecia ANTES da medição: a peça muda virava
+/// arquivo no disco e só depois era apagada, então bastava o processo morrer no meio — Ctrl+C,
+/// queda de rede, 429 numa das seis chamadas simultâneas — para o `.wav` inválido ficar. E
+/// ficar era permanente: a execução seguinte o pulava pelo "já existe", o `audio-para-opus`
+/// convertia, e o pacote saía com um buraco que ninguém vê. O sintoma na pista é SILÊNCIO, que
+/// é indistinguível de "o engenheiro não tinha o que dizer".
 async function gerarUmaTomada(chave, texto) {
   const t0 = performance.now();
   const bruto = await sintetizar(texto);
@@ -276,30 +294,71 @@ async function gerarUmaTomada(chave, texto) {
   const antes = amostras.length / taxa;
   const cortado = aparar(amostras, taxa);
   const final = opcoes.radio ? aplicarRadio(cortado, taxa) : cortado;
-  const destino = path.join(DESTINO, `${chave}.wav`);
-  escreverWav(destino, final, taxa);
 
+  const peca = avaliarPeca(final, taxa);
   return {
     ms,
+    final,
+    taxa,
     antes,
-    depois: final.length / taxa,
-    pico: pico(final),
+    depois: peca.duracao,
+    pico: peca.pico,
+    utilizavel: peca.utilizavel,
     buraco: buracoInterno(cortado, taxa),
   };
 }
 
+/// A peça que já está no disco ainda é uma peça?
+///
+/// O "já existe" pula pelo NOME, e um `.wav` mudo — gravado por uma rodada antiga, de quando
+/// este script gravava antes de medir — tem nome tão bom quanto o de uma fala boa. Sem esta
+/// releitura, o único jeito de sair do buraco seria alguém desconfiar e apagar o arquivo à mão.
+///
+/// Custa uma leitura do acervo inteiro por rodada: medido em 12/08/2026, 300 peças em 180 ms,
+/// ou seja ~0,6 ms por peça — poucos segundos para o acervo inteiro. É barato ao lado das
+/// milhares de chamadas HTTP que
+/// a rodada faz, e é o preço de o "já existe" voltar a significar "já está boa".
+function jaEstaBoa(destino) {
+  try {
+    const { amostras, taxa } = lerWav(destino);
+    return avaliarPeca(amostras, taxa);
+  } catch {
+    return { utilizavel: false, motivo: "não abre como WAV" };
+  }
+}
+
 // ─── A rodada ────────────────────────────────────────────────────────────────
 
-const fila = catalogo.filter(({ chave }) => {
-  if (opcoes.so && !chave.startsWith(opcoes.so)) return false;
-  return opcoes.refazer || !fs.existsSync(path.join(DESTINO, `${chave}.wav`));
-});
+// A fila revalida o que já está no disco em vez de confiar no nome. Peça inutilizável de
+// rodada antiga volta para a fila sozinha, e é assim que o buraco deixa de ser permanente.
+const fila = [];
+const ressuscitadas = [];
+for (const entrada of catalogo) {
+  const { chave } = entrada;
+  if (opcoes.so && !chave.startsWith(opcoes.so)) continue;
+  const destino = path.join(DESTINO, `${chave}.wav`);
+  if (opcoes.refazer || !fs.existsSync(destino)) {
+    fila.push(entrada);
+    continue;
+  }
+  const disco = jaEstaBoa(destino);
+  if (!disco.utilizavel) {
+    ressuscitadas.push(`${chave} (${disco.motivo})`);
+    fila.push(entrada);
+  }
+}
 
 console.log(
   `\n${catalogo.length} falas no catálogo · ${fila.length} a gerar` +
     `${opcoes.so ? ` (filtro "${opcoes.so}")` : ""}` +
     `${opcoes.radio ? "" : " · SEM rádio"}\n`,
 );
+if (ressuscitadas.length) {
+  console.log(`  ${ressuscitadas.length} peça(s) no disco estavam inutilizáveis e voltaram para a fila:`);
+  for (const r of ressuscitadas.slice(0, 20)) console.log(`     ↻  ${r}`);
+  if (ressuscitadas.length > 20) console.log(`     … e mais ${ressuscitadas.length - 20}`);
+  console.log("");
+}
 if (!fila.length) {
   console.log("Nada a fazer. Use --refazer para regerar.\n");
   process.exit(0);
@@ -319,9 +378,26 @@ async function trabalhador() {
     proxima += 1;
     if (i >= fila.length) return;
     const { chave, texto } = fila[i];
+    const destino = path.join(DESTINO, `${chave}.wav`);
     try {
       const r = await gerarUma(chave, texto);
       concluidas += 1;
+      if (r.mudo) {
+        // NADA é gravado, e o que houver de rodada antiga sai do disco. Um `.wav` mudo é pior
+        // que arquivo nenhum: com ele, a execução seguinte pula a chave pelo "já existe" e o
+        // buraco some de vista; sem ele, o gerador tenta de novo até alguém resolver.
+        if (fs.existsSync(destino)) fs.unlinkSync(destino);
+        falhas.push({
+          chave,
+          texto,
+          motivo: `inutilizável em ${TENTATIVAS} tentativas (pico ${r.pico.toFixed(3)}, ${r.depois.toFixed(2)}s)`,
+        });
+        console.log(`  ✘  ${chave.padEnd(24)} INUTILIZÁVEL — pico ${r.pico.toFixed(3)}, ${r.depois.toFixed(2)}s, nada gravado`);
+        continue;
+      }
+
+      escreverWav(destino, r.final, r.taxa);
+
       if (r.folego) {
         avisos.push(
           `${chave}: ${r.buraco.toFixed(2)}s de silêncio DENTRO da fala em ${TENTATIVAS} tentativas — ` +
@@ -332,19 +408,6 @@ async function trabalhador() {
       }
       if (r.depois > DURACAO_SUSPEITA_S) {
         avisos.push(`${chave}: ${r.depois.toFixed(2)}s é longo demais para uma resposta de rádio`);
-      }
-      if (r.mudo) {
-        // Vai para FALHAS, não para avisos: um `.wav` mudo em disco é pior que nenhum. Com
-        // arquivo, a execução seguinte o pula pelo "já existe" e o buraco some de vista; sem
-        // arquivo, o gerador tenta de novo até alguém resolver.
-        fs.unlinkSync(path.join(DESTINO, `${chave}.wav`));
-        falhas.push({
-          chave,
-          texto,
-          motivo: `inutilizável em ${TENTATIVAS} tentativas (pico ${r.pico.toFixed(3)}, ${r.depois.toFixed(2)}s)`,
-        });
-        console.log(`  ✘  ${chave.padEnd(24)} INUTILIZÁVEL — pico ${r.pico.toFixed(3)}, ${r.depois.toFixed(2)}s`);
-        continue;
       }
       console.log(
         `  ${String(concluidas).padStart(3)}/${fila.length}  ${chave.padEnd(24)} ` +

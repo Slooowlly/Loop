@@ -29,6 +29,7 @@ mod amostrador;
 mod api;
 mod constantes;
 mod controle_corrida;
+pub mod cutucao;
 mod estado_agora;
 mod historico;
 mod observacao;
@@ -471,6 +472,12 @@ struct RaceMonitor {
     /// criaria duas redações da mesma coisa, que é o defeito que a família de quebra já pagou.
     classificacao_log: Vec<crate::engenheiro::classificacao::Fala>,
     volta_ref: crate::engenheiro::volta_referencia::VoltaReferencia,
+    /// O ciclo de volta do JOGADOR na classificatória — quem diz com que tempo a volta que
+    /// cruzou a linha fechou. É o mesmo [`voltas::ColetorDeVoltas`] do histórico e da quali por
+    /// carro, e está aqui pelo mesmo motivo: o `LapLastLapTime` lido no tique da virada ainda é
+    /// o tempo da volta anterior. Coletor PRÓPRIO porque este canal é zerado na virada da sessão
+    /// de classificação, e não nas bordas de corrida que zeram os outros.
+    voltas_quali_jogador: voltas::ColetorDeVoltas,
     /// Bookkeeping da volta de classificação, que é o que o observador NÃO faz — ele decide o
     /// que dizer, não onde estamos.
     ///
@@ -618,6 +625,7 @@ impl RaceMonitor {
             classificacao: crate::engenheiro::classificacao::Observador::novo(),
             classificacao_log: Vec::new(),
             volta_ref: crate::engenheiro::volta_referencia::VoltaReferencia::novo(),
+            voltas_quali_jogador: voltas::ColetorDeVoltas::DEFAULT,
             quali_volta: -1,
             quali_saiu_do_box: false,
             quali_sujou: false,

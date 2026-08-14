@@ -71,7 +71,7 @@ export function AtlasLegend({ showLive = false }) {
       key: "outside",
       glyph: (
         <span
-          className="inline-block h-2.5 w-4 rounded-[2px] border border-white/12"
+          className="inline-block h-2.5 w-4 rounded-[2px] border border-white/[0.12]"
           style={{ background: "repeating-linear-gradient(135deg,rgba(148,163,184,0.22) 0 3px,rgba(148,163,184,0.04) 3px 6px)" }}
         />
       ),

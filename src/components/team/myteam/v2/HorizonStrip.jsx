@@ -144,7 +144,7 @@ function FlowBar({ label, value, percent, bar, tone, tile, Icon }) {
 
 function EquationRow({ operator, label, value, tone, Icon = null, iconTone = "text-text-muted", total = false }) {
   return (
-    <div className={`flex items-center gap-2.5 ${total ? "border-t border-white/8 pt-2.5" : ""}`}>
+    <div className={`flex items-center gap-2.5 ${total ? "border-t border-white/[0.08] pt-2.5" : ""}`}>
       <span className="w-3 shrink-0 text-center font-mono text-sm text-text-muted">{operator}</span>
       {Icon ? <Icon size={17} strokeWidth={1.7} aria-hidden="true" className={`shrink-0 ${iconTone}`} /> : null}
       <span className="text-sm text-text-secondary">{label}</span>

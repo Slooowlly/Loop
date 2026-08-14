@@ -19,17 +19,12 @@ pub(crate) const DDL_AI_PRE_RACE_BRIEFING: &str = "
     );
 ";
 
+/// Reaplica o DDL para conexões de teste in-memory que não migram. Só isso: schema
+/// permanente é assunto das migrações, e o `ALTER` de `headline` (tabela criada antes da
+/// manchete cinematográfica) mora na v62, que é o lado que existe para consertar save em
+/// campo. Aqui ele era no-op: a constante acima já declara a coluna.
 fn ensure_table(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(DDL_AI_PRE_RACE_BRIEFING)?;
-    // Tabelas criadas antes da manchete cinematográfica não têm a coluna `headline`.
-    // Guardado por PRAGMA em vez de ALTER com erro engolido: erro engolido esconde
-    // também a falha de disco.
-    crate::db::migrations::add_column_if_missing(
-        conn,
-        "ai_pre_race_briefing",
-        "headline",
-        "TEXT NOT NULL DEFAULT ''",
-    )?;
     Ok(())
 }
 

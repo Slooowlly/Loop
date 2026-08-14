@@ -79,6 +79,11 @@ beforeEach(() => {
   mockInvoke.mockReset();
   mockNavigate.mockReset();
   mockLoadCareer.mockReset();
+  // Padrão: a carga nunca termina. `enterCareer` só navega DEPOIS da animação de saída
+  // (`CUT_MS`), então uma carga que resolve sozinha deixa um `navigate` agendado para
+  // depois do fim do teste — e ele cai no `mockNavigate` de outro caso, sob carga. Quem
+  // precisa da carga concluída resolve ou rejeita explicitamente e espera pelo efeito.
+  mockLoadCareer.mockReturnValue(new Promise(() => {}));
   // O fundo animado é canvas; em jsdom `getContext` devolve null e o menu estouraria.
   HTMLCanvasElement.prototype.getContext = () => ({
     setTransform: vi.fn(),
@@ -244,5 +249,53 @@ describe("MainMenu — lista de saves", () => {
 
     fireEvent.click(screen.getByText("Ana Prado"));
     await waitFor(() => expect(mockLoadCareer).toHaveBeenCalledWith("C_ANTIGA"));
+  });
+});
+
+// O outro silêncio do menu: entrar numa carreira. O `catch` de `enterCareer` só desfazia a
+// animação de saída, então um save corrompido devolvia o jogador ao menu com a mesma cara de
+// um clique que não pegou. Ele clicava de novo, no mesmo cartão, e nada acontecia de novo.
+describe("MainMenu — entrar numa carreira", () => {
+  it("save que não abre AVISA e mantém o jogador no menu", async () => {
+    mockLoadCareer.mockRejectedValue(new Error("banco do save corrompido"));
+
+    renderMenu();
+    await screen.findByText("Continuar carreira");
+
+    fireEvent.click(screen.getByText("Continuar carreira"));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    // O menu continua inteiro: dá para tentar outra carreira sem reabrir o app.
+    expect(screen.getByText("Continuar carreira")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Carregar carreira" })).toBeInTheDocument();
+  });
+
+  it("a falha vale para a lista de saves também, e não só para 'Continuar'", async () => {
+    mockLoadCareer.mockRejectedValue(new Error("banco do save corrompido"));
+
+    renderMenu();
+    await abrirPainelDeSaves();
+
+    fireEvent.click(screen.getByText("Ana Prado"));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("a tentativa seguinte limpa o aviso e entra na carreira", async () => {
+    mockLoadCareer.mockRejectedValueOnce(new Error("banco do save corrompido"));
+
+    renderMenu();
+    await screen.findByText("Continuar carreira");
+
+    fireEvent.click(screen.getByText("Continuar carreira"));
+    await screen.findByRole("alert");
+
+    mockLoadCareer.mockResolvedValue({ career_id: "C_RECENTE" });
+    fireEvent.click(screen.getByText("Continuar carreira"));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/dashboard"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

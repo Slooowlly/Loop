@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import { cacheEhDaEtapaAtual } from "../../../stores/career/helpers";
+import { bestEffort } from "../../../utils/bestEffort";
 import { AI_PREVIEW_MAX_WAIT_MS, PRE_RACE_READ_MS } from "./nextRaceHelpers";
 
 // Prévia pré-corrida por IA + detecção de leitura da Sala de Estratégia.
@@ -27,8 +29,9 @@ export function usePreRaceAi({ careerId, nextRace, preRaceAi, briefing, isLoadin
     setAiBriefing(null);
     setAiPending(false);
     // Prefetch durante a animação de avanço já gerou esta etapa → usa direto (sem
-    // novo fetch e sem flash; o render lê de `preRaceAi`).
-    if (preRaceAi?.raceId && preRaceAi.raceId === raceId) {
+    // novo fetch e sem flash; o render lê de `preRaceAi`). A carreira entra na conferência
+    // porque a numeração das etapas recomeça em R001 a cada save.
+    if (cacheEhDaEtapaAtual(preRaceAi, { careerId, raceId })) {
       return undefined;
     }
     // Só dispara com o contexto do briefing já carregado (standings/forma), senão
@@ -41,7 +44,11 @@ export function usePreRaceAi({ careerId, nextRace, preRaceAi, briefing, isLoadin
     const maxWait = window.setTimeout(() => {
       if (active) setAiPending(false);
     }, AI_PREVIEW_MAX_WAIT_MS);
-    invoke("pre_race_briefing_ai", { careerId, raceId, facts })
+    // Best-effort de verdade: cooldown e erro do servidor de IA são o caso ESPERADO, e o
+    // template já é a resposta pronta para eles (`aiBriefing` fica null e o render cai
+    // nele sozinho). O que faltava era o rastro — sem ele, "a prévia nunca vem" e "a
+    // prévia está em cooldown" chegam iguais ao suporte.
+    bestEffort(invoke("pre_race_briefing_ai", { careerId, raceId, facts }), "pre_race_briefing_ai")
       .then((res) => {
         if (active && res?.narrative && res?.team_voice) {
           setAiBriefing({
@@ -51,7 +58,6 @@ export function usePreRaceAi({ careerId, nextRace, preRaceAi, briefing, isLoadin
           });
         }
       })
-      .catch(() => {})
       .finally(() => {
         if (active) setAiPending(false);
       });
@@ -59,7 +65,14 @@ export function usePreRaceAi({ careerId, nextRace, preRaceAi, briefing, isLoadin
       active = false;
       window.clearTimeout(maxWait);
     };
-  }, [careerId, nextRace?.id, briefing.aiFacts, isLoadingBriefing, preRaceAi?.raceId]);
+  }, [
+    careerId,
+    nextRace?.id,
+    briefing.aiFacts,
+    isLoadingBriefing,
+    preRaceAi?.raceId,
+    preRaceAi?.careerId,
+  ]);
 
   // --- Detecção de leitura da prévia (alimenta o gate de engajamento da IA) ---
   // Cronometra o tempo na Sala de Estratégia por etapa. "Leu" = ficou ≥ PRE_RACE_READ_MS
@@ -73,7 +86,13 @@ export function usePreRaceAi({ careerId, nextRace, preRaceAi, briefing, isLoadin
     readReportedRef.current = true;
     if (!careerId) return;
     const read = Date.now() - viewStartRef.current >= PRE_RACE_READ_MS;
-    invoke("report_pre_race_engagement", { careerId, read }).catch(() => {});
+    // Telemetria de engajamento: nada na tela depende dela, e perder um report só
+    // desloca de leve o gate da IA. Best-effort legítimo, com rastro para quando o gate
+    // parecer travado sem motivo.
+    bestEffort(
+      invoke("report_pre_race_engagement", { careerId, read }),
+      "report_pre_race_engagement",
+    );
   }, [careerId]);
 
   useEffect(() => {

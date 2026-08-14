@@ -50,7 +50,7 @@ function GridComparative({ teams, cars, playerTeam, historyTeamId, onTeamHistory
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm" aria-label={t("myTeamTabV2.comparative.title")}>
             <thead>
-              <tr className="border-b border-white/8 text-[10px] uppercase tracking-[0.18em] text-text-muted">
+              <tr className="border-b border-white/[0.08] text-[10px] uppercase tracking-[0.18em] text-text-muted">
                 <th className="py-2.5 pr-3 font-normal">#</th>
                 {/* A coluna do nome não pode ficar com a folga toda: era ela que
                     empurrava as outras seis para o canto direito e deixava meia
@@ -85,7 +85,7 @@ function GridComparative({ teams, cars, playerTeam, historyTeamId, onTeamHistory
                   <tr
                     key={team.id}
                     className={[
-                      "border-b border-white/6 last:border-0 transition-all duration-200",
+                      "border-b border-white/[0.06] last:border-0 transition-all duration-200",
                       team.id === historyTeamId
                         ? "bg-status-yellow/10 text-text-primary ring-1 ring-status-yellow/45"
                         : isPlayer
@@ -158,7 +158,7 @@ function GridComparative({ teams, cars, playerTeam, historyTeamId, onTeamHistory
         </div>
       </div>
 
-      <div className="mt-6 border-t border-white/8 pt-5">
+      <div className="mt-6 border-t border-white/[0.08] pt-5">
         <EfficiencyScatter teams={teams} playerTeamId={playerTeam?.id} />
       </div>
     </GlassCard>

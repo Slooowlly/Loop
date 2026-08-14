@@ -4,6 +4,17 @@
 
 use super::*;
 
+/// Interruptor SÓ DE TESTE: faz a virada falhar no último passo antes do commit.
+///
+/// Existe para provar, num teste de ponta a ponta, que o rollback do banco e o
+/// descarte do plano da pré-temporada em staging andam juntos. Some inteiro do
+/// binário de release — o `#[cfg(test)]` cobre a declaração e a checagem.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static FALHAR_ANTES_DO_COMMIT: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
 pub fn run_end_of_season(
     conn: &mut Connection,
     season: &Season,
@@ -75,8 +86,8 @@ pub(super) fn run_end_of_season_with_mode(
 
     // Onde cada piloto estava ANTES da virada. É a referência do segundo passe da
     // motivação, lá embaixo: promoção e mercado ainda não rodaram nesta altura,
-    // então "promovido/rebaixado/renovado/dispensado" só se conhece comparando
-    // este retrato com o de depois da pré-temporada.
+    // então "promovido/rebaixado/dispensado" só se conhece comparando este retrato
+    // com o de depois da pré-temporada.
     let seats_before = seat_map(&tx)?;
 
     let (growth_reports, mut motivation_reports, retirements, _existing_names) =
@@ -121,14 +132,6 @@ pub(super) fn run_end_of_season_with_mode(
     // depois. Roda com o archive já gravado (fonte de quem esteve com quem).
     crate::market::bond::update_bonds_from_season(&tx, season)
         .map_err(|e| format!("Falha ao atualizar vínculos piloto-equipe: {e}"))?;
-
-    // Rivalidade entre EQUIPES — Fonte 1 (briga de construtores): lê o `team_season_archive`
-    // recém-gravado e reforça rivalidades entre construtores que brigaram apertado nesta
-    // temporada. É a espinha dorsal do sistema; o decay logo abaixo esfria o recente (igual
-    // ao piloto). Best-effort semântico — não desfaz o resto do offseason em caso de dado
-    // parcial (usa os mesmos guards do motor de piloto).
-    crate::rivalry::team::process_constructor_battle_rivalry(&tx, season.numero)
-        .map_err(|e| format!("Falha na rivalidade de construtores: {e}"))?;
 
     // Prêmio de fim de temporada por posição no campeonato de construtores.
     // Creditado após o arquivamento (que define posicao_campeonato) e antes da
@@ -183,9 +186,23 @@ pub(super) fn run_end_of_season_with_mode(
     crate::rivalry::team::apply_season_end_team_rivalry_decay(&tx, season.numero)
         .map_err(|e| format!("Erro no decaimento de rivalidades de equipe: {e}"))?;
 
+    // Rivalidade entre EQUIPES — Fonte 1 (briga de construtores): lê o `team_season_archive`
+    // gravado lá em cima e reforça quem brigou apertado nesta temporada. É a espinha dorsal
+    // do sistema, e é um VEREDITO DE TEMPORADA — por isso vem depois do decaimento, pela
+    // mesma razão dos dois de piloto acima. Rodando antes, um par não decisor nascia em
+    // (4, 10), o decaimento do mesmo tique o levava a (4, 5) e o limiar de extinção o
+    // apagava na mesma transação: só o par que decidiu o título sobrevivia ao próprio
+    // nascimento. Best-effort semântico — não desfaz o resto do offseason em caso de dado
+    // parcial (usa os mesmos guards do motor de piloto).
+    crate::rivalry::team::process_constructor_battle_rivalry(&tx, season.numero)
+        .map_err(|e| format!("Falha na rivalidade de construtores: {e}"))?;
+
     let new_season = create_next_season_phase(&tx, season, &mut rng, mode)?;
 
-    let (preseason_initialized, preseason_total_weeks) =
+    // O plano da pré-temporada sai daqui em STAGING, não publicado: o arquivo não
+    // participa da transação e não pode ficar de pé se algum passo abaixo derrubar o
+    // banco. Ver `PreSeasonPlanStaging`.
+    let (preseason_initialized, preseason_total_weeks, plano_em_staging) =
         initialize_preseason_phase(&tx, &new_season, save_path, &mut rng, mode)?;
 
     // Cura lesões de pilotos sem assento (passo 2 de 2). O mercado da pré-temporada
@@ -198,18 +215,36 @@ pub(super) fn run_end_of_season_with_mode(
     crate::evolution::injury::process_injury_recovery_without_seat(&tx)
         .map_err(|e| format!("Falha ao recuperar lesões de pilotos recém-liberados: {e}"))?;
 
-    // SEGUNDO PASSE DA MOTIVAÇÃO — a última coisa antes do commit, porque só aqui
-    // o offseason inteiro já aconteceu: promoção/rebaixamento (acima) e o mercado
-    // de pré-temporada (dentro de `initialize_preseason_phase`). É o passe que faz
-    // "perdeu a vaga" e "foi rebaixado" existirem de fato; antes disso os dois
-    // chegavam ao modelo como `false` fixo e nunca puxavam a motivação para baixo.
+    // SEGUNDO PASSE DA MOTIVAÇÃO — a última coisa antes do commit, porque só aqui a
+    // promoção/rebaixamento (acima) já aconteceu. É o passe que faz "foi promovido" e
+    // "foi rebaixado" existirem de fato; antes disso os dois chegavam ao modelo como
+    // `false` fixo e nunca mexiam na motivação.
+    //
+    // O que NÃO se decide mais aqui: renovação e perda de vaga. Os dois eram derivados
+    // do antes/depois dos assentos, e essa derivação só funciona onde o mercado roda
+    // dentro da própria virada — o modo HISTÓRICO. No modo jogável a virada apenas
+    // deixa o plano em staging e as pré-passes caem ao sair da semana 1, depois do
+    // commit: quando este passe rodava, ninguém tinha renovado nem perdido vaga nenhuma.
+    // Cada um passou a ser aplicado no instante do próprio evento — ver
+    // `evolution::motivation::adjust_contract_renewal_motivation` e
+    // `adjust_lost_seat_motivation`.
     let offseason_reports = apply_offseason_motivation(&tx, &seats_before)?;
     merge_motivation_reports(&mut motivation_reports, offseason_reports);
 
-    tx.commit().map_err(|e| {
-        let _ = std::fs::remove_file(save_path.join("preseason_plan.json"));
-        format!("Falha ao confirmar fim de temporada: {e}")
-    })?;
+    #[cfg(test)]
+    if FALHAR_ANTES_DO_COMMIT.with(|interruptor| interruptor.get()) {
+        return Err("falha injetada no ultimo passo da virada de temporada".to_string());
+    }
+
+    tx.commit()
+        .map_err(|e| format!("Falha ao confirmar fim de temporada: {e}"))?;
+
+    // Só agora, com o banco comitado, o plano da pré-temporada entra no lugar. A troca
+    // preserva o arquivo anterior até o novo estar efetivamente publicado e o devolve
+    // se o rename final falhar.
+    if let Some(staging) = plano_em_staging {
+        staging.publicar()?;
+    }
 
     Ok(EndOfSeasonResult {
         growth_reports,

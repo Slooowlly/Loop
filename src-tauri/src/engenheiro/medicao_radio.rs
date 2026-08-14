@@ -142,7 +142,11 @@ fn contexto(
         // A outra cadeira da equipe do jogador.
         e_companheiro: carro == EU + 1,
         lidera_campeonato: carro == LIDER,
-        delta_pontos: if carro == EU { None } else { delta_pontos(carro) },
+        delta_pontos: if carro == EU {
+            None
+        } else {
+            delta_pontos(carro)
+        },
         peca: peca.to_string(),
         severidade: severidade.to_string(),
         variante,
@@ -185,7 +189,11 @@ fn uma_corrida(corrida: u32, e: &Elenco, carros: u32, voltas: u32) -> serde_json
                 if ev.severity == Severity::Dnf {
                     abandonos += 1;
                 }
-                da_volta.push((c, ev.part.as_str().to_string(), ev.severity.key().to_string()));
+                da_volta.push((
+                    c,
+                    ev.part.as_str().to_string(),
+                    ev.severity.key().to_string(),
+                ));
             }
         }
 
@@ -308,8 +316,16 @@ fn despeja_linha_do_tempo() {
     f.write_all(doc.to_string().as_bytes()).expect("escrever");
 
     let n = f64::from(CORRIDAS);
-    println!("\n── linha do tempo do rádio ({CORRIDAS} corridas × {carros} carros × {voltas} voltas) ──");
-    println!("  quebras (já fundidas)  {:>6.2} falas por corrida", total_q as f64 / n);
-    println!("  peça própria + poupar  {:>6.2} falas por corrida", total_p as f64 / n);
+    println!(
+        "\n── linha do tempo do rádio ({CORRIDAS} corridas × {carros} carros × {voltas} voltas) ──"
+    );
+    println!(
+        "  quebras (já fundidas)  {:>6.2} falas por corrida",
+        total_q as f64 / n
+    );
+    println!(
+        "  peça própria + poupar  {:>6.2} falas por corrida",
+        total_p as f64 / n
+    );
     println!("  → {}", caminho.display());
 }

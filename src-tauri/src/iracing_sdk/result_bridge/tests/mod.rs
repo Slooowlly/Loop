@@ -7,7 +7,9 @@ use crate::iracing_sdk::race_monitor::{
 };
 use crate::simulation::race::RaceResult;
 
-use super::{build_race_result_from_aiseason, build_race_result_from_session, player_worst_severity};
+use super::{
+    build_race_result_from_aiseason, build_race_result_from_session, player_worst_severity,
+};
 
 fn meta(idx: i32, car_number: i32, class_position: i32, class_id: i64) -> CarMeta {
     CarMeta {
@@ -107,7 +109,11 @@ fn grid_ignora_a_volta_anulada_da_quali() {
 
     assert_eq!(grid.get(&0), Some(&1), "o jogador fez a pole com 89 s");
     assert_eq!(grid.get(&1), Some(&2));
-    assert_eq!(grid.get(&2), Some(&3), "a volta anulada não adianta ninguém");
+    assert_eq!(
+        grid.get(&2),
+        Some(&3),
+        "a volta anulada não adianta ninguém"
+    );
 }
 
 /// Save gravado antes de o melhor válido existir: sem ele, o grid continua saindo das
@@ -557,6 +563,11 @@ fn reparo_pedido_pelo_sim_sustenta_a_severidade() {
     assert_eq!(severidade(sem_sinal), "moderado");
 
     // E não cria dano onde não houve batida: sem impacto, o reparo sozinho não cobra.
-    let so_reparo = tentativa_com_reparo(0.0, true, vec![batida(61.0, Severidade::Moderado, false)], 42.0);
+    let so_reparo = tentativa_com_reparo(
+        0.0,
+        true,
+        vec![batida(61.0, Severidade::Moderado, false)],
+        42.0,
+    );
     assert_eq!(severidade(so_reparo), "nenhum");
 }

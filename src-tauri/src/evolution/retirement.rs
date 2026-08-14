@@ -16,6 +16,25 @@ pub fn check_retirement(
     has_severe_injury: bool,
     rng: &mut impl Rng,
 ) -> RetirementResult {
+    // O PILOTO DO JOGADOR NUNCA É APOSENTADO À FORÇA, e a regra vale AQUI, no centro,
+    // porque só assim ela vale para todos os ramos e para todo chamador novo.
+    //
+    // Ela já estava escrita em três comentários desta página e era obedecida em dois
+    // caminhos: o "nunca correu", que carregava o `!is_jogador` dentro do próprio ramo, e
+    // a lesão grave do meio da temporada, checada pelo chamador em `race::persistencia`.
+    // Idade e desânimo passavam direto — e a idade não é uma chance, é uma certeza: aos
+    // 47 anos o `chance` é 1.00, então o jogador que chegasse lá tinha a carreira
+    // encerrada pela virada de temporada, sem nada a fazer e sem nada a decidir.
+    //
+    // Quem pendura o capacete do piloto do jogador é o jogador. A IA continua sujeita a
+    // tudo o que vem abaixo, com os mesmos limiares.
+    if driver.is_jogador {
+        return RetirementResult {
+            should_retire: false,
+            reason: None,
+        };
+    }
+
     if has_severe_injury && rng.gen::<f64>() < 0.40 {
         return RetirementResult {
             should_retire: true,
@@ -74,7 +93,8 @@ pub fn check_retirement(
     // Pilotos da IA que nunca competiram e já passaram da idade de estreia
     // dificilmente entrarão num grid — aposentam cedo para não se acumularem
     // como agentes livres eternos (órfãos que inflavam o mundo sem nunca correr).
-    if !driver.is_jogador && driver.stats_carreira.corridas == 0 {
+    // O `!is_jogador` que morava nesta condição saiu: a proteção é a do topo da função.
+    if driver.stats_carreira.corridas == 0 {
         let never_raced_chance = match age {
             27..=29 => 0.40,
             30..=32 => 0.70,
@@ -348,6 +368,73 @@ mod tests {
                 "jogador nunca deve ser aposentado pela regra de nunca-correu (seed {seed})"
             );
         }
+    }
+
+    /// **O jogador não é aposentado à força, e a IA equivalente é.** O par é o teste:
+    /// sem o piloto de IA ao lado, um `!should_retire` no jogador provaria apenas que o
+    /// cenário não aposenta ninguém.
+    ///
+    /// Os três eixos que a função conhece, todos com o jogador em situação terminal:
+    /// 47 anos (chance de idade = 1.00, certeza), motivação no chão por temporadas
+    /// seguidas e lesão grave. Até 11/08/2026 os dois primeiros levavam o jogador junto:
+    /// a regra estava escrita em comentário e o `!is_jogador` só existia no ramo do
+    /// "nunca correu".
+    #[test]
+    fn jogador_nunca_e_aposentado_a_forca_e_a_ia_equivalente_e() {
+        for seed in 0..100 {
+            // Idade: 47 anos é a faixa de chance 1.00 — a IA aposenta em todas as seeds.
+            let mut jogador = sample_driver(47, 60.0, 80.0);
+            jogador.is_jogador = true;
+            let ia = sample_driver(47, 60.0, 80.0);
+            let mut rng = StdRng::seed_from_u64(seed);
+            assert!(
+                !check_retirement(&jogador, 0, false, &mut rng).should_retire,
+                "jogador aposentado por idade (seed {seed})"
+            );
+            let mut rng = StdRng::seed_from_u64(seed);
+            assert!(
+                check_retirement(&ia, 0, false, &mut rng).should_retire,
+                "a IA de 47 anos tem de aposentar (seed {seed})"
+            );
+
+            // Desânimo: 33 anos isola o ramo (fora da idade e da paciência por juventude),
+            // motivação 10 e temporadas ruins bem acima da paciência do perfil.
+            let mut jogador = sample_driver(33, 40.0, 10.0);
+            jogador.is_jogador = true;
+            let ia = sample_driver(33, 40.0, 10.0);
+            let mut rng = StdRng::seed_from_u64(seed);
+            assert!(
+                !check_retirement(&jogador, 6, false, &mut rng).should_retire,
+                "jogador aposentado por desmotivação (seed {seed})"
+            );
+            let mut rng = StdRng::seed_from_u64(seed);
+            assert!(
+                check_retirement(&ia, 6, false, &mut rng).should_retire,
+                "a IA desmotivada há 6 temporadas tem de aposentar (seed {seed})"
+            );
+
+            // Lesão grave: o ramo é probabilístico (0.40), então aqui o jogador é
+            // checado em todas as seeds e a IA só precisa cair em alguma.
+            let mut jogador = sample_driver(30, 60.0, 80.0);
+            jogador.is_jogador = true;
+            let mut rng = StdRng::seed_from_u64(seed);
+            assert!(
+                !check_retirement(&jogador, 0, true, &mut rng).should_retire,
+                "jogador aposentado por lesão grave (seed {seed})"
+            );
+        }
+
+        let ia_lesionada = sample_driver(30, 60.0, 80.0);
+        let aposentadas = (0..100)
+            .filter(|seed| {
+                let mut rng = StdRng::seed_from_u64(*seed);
+                check_retirement(&ia_lesionada, 0, true, &mut rng).should_retire
+            })
+            .count();
+        assert!(
+            aposentadas > 0,
+            "a IA com lesão grave tem de aposentar em parte das seeds, foi {aposentadas}"
+        );
     }
 
     #[test]

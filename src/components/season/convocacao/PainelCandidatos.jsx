@@ -98,7 +98,7 @@ export default function PainelCandidatos({
         )}
       </div>
 
-      <div className="border-t border-white/8 pt-4">
+      <div className="border-t border-white/[0.08] pt-4">
         <div className="mb-4 flex h-6 items-center justify-between">
           <p className="text-body-sm font-bold uppercase tracking-[0.22em] text-[color:var(--accent-primary)]">
             {t("convocation.offers.title")}
@@ -135,7 +135,7 @@ export default function PainelCandidatos({
                     {offers.map((offer) => (
                       <article
                         key={offer.id}
-                        className="glass-light rounded-xl border border-white/8 px-3 py-3"
+                        className="glass-light rounded-xl border border-white/[0.08] px-3 py-3"
                       >
                         <div className="flex items-center justify-between gap-3">
                           <p className="text-body font-bold text-[color:var(--text-primary)]">

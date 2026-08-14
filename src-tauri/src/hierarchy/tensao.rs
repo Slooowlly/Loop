@@ -425,7 +425,14 @@ mod tests {
     #[ignore = "harness do gatilho de inversão; rodar sob demanda"]
     fn gatilho_de_inversao_medido() {
         eprintln!("taxa_n2 | temporadas que armam | tensao ao armar | tensao maxima");
-        for p in [TAXA_N2_MUNDO_MEDIA, TAXA_N2_MUNDO_MAX, 0.40, 0.50, 0.65, 0.80] {
+        for p in [
+            TAXA_N2_MUNDO_MEDIA,
+            TAXA_N2_MUNDO_MAX,
+            0.40,
+            0.50,
+            0.65,
+            0.80,
+        ] {
             let mut s = sorteio_semeado(4_242);
             let (frac, media, maxima) =
                 gatilho_de_inversao_na_temporada(&TENSAO_DELTAS, p, 14, 20_000, &mut s);
@@ -434,7 +441,9 @@ mod tests {
                 100.0 * frac
             );
         }
-        eprintln!("\n[LIMIARES] estavel<20 competitivo<40 tensao<60 reavaliacao<75 inversao<90 crise>=90");
+        eprintln!(
+            "\n[LIMIARES] estavel<20 competitivo<40 tensao<60 reavaliacao<75 inversao<90 crise>=90"
+        );
     }
 
     /// Harness de calibração: varre candidatos e imprime o equilíbrio de cada um.

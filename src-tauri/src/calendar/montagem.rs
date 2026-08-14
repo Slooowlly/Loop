@@ -72,8 +72,9 @@ pub(crate) fn ensure_night_race<R: Rng>(entries: &mut [CalendarEntry], tier: u8,
 /// no locale ATIVO da geração, que é a convenção do resto do motor (o motivo de
 /// abandono faz igual — ver a nota das listas de palavra-chave em `race_signals`).
 ///
-/// O espelho desta função vive em `db::queries::calendar::mapeamento`, como fallback
-/// para linha legada sem `nome`; se mudar o formato aqui, mude lá também.
+/// `db::queries::calendar::mapeamento` CHAMA esta função como fallback da linha legada
+/// sem `nome` — antes era um espelho com o literal em PT, que precisava ser mantido em
+/// sincronia à mão e não era.
 pub(crate) fn nome_da_etapa(rodada: i32, nome_curto: &str) -> String {
     rust_i18n::t!("calendar.round_name", round = rodada, track = nome_curto).to_string()
 }
@@ -169,9 +170,49 @@ pub(crate) fn resolve_race_duration(config: &CategoryConfig, rng: &mut impl Rng)
     }
 }
 
+/// Piso de voltas de uma etapa. Vale para qualquer duração: uma prova com menos que isso
+/// não tem os cinco segmentos que o motor de corrida precisa para existir.
+pub(crate) const PISO_DE_VOLTAS: i32 = 5;
+
+/// Duração (min) até a qual a etapa é tratada como SPRINT para efeito de teto de voltas.
+pub(crate) const DURACAO_DE_SPRINT_MIN: i32 = 60;
+
+/// Teto de voltas de uma etapa de sprint.
+pub(crate) const TETO_DE_VOLTAS_SPRINT: i32 = 50;
+
+/// Teto de voltas de uma etapa longa (acima de [`DURACAO_DE_SPRINT_MIN`]).
+pub(crate) const TETO_DE_VOLTAS_LONGA: i32 = 150;
+
+/// O teto de voltas que vale para esta duração.
+///
+/// **Por que o teto deixou de ser 50 para todo mundo.** O clamp único em 50 nasceu como
+/// sanidade de sprint e foi herdado pelas provas longas sem ninguém medir. A medição (B19)
+/// mostrou o custo: em 120 min **76%** das pistas do catálogo batem no teto, em 180 min
+/// **95%**, em 240 min **96%** e em 360 min **98%** — ou seja, no Endurance o número de
+/// voltas da etapa praticamente não é mais uma função da pista, é a constante 50. E o que
+/// depende dele depende de verdade: a janela de parada (`planejar_paradas` escolhe uma volta
+/// dentro de 35–65% do total, e com 50 voltas o grid inteiro escolhe entre ~17 e ~32), a
+/// contagem de voltas no segmento e a conta de desgaste por volta.
+///
+/// O teto continua existindo — a alternativa de remover o limite deixaria uma prova de 6 h
+/// em pista curta passar de 300 voltas, e o custo computacional por volta não é zero. 150 é
+/// folgado o bastante para a duração mais longa do calendário (360 min) sair do teto na
+/// maioria das pistas e apertado o bastante para continuar sendo um limite.
+///
+/// A fronteira em 60 min é a mesma que separa sprint de prova longa no resto do jogo: abaixo
+/// dela nada muda, e o contrato antigo (5..=50) segue valendo letra por letra.
+pub(crate) fn teto_de_voltas(duracao_corrida_min: i32) -> i32 {
+    if duracao_corrida_min <= DURACAO_DE_SPRINT_MIN {
+        TETO_DE_VOLTAS_SPRINT
+    } else {
+        TETO_DE_VOLTAS_LONGA
+    }
+}
+
 pub(crate) fn estimate_laps(track: &TrackInfo, duracao_corrida_min: i32) -> i32 {
     let tempo_volta_estimado_min = track.comprimento_km / 2.0;
-    ((duracao_corrida_min as f64 / tempo_volta_estimado_min).ceil() as i32).clamp(5, 50)
+    ((duracao_corrida_min as f64 / tempo_volta_estimado_min).ceil() as i32)
+        .clamp(PISO_DE_VOLTAS, teto_de_voltas(duracao_corrida_min))
 }
 
 pub(crate) fn split_track_name(full_name: &str) -> (String, String) {

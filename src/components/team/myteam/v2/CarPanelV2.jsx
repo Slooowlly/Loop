@@ -34,7 +34,7 @@ function CarPanelV2({ team, teams }) {
     <GlassCard hover={false} className="flex h-full flex-col rounded-[24px] p-6" data-testid="my-team-v2-car">
       {/* Ver o comentário gêmeo em GaragePanelV2: a régua sob o título é o que separa
           o cabeçalho do primeiro medidor — respiro sozinho não se via. */}
-      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-white/8 pb-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-white/[0.08] pb-4">
         <p className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-text-muted">
           <Timer size={19} strokeWidth={1.8} aria-hidden="true" className="text-accent-primary" />
           {t("myTeamTabV2.car.title")}
@@ -64,7 +64,7 @@ function CarPanelV2({ team, teams }) {
         ))}
       </div>
 
-      <div className="mt-5 flex items-center justify-between gap-3 border-t border-white/8 pt-4">
+      <div className="mt-5 flex items-center justify-between gap-3 border-t border-white/[0.08] pt-4">
         <span className="flex items-center gap-3.5 text-sm text-text-secondary">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] text-text-secondary">
             <Gauge size={24} strokeWidth={1.6} aria-hidden="true" />

@@ -10,7 +10,7 @@ use crate::simulation::context::SimulationContext;
 use super::*;
 use crate::simulation::catalog::IncidentCatalog;
 use crate::simulation::context::SimDriver;
-use crate::simulation::incidents::IncidentType;
+use crate::simulation::incidents::{IncidentResult, IncidentType};
 use crate::simulation::qualifying::{simulate_qualifying, QualifyingResult};
 
 fn sample_context(duration: i32, weather: WeatherCondition) -> SimulationContext {
@@ -335,6 +335,7 @@ fn test_rookie_category_experience_penalizes_race_score() {
         current_position: 1,
         incidents: Vec::new(),
         dnf_reason: None,
+        dnf_reason_key: None,
         dnf_segment: None,
         pending_damage: Vec::new(),
     };
@@ -372,6 +373,7 @@ fn test_smoothness_reduces_tire_degradation() {
         current_position: 1,
         incidents: Vec::new(),
         dnf_reason: None,
+        dnf_reason_key: None,
         dnf_segment: None,
         pending_damage: Vec::new(),
     };
@@ -470,6 +472,7 @@ fn test_dnf_ordering_later_segment_ahead_of_earlier() {
         current_position: 1,
         incidents: Vec::new(),
         dnf_reason: Some("Engine".to_string()),
+        dnf_reason_key: None,
         dnf_segment: Some(RaceSegment::Late),
         pending_damage: Vec::new(),
     };
@@ -485,6 +488,7 @@ fn test_dnf_ordering_later_segment_ahead_of_earlier() {
         current_position: 2,
         incidents: Vec::new(),
         dnf_reason: Some("Crash".to_string()),
+        dnf_reason_key: None,
         dnf_segment: Some(RaceSegment::Early),
         pending_damage: Vec::new(),
     };
@@ -592,6 +596,7 @@ fn mech(pilot: &str, lap: u32, is_dnf: bool, secs: u32) -> MechanicalOutcome {
         is_dnf,
         penalty_secs: secs,
         label: "câmbio travou na 3ª".to_string(),
+        problem_key: "car_breakdown.problem.gearbox_0_dnf".to_string(),
     }
 }
 
@@ -767,6 +772,7 @@ fn reparo_cobra_exatamente_os_segundos_em_ar_limpo() {
         is_dnf: false,
         penalty_secs: SECS,
         label: "troca de pneu".to_string(),
+        problem_key: "car_breakdown.problem.suspension_0_light".to_string(),
     }]);
 
     assert_eq!(
@@ -968,6 +974,7 @@ fn modelo_antigo_de_pontos(
                 current_position: 1,
                 incidents: Vec::new(),
                 dnf_reason: None,
+                dnf_reason_key: None,
                 dnf_segment: None,
                 pending_damage: Vec::new(),
             };
@@ -1101,6 +1108,7 @@ fn fase1_reparo_cobra_os_segundos_ate_no_lanterna_que_para_cedo() {
         is_dnf: false,
         penalty_secs: SECS,
         label: "troca de bico".to_string(),
+        problem_key: "car_breakdown.problem.front_wing_0_light".to_string(),
     }]);
 
     assert_eq!(
@@ -2324,6 +2332,160 @@ mod fase2 {
         }
     }
 
+    // ─────────── A compressão lê a ordem de agora, e não a do trecho anterior ───────────
+    //
+    // `estrategia::safety_car_nao_reordena_o_pelotao` já provava que a fórmula preserva a
+    // ordem, e provava com a posição casada com o gap. O chamador é que não casava: ele
+    // passava `current_position`, que só é reescrita em `fechar_o_trecho`, no FIM do trecho.
+    // Dentro do trecho ela é a foto do trecho anterior, e no primeiro trecho é o grid.
+
+    use crate::simulation::incidents::{IncidentResult, IncidentSeverity};
+    use crate::simulation::race::motor::aplicar_safety_car;
+
+    /// Um carro parado no meio do trecho, com tempo e posição carimbados à mão. É o jeito de
+    /// medir o safety car sozinho: sem RNG, sem incidente sorteado, sem trecho andado.
+    fn carro_no_trecho(id: &str, tempo_ms: f64, posicao_do_trecho_anterior: i32) -> RaceState {
+        RaceState {
+            driver_id: id.to_string(),
+            tire_wear: 1.0,
+            physical_condition: 1.0,
+            tempo_acumulado_ms: tempo_ms,
+            desvio_de_ritmo: 0.0,
+            trafego: Default::default(),
+            paradas: Default::default(),
+            is_dnf: false,
+            current_position: posicao_do_trecho_anterior,
+            incidents: Vec::new(),
+            dnf_reason: None,
+            dnf_reason_key: None,
+            dnf_segment: None,
+            pending_damage: Vec::new(),
+        }
+    }
+
+    /// A batida que traz a amarela: colisão crítica, o gatilho de `traz_bandeira_amarela`.
+    fn batida_que_neutraliza(id: &str, segmento: &str) -> IncidentResult {
+        IncidentResult {
+            pilot_id: id.to_string(),
+            incident_type: IncidentType::Collision,
+            severity: IncidentSeverity::Critical,
+            segment: segmento.to_string(),
+            positions_lost: 0,
+            is_dnf: true,
+            description: String::new(),
+            linked_pilot_id: None,
+            is_two_car_incident: false,
+            injury_risk_multiplier: 1.0,
+            narrative_importance_hint: 2,
+            catalog_id: None,
+            damage_origin_segment: None,
+        }
+    }
+
+    /// A ordem por tempo, entre quem ainda está na pista.
+    fn ordem_por_tempo(states: &[RaceState]) -> Vec<String> {
+        let mut vivos: Vec<&RaceState> = states.iter().filter(|s| !s.is_dnf).collect();
+        vivos.sort_by(|a, b| {
+            a.tempo_acumulado_ms
+                .partial_cmp(&b.tempo_acumulado_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        vivos.iter().map(|s| s.driver_id.clone()).collect()
+    }
+
+    #[test]
+    fn safety_car_na_largada_nao_devolve_o_grid() {
+        // O caso mais caro, porque na largada a posição defasada É o grid: B passou A na
+        // primeira volta, D bateu, e o safety car entra. Comprimir pela posição velha dava a
+        // A o degrau de fila do líder (0 ms) e a B o do segundo (250 ms) — o carro que tinha
+        // acabado de perder a posição reaparecia na frente, e o grid voltava inteiro.
+        let ctx = contexto("gt3", 4, 523, 28, 45);
+        let mut states = vec![
+            carro_no_trecho("B", 100_000.0, 2),
+            carro_no_trecho("A", 100_300.0, 1),
+            carro_no_trecho("C", 100_600.0, 3),
+            carro_no_trecho("D", 140_000.0, 4),
+        ];
+        states[3].is_dnf = true;
+        states[3]
+            .incidents
+            .push(batida_que_neutraliza("D", "START"));
+
+        let saida = aplicar_safety_car(&mut states, RaceSegment::Start, &ctx);
+
+        assert!(saida.is_some(), "a colisão crítica tinha que trazer o SC");
+        let (_, ordem) = saida.expect("safety car");
+        assert_eq!(
+            ordem,
+            vec!["B".to_string(), "A".to_string(), "C".to_string()],
+            "o retrato pré-SC carimbou uma ordem que não era a da pista"
+        );
+        assert_eq!(
+            ordem_por_tempo(&states),
+            vec!["B".to_string(), "A".to_string(), "C".to_string()],
+            "o safety car reordenou o pelotão pela posição do trecho anterior"
+        );
+    }
+
+    #[test]
+    fn safety_car_no_meio_da_corrida_preserva_a_ordem_recebida() {
+        // Mesmo defeito fora da largada: a posição vem do fim do trecho anterior, e três
+        // ultrapassagens no trecho a deixam invertida. O SC não pode desfazer nenhuma delas.
+        let ctx = contexto("gt3", 4, 523, 28, 45);
+        let mut states = vec![
+            carro_no_trecho("P4", 200_000.0, 4),
+            carro_no_trecho("P1", 200_150.0, 1),
+            carro_no_trecho("P3", 200_400.0, 3),
+            carro_no_trecho("P2", 200_900.0, 2),
+            carro_no_trecho("P5", 260_000.0, 5),
+        ];
+        states[4].is_dnf = true;
+        states[4].incidents.push(batida_que_neutraliza("P5", "MID"));
+
+        let recebida = ordem_por_tempo(&states);
+        aplicar_safety_car(&mut states, RaceSegment::Mid, &ctx).expect("safety car");
+
+        assert_eq!(
+            ordem_por_tempo(&states),
+            recebida,
+            "o SC desfez ultrapassagem do trecho"
+        );
+        // E a margem do líder tinha que ter encolhido — é para isso que ele existe.
+        let vivos: Vec<f64> = states
+            .iter()
+            .filter(|s| !s.is_dnf)
+            .map(|s| s.tempo_acumulado_ms)
+            .collect();
+        let maior_gap = vivos.iter().cloned().fold(f64::MIN, f64::max) - 200_000.0;
+        assert!(
+            maior_gap < 900.0,
+            "o pelotão não foi comprimido: {maior_gap:.0} ms"
+        );
+    }
+
+    #[test]
+    fn safety_car_com_carros_no_mesmo_tempo_mantem_a_ordem_recebida() {
+        // Empate de tempo: quem decide é a ordem recebida, e o degrau de fila desempata para
+        // trás. Se a posição defasada entrasse aqui, o empate viraria inversão.
+        let ctx = contexto("gt3", 4, 523, 28, 45);
+        let mut states = vec![
+            carro_no_trecho("X", 180_000.0, 5),
+            carro_no_trecho("Y", 180_000.0, 4),
+            carro_no_trecho("Z", 240_000.0, 6),
+        ];
+        states[2].is_dnf = true;
+        states[2].incidents.push(batida_que_neutraliza("Z", "LATE"));
+
+        aplicar_safety_car(&mut states, RaceSegment::Late, &ctx).expect("safety car");
+
+        assert!(
+            states[0].tempo_acumulado_ms <= states[1].tempo_acumulado_ms,
+            "o empate virou inversão: X {:.0} contra Y {:.0}",
+            states[0].tempo_acumulado_ms,
+            states[1].tempo_acumulado_ms
+        );
+    }
+
     #[test]
     fn pacote_g_chuva_por_pista_chegou_ao_resultado() {
         // Item secundário: `rain_sensitivity` era uma cadeia órfã completa — o perfil calculava,
@@ -2404,6 +2566,7 @@ mod fase2 {
                 current_position: q.position,
                 incidents: Vec::new(),
                 dnf_reason: None,
+                dnf_reason_key: None,
                 dnf_segment: None,
                 pending_damage: Vec::new(),
             })
@@ -2430,6 +2593,199 @@ mod fase2 {
             "gap para o carro da frente não pode ser negativo"
         );
     }
+}
+
+/// A parada sob safety car é carimbada na volta do SC, e a volta que estava no plano não
+/// entra na conta.
+///
+/// O código dizia `volta_do_sc.max(volta.min(volta_do_sc))`, que é `volta_do_sc` para todo
+/// `volta`: `min(volta, volta_do_sc) <= volta_do_sc`, e o `max` com `volta_do_sc` devolve
+/// `volta_do_sc`. O teste fecha isso pelos dois extremos — um plano muito antes e um plano
+/// muito depois da volta do safety car saem no mesmo lugar.
+#[test]
+fn parada_sob_safety_car_ignora_a_volta_do_plano() {
+    let ctx = SimulationContext {
+        total_laps: 20,
+        ..sample_context(30, WeatherCondition::Dry)
+    };
+
+    let mut states: Vec<RaceState> = ["ANTES", "DEPOIS"]
+        .iter()
+        .enumerate()
+        .map(|(indice, id)| RaceState {
+            driver_id: (*id).to_string(),
+            tire_wear: 0.5,
+            physical_condition: 1.0,
+            tempo_acumulado_ms: indice as f64 * 1_000.0,
+            desvio_de_ritmo: 0.0,
+            trafego: Default::default(),
+            paradas: super::estrategia::ParadasDoCarro {
+                // Um plano lá no começo e um plano lá no fim, os dois bem longe do meio da
+                // corrida em que o safety car sai.
+                pendentes: vec![if indice == 0 { 1 } else { 999 }],
+                ..Default::default()
+            },
+            is_dnf: false,
+            current_position: indice as i32 + 1,
+            incidents: Vec::new(),
+            dnf_reason: None,
+            dnf_reason_key: None,
+            dnf_segment: None,
+            pending_damage: Vec::new(),
+        })
+        .collect();
+
+    // Batida crítica no segmento: é o que traz a amarela e faz o safety car sair.
+    states[0].incidents.push(IncidentResult {
+        pilot_id: "ANTES".to_string(),
+        incident_type: IncidentType::Collision,
+        severity: crate::simulation::incidents::IncidentSeverity::Critical,
+        segment: RaceSegment::Mid.as_str().to_string(),
+        positions_lost: 0,
+        is_dnf: false,
+        description: "Batida forte na entrada da reta".to_string(),
+        linked_pilot_id: None,
+        is_two_car_incident: false,
+        injury_risk_multiplier: 1.0,
+        narrative_importance_hint: 3,
+        catalog_id: None,
+        damage_origin_segment: None,
+    });
+
+    let (volta_do_sc, _ordem) =
+        super::motor::aplicar_safety_car(&mut states, RaceSegment::Mid, &ctx)
+            .expect("a batida crítica tem que fazer o safety car sair");
+
+    for state in &states {
+        assert_eq!(
+            state.paradas.voltas,
+            vec![volta_do_sc],
+            "a parada de {} tinha que ser carimbada na volta do safety car",
+            state.driver_id
+        );
+        assert!(
+            state.paradas.pendentes.is_empty(),
+            "a volta planejada sai da fila mesmo sem virar carimbo"
+        );
+    }
+}
+
+/// `total_laps == 0` é alcançável por config, e o ramo de abandono dividia por ele cru:
+/// `laps_completed` nunca é menor que 1, então a divisão dava `inf`, e `inf * 0.0` (o
+/// `winner_total_time_ms` de uma corrida de zero voltas) dava NaN no tempo publicado e no
+/// gap. Nenhum número que atravessa a ponte pode ser NaN ou infinito.
+#[test]
+fn resultado_de_abandono_com_zero_voltas_nao_produz_nan() {
+    let grid = build_grid();
+    let mut rng = StdRng::seed_from_u64(77);
+    let ctx = SimulationContext {
+        total_laps: 0,
+        ..sample_context(30, WeatherCondition::Dry)
+    };
+    let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
+
+    let states: Vec<RaceState> = grid
+        .iter()
+        .enumerate()
+        .map(|(indice, driver)| RaceState {
+            driver_id: driver.id.clone(),
+            tire_wear: 1.0,
+            physical_condition: 1.0,
+            tempo_acumulado_ms: indice as f64 * 500.0,
+            desvio_de_ritmo: 0.0,
+            trafego: Default::default(),
+            paradas: Default::default(),
+            // Metade abandona, para o teste cobrir os dois ramos do tempo publicado.
+            is_dnf: indice % 2 == 0,
+            current_position: indice as i32 + 1,
+            incidents: Vec::new(),
+            dnf_reason: None,
+            dnf_reason_key: None,
+            dnf_segment: if indice % 2 == 0 {
+                Some(RaceSegment::Mid)
+            } else {
+                None
+            },
+            pending_damage: Vec::new(),
+        })
+        .collect();
+
+    let resultados = build_race_results(&grid, &qualifying, &ctx, &states, &mut rng);
+
+    assert_eq!(resultados.len(), grid.len());
+    for r in &resultados {
+        for (rotulo, valor) in [
+            ("total_race_time_ms", r.total_race_time_ms),
+            ("gap_to_winner_ms", r.gap_to_winner_ms),
+            ("best_lap_time_ms", r.best_lap_time_ms),
+        ] {
+            assert!(
+                valor.is_finite(),
+                "{} de {} saiu {} com total_laps = 0",
+                rotulo,
+                r.pilot_id,
+                valor
+            );
+        }
+        if r.is_dnf {
+            // `estimate_laps_at_dnf` tem o mesmo piso; quem terminou uma corrida de zero
+            // voltas completou zero, e isso é coerente com a config absurda que gerou o caso.
+            assert!(r.laps_completed >= 1);
+        }
+    }
+}
+
+/// A fórmula de `total_laps > 0` não pode ter se mexido: o `max(1)` só muda o caso zero.
+#[test]
+fn o_guarda_de_zero_voltas_nao_altera_a_corrida_normal() {
+    let grid = build_grid();
+    let ctx = SimulationContext {
+        total_laps: 24,
+        ..sample_context(30, WeatherCondition::Dry)
+    };
+    let mut rng = StdRng::seed_from_u64(78);
+    let qualifying = simulate_qualifying(&grid, &ctx, &mut rng);
+
+    let states: Vec<RaceState> = grid
+        .iter()
+        .enumerate()
+        .map(|(indice, driver)| RaceState {
+            driver_id: driver.id.clone(),
+            tire_wear: 1.0,
+            physical_condition: 1.0,
+            tempo_acumulado_ms: indice as f64 * 500.0,
+            desvio_de_ritmo: 0.0,
+            trafego: Default::default(),
+            paradas: Default::default(),
+            is_dnf: indice == 3,
+            current_position: indice as i32 + 1,
+            incidents: Vec::new(),
+            dnf_reason: None,
+            dnf_reason_key: None,
+            dnf_segment: if indice == 3 {
+                Some(RaceSegment::Late)
+            } else {
+                None
+            },
+            pending_damage: Vec::new(),
+        })
+        .collect();
+
+    let resultados = build_race_results(&grid, &qualifying, &ctx, &states, &mut rng);
+    let abandonou = resultados
+        .iter()
+        .find(|r| r.is_dnf)
+        .expect("um carro abandonou");
+
+    // O valor que a fórmula sempre deu: tempo do vencedor × fração de voltas × 1.05.
+    let laps = estimate_laps_at_dnf(Some(RaceSegment::Late), ctx.total_laps);
+    let esperado =
+        ctx.base_lap_time_ms * ctx.total_laps as f64 * (laps as f64 / ctx.total_laps as f64) * 1.05;
+    assert!(
+        (abandonou.total_race_time_ms - esperado).abs() < 1e-6,
+        "esperado {esperado}, veio {}",
+        abandonou.total_race_time_ms
+    );
 }
 
 #[cfg(test)]

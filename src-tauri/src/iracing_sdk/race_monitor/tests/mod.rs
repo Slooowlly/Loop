@@ -15,6 +15,7 @@
 
 mod comum;
 
+mod amostrador;
 mod estado_agora;
 mod historico;
 mod pontuacao;

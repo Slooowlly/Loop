@@ -1026,6 +1026,7 @@ mod tests {
                         corridas_na_categoria: 40,
                         pressure_error_mult: 1.0,
                         duelo_de_pista: None,
+                        vehicle_class: None,
                     }
                 })
                 .collect()

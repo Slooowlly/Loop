@@ -103,7 +103,10 @@ fn sem_o_arquivo_o_caminho_gravado_fica_sem_vocativo() {
 
 #[test]
 fn com_o_arquivo_a_peca_propria_entra_na_fala() {
-    assert_eq!(tratamento::peca(&nomeado(), 0).as_deref(), Some("voc_magno"));
+    assert_eq!(
+        tratamento::peca(&nomeado(), 0).as_deref(),
+        Some("voc_magno")
+    );
     // E o rodízio não a multiplica: a peça própria é uma só.
     for rodizio in 0..5 {
         assert_eq!(
@@ -163,7 +166,10 @@ fn o_rodizio_percorre_as_tres_redacoes_e_volta() {
     assert_eq!(ditas[0], "voc_novato");
     assert_eq!(ditas[3], ditas[0], "o rodízio volta ao começo");
     assert_eq!(
-        ditas[..3].iter().collect::<std::collections::HashSet<_>>().len(),
+        ditas[..3]
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
         3,
         "as três primeiras são diferentes: {ditas:?}"
     );
@@ -182,8 +188,12 @@ fn com_tratamento(t: Option<Tratamento>) -> Extras {
 fn o_vocativo_entra_na_FRENTE_de_tudo() {
     let mut e = estado_base();
     e.posicao = 5;
-    let pecas = responder::renderizar_com(&e, &com_tratamento(Some(Tratamento::Novato)), Intencao::Posicao)
-        .expect("a posição sempre renderiza");
+    let pecas = responder::renderizar_com(
+        &e,
+        &com_tratamento(Some(Tratamento::Novato)),
+        Intencao::Posicao,
+    )
+    .expect("a posição sempre renderiza");
     assert_eq!(pecas[0], "voc_novato");
     assert!(pecas.len() > 1, "o vocativo não é a resposta: {pecas:?}");
 }
@@ -203,8 +213,8 @@ fn o_vocativo_vem_antes_da_abertura_do_vizinho() {
         },
         ..Extras::default()
     };
-    let pecas =
-        responder::renderizar_com(&e, &extras, Intencao::Frente).expect("vizinho nomeado renderiza");
+    let pecas = responder::renderizar_com(&e, &extras, Intencao::Frente)
+        .expect("vizinho nomeado renderiza");
     assert_eq!(pecas[0], "voc_novato");
     assert_eq!(pecas[1], "ab_rival");
 }

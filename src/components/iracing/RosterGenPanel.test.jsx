@@ -49,13 +49,30 @@ function botao(re) {
   return screen.getAllByRole("button").find((b) => re.test(b.textContent));
 }
 
+/// Espera o botão existir E estar HABILITADO.
+///
+/// Aqui morava o flake (achado V8.1). Os casos esperavam por
+/// `waitFor(() => expect(invoke).toHaveBeenCalledWith("list_saves"))` e clicavam em seguida —
+/// mas esse `waitFor` prova só que o painel PEDIU os saves. Entre o pedido e o botão poder ser
+/// clicado há uma fila de estados encadeados: a resposta vira `saves`, `saves` vira `careerId`,
+/// e só então o efeito do save selecionado preenche `categoria` e `rosterName`, que são o que o
+/// `canGenerate` exige. Sob carga essa fila não fecha dentro do mesmo tique, o clique cai num
+/// botão ainda `disabled` e o comando nunca é disparado — que é exatamente a mensagem das duas
+/// falhas registradas ("o botão de temporada não disparou o comando").
+///
+/// Esperar pelo estado FINAL, em vez de pelo primeiro sinal do caminho, tira o teste do
+/// palpite. Sem tocar em timeout: o `waitFor` continua com o padrão da casa.
+async function botaoPronto(re) {
+  return waitFor(() => {
+    const alvo = botao(re);
+    expect(alvo, `nenhum botão casa ${re}`).toBeTruthy();
+    expect(alvo).toBeEnabled();
+    return alvo;
+  });
+}
+
 beforeEach(() => {
   invoke.mockReset();
-  vi.useFakeTimers({ shouldAdvanceTime: true });
-});
-
-afterEach(() => {
-  vi.useRealTimers();
 });
 
 describe("carga", () => {
@@ -105,20 +122,36 @@ describe("carga", () => {
 });
 
 describe("contrato dos comandos de exportação", () => {
-  it("gera o roster com os quatro argumentos nomeados que o Rust espera", async () => {
+  it("gera o roster com os três argumentos nomeados que o Rust espera", async () => {
     // Os nomes viajam como chave de objeto e o Rust os casa por nome. Renomear um aqui não
     // quebra nada visível: o campo chega `None` e o roster sai com o valor padrão.
+    //
+    // `carKey` saiu da lista em 11/08/2026. O seletor de carro do painel continua existindo,
+    // mas só alimenta a pintura MANUAL logo abaixo; o carro do export sai da categoria,
+    // dentro do Rust. Mandá-lo daqui de novo reabriria o fallback silencioso para MX-5.
     responder({ iracing_generate_roster: { path: "roster.json", drivers: 20 } });
     render(<RosterGenPanel />);
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("list_saves"));
+    await botaoPronto(/roster/i);
     await act(async () => {
       botao(/roster/i).click();
     });
     const chamada = invoke.mock.calls.find(([c]) => c === "iracing_generate_roster");
     expect(chamada, "o botão de roster não disparou o comando").toBeTruthy();
-    expect(Object.keys(chamada[1]).sort()).toEqual(["carKey", "careerId", "categoria", "rosterName"]);
+    expect(Object.keys(chamada[1]).sort()).toEqual(["careerId", "categoria", "rosterName"]);
     expect(chamada[1].careerId).toBe("C1");
     expect(chamada[1].categoria).toBe("gt3");
+  });
+
+  it("não manda chave de carro na temporada", async () => {
+    responder({ iracing_generate_season: { path: "season.json" } });
+    render(<RosterGenPanel />);
+    await botaoPronto(/season|temporada/i);
+    await act(async () => {
+      fireEvent.click(botao(/season|temporada/i));
+    });
+    const chamada = invoke.mock.calls.find(([c]) => c === "iracing_generate_season");
+    expect(chamada, "o botão de temporada não disparou o comando").toBeTruthy();
+    expect(chamada[1]).not.toHaveProperty("carKey");
   });
 
   it("gera a temporada com o alvo de pista NULO quando o campo está vazio", async () => {
@@ -126,9 +159,7 @@ describe("contrato dos comandos de exportação", () => {
     // o painel converte para `null`, que é o "sem pista alvo" do contrato.
     responder({ iracing_generate_season: { path: "season.json" } });
     render(<RosterGenPanel />);
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("list_saves"));
-    expect(botao(/season|temporada/i), "o painel precisa ter o botão de gerar temporada")
-      .toBeTruthy();
+    await botaoPronto(/season|temporada/i);
     // O botão é procurado DENTRO do `act`, como nos dois casos vizinhos. Guardar o nó antes
     // e clicar depois pegava a versão anterior ao commit que o `act` faz: o clique saía num
     // nó que já não estava mais na árvore e o comando nunca era disparado.
@@ -145,7 +176,7 @@ describe("contrato dos comandos de exportação", () => {
     // mensagem o jogador acha que exportou e vai correr com o grid velho.
     responder({ iracing_generate_roster: () => Promise.reject("acesso negado") });
     render(<RosterGenPanel />);
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("list_saves"));
+    await botaoPronto(/roster/i);
     await act(async () => {
       botao(/roster/i).click();
     });
@@ -154,19 +185,11 @@ describe("contrato dos comandos de exportação", () => {
 });
 
 describe("poll de conexão com o sim", () => {
-  it("pergunta pelo custid só quando o sim está conectado", async () => {
-    // `iracing_player_custid` só tem resposta com o sim aberto. Perguntar sempre encheria o
-    // log de erro a cada 4 segundos com o iRacing fechado.
-    responder({ iracing_connected: false });
-    render(<RosterGenPanel />);
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("iracing_connected"));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(9000);
-    });
-    expect(invoke.mock.calls.filter(([c]) => c === "iracing_player_custid")).toHaveLength(0);
-  });
-
   it("busca o custid quando o sim responde conectado", async () => {
+    // Relógio REAL: este caso não avança tempo nenhum, o primeiro tique do poll sai junto com
+    // a montagem. Um `waitFor` sob relógio falso é a combinação que fazia este arquivo falhar
+    // em caso aleatório — o `waitFor` da RTL troca de estratégia quando detecta fake timers, e
+    // passa a depender de quem avança o relógio em vez do assentamento das promessas.
     responder({ iracing_connected: true });
     render(<RosterGenPanel />);
     await waitFor(() =>
@@ -174,38 +197,68 @@ describe("poll de conexão com o sim", () => {
     );
   });
 
-  it("continua perguntando enquanto a aba está aberta", async () => {
-    responder({ iracing_connected: false });
-    render(<RosterGenPanel />);
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("iracing_connected"));
-    const antes = invoke.mock.calls.filter(([c]) => c === "iracing_connected").length;
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(12_500);
+  // Os quatro casos abaixo precisam MESMO empurrar o relógio, e só eles. O relógio falso fica
+  // preso aqui dentro, e sem `shouldAdvanceTime`: com ele, o tempo falso também corria sozinho
+  // junto com o real, e o número de tiques do poll passava a depender da carga da máquina.
+  // `advanceTimersByTimeAsync` já assenta as promessas entre um tique e outro, que era a única
+  // coisa que o `shouldAdvanceTime` estava cobrindo. Nenhum `waitFor` daqui para baixo.
+  describe("com o relógio na mão", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
     });
-    expect(invoke.mock.calls.filter(([c]) => c === "iracing_connected").length).toBeGreaterThan(antes);
-  });
 
-  it("para de perguntar quando a aba fecha", async () => {
-    // O poll conversa com a memória compartilhada do SDK. Um intervalo sobrevivente continua
-    // batendo nela depois de o jogador ter saído da tela.
-    responder({ iracing_connected: false });
-    const { unmount } = render(<RosterGenPanel />);
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("iracing_connected"));
-    unmount();
-    const antes = invoke.mock.calls.length;
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(12_000);
+    afterEach(() => {
+      vi.useRealTimers();
     });
-    expect(invoke.mock.calls.length).toBe(antes);
-  });
 
-  it("um erro no poll não derruba o painel", async () => {
-    responder({ iracing_connected: () => Promise.reject("shared memory fechada") });
-    const { container } = render(<RosterGenPanel />);
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("iracing_connected"));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000);
+    it("pergunta pelo custid só quando o sim está conectado", async () => {
+      // `iracing_player_custid` só tem resposta com o sim aberto. Perguntar sempre encheria o
+      // log de erro a cada 4 segundos com o iRacing fechado.
+      responder({ iracing_connected: false });
+      render(<RosterGenPanel />);
+      // Sem espera: o efeito de montagem chama `tick()`, e `tick()` dispara o comando antes do
+      // primeiro `await`. O `render` da RTL já vem embrulhado em `act`, então na linha abaixo
+      // a chamada está registrada.
+      expect(invoke).toHaveBeenCalledWith("iracing_connected");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(9000);
+      });
+      expect(invoke.mock.calls.filter(([c]) => c === "iracing_player_custid")).toHaveLength(0);
     });
-    expect(container).not.toBeEmptyDOMElement();
+
+    it("continua perguntando enquanto a aba está aberta", async () => {
+      responder({ iracing_connected: false });
+      render(<RosterGenPanel />);
+      const antes = invoke.mock.calls.filter(([c]) => c === "iracing_connected").length;
+      expect(antes).toBeGreaterThan(0);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_500);
+      });
+      expect(invoke.mock.calls.filter(([c]) => c === "iracing_connected").length).toBeGreaterThan(antes);
+    });
+
+    it("para de perguntar quando a aba fecha", async () => {
+      // O poll conversa com a memória compartilhada do SDK. Um intervalo sobrevivente continua
+      // batendo nela depois de o jogador ter saído da tela.
+      responder({ iracing_connected: false });
+      const { unmount } = render(<RosterGenPanel />);
+      expect(invoke).toHaveBeenCalledWith("iracing_connected");
+      unmount();
+      const antes = invoke.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_000);
+      });
+      expect(invoke.mock.calls.length).toBe(antes);
+    });
+
+    it("um erro no poll não derruba o painel", async () => {
+      responder({ iracing_connected: () => Promise.reject("shared memory fechada") });
+      const { container } = render(<RosterGenPanel />);
+      expect(invoke).toHaveBeenCalledWith("iracing_connected");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      expect(container).not.toBeEmptyDOMElement();
+    });
   });
 });

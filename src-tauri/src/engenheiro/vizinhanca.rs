@@ -111,7 +111,11 @@ pub fn linha(v: &Vizinho, frente: bool, ctx: &Contexto) -> Option<String> {
     if sobrenome.is_empty() {
         return None;
     }
-    let lado = if frente { "à sua frente" } else { "atrás de você" };
+    let lado = if frente {
+        "à sua frente"
+    } else {
+        "atrás de você"
+    };
     let vinculo = match ctx.de(frente) {
         Some(Vinculo::Nemesis) => " — é o seu MAIOR RIVAL",
         Some(Vinculo::Rival) => " — é um RIVAL seu",

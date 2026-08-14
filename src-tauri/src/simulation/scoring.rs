@@ -69,6 +69,7 @@ mod tests {
             },
             is_dnf: false,
             dnf_reason: None,
+            dnf_reason_key: None,
             dnf_segment: None,
             incidents_count: 0,
             incidents: Vec::new(),

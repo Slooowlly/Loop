@@ -178,4 +178,3 @@ fn time_com_dna_de_potencia_foca_mesmo_em_calendario_diverso() {
 }
 
 // -------- Feedback físico da quebra (§4.6) --------
-

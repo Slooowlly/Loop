@@ -588,6 +588,8 @@ fn setup_test_db() -> Result<Connection, DbError> {
                 last_round_expenses REAL NOT NULL DEFAULT 0.0,
                 last_round_net REAL NOT NULL DEFAULT 0.0,
                 parachute_payment_remaining REAL NOT NULL DEFAULT 0.0,
+                socorros_na_temporada INTEGER NOT NULL DEFAULT 0,
+                socorros_temporada_ref INTEGER NOT NULL DEFAULT 0,
                 facilities REAL NOT NULL DEFAULT 50.0,
                 engineering REAL NOT NULL DEFAULT 50.0,
                 reputacao REAL NOT NULL DEFAULT 50.0,
@@ -713,5 +715,17 @@ fn test_one_two_queries() {
     assert_eq!(
         get_category_one_two_leader_excluding(&conn, "gt3", "TA").unwrap(),
         0
+    );
+}
+
+/// Toda coluna da projeção de equipe existe na tabela real. O doc de `COLUNAS_TEAM`
+/// prometia este guard pelo nome e ele não existia: a lista era do MAPEADOR, e ninguém
+/// provava que ela batia com `teams`.
+#[test]
+fn a_projecao_de_equipe_existe_no_schema_real() {
+    crate::db::queries::tests_projecoes::a_projecao_existe_no_schema_real(
+        "teams",
+        "COLUNAS_TEAM",
+        super::mapeamento::COLUNAS_TEAM,
     );
 }

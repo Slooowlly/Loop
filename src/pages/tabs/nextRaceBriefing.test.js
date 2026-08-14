@@ -132,4 +132,24 @@ describe("nextRaceBriefing", () => {
     expect(selection.phraseId).toBe(pinned.id);
     expect(selection.text).toBe(pinned.text);
   });
+
+  // O campo do DTO é `posicao_campeonato`, sem acento. A escolha da variante lia
+  // `posição_campeonato`, que não existe em piloto nenhum: o termo entrava sempre como 0 e
+  // dois pilotos com a mesma forma recebiam a mesma frase, líder ou lanterna.
+  it("a posição no campeonato muda a variante escolhida", () => {
+    const lider = buildFavoriteExpectationSelection(makeDriver({ posicao_campeonato: 1 }), 0);
+    const vice = buildFavoriteExpectationSelection(makeDriver({ posicao_campeonato: 2 }), 0);
+
+    expect(lider.phraseId).not.toBe(vice.phraseId);
+  });
+
+  it("a chave acentuada é inerte: quem só a carrega vale o mesmo que quem não tem posição", () => {
+    const semPosicao = makeDriver();
+    delete semPosicao.posicao_campeonato;
+    const soComAcento = { ...semPosicao, "posição_campeonato": 9 };
+
+    expect(buildFavoriteExpectationSelection(soComAcento, 0).phraseId).toBe(
+      buildFavoriteExpectationSelection(semPosicao, 0).phraseId,
+    );
+  });
 });

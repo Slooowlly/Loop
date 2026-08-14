@@ -151,7 +151,10 @@ pub async fn enrich_race_news_ai(
         ) {
             Ok(story) => {
                 if let Err(e) = ai_story::set_story(&db.conn, &news_id, &story) {
-                    eprintln!("[narrative] Falha ao cachear boletim: {e:?}");
+                    crate::diagnostico::linha(
+                        "narrative",
+                        &format!("falha ao cachear o boletim: {e:?}"),
+                    );
                 }
                 Ok(AiNewsResult {
                     story: Some(story),
@@ -168,7 +171,7 @@ pub async fn enrich_race_news_ai(
             // descartado aqui — um 5xx (os DOIS provedores caídos) e uma queda de rede
             // chegavam ao jogador como o mesmo "erro" mudo, sem rastro no loop.log.
             Err(err) => {
-                eprintln!("[narrative] Boletim de IA falhou: {err:?}");
+                client::registrar_falha("boletim de IA", &err);
                 Ok(AiNewsResult {
                     story: None,
                     status: AiStatus::Error,
@@ -279,7 +282,10 @@ pub async fn pre_race_briefing_ai(
                     &b.body,
                     &b.team_voice,
                 ) {
-                    eprintln!("[narrative] Falha ao cachear prévia pré-corrida: {e:?}");
+                    crate::diagnostico::linha(
+                        "narrative",
+                        &format!("falha ao cachear a prévia pré-corrida: {e:?}"),
+                    );
                 }
                 Ok(PreRaceAiResult {
                     headline: Some(b.headline),
@@ -295,7 +301,7 @@ pub async fn pre_race_briefing_ai(
                 status: AiStatus::RateLimited,
             }),
             Err(err) => {
-                eprintln!("[narrative] Prévia pré-corrida falhou: {err:?}");
+                client::registrar_falha("prévia pré-corrida", &err);
                 Ok(PreRaceAiResult {
                     headline: None,
                     narrative: None,
@@ -387,7 +393,10 @@ pub async fn post_race_debrief_ai(
                 if let Err(e) =
                     ai_post_race::set_post_race(&db.conn, &race_id, &d.headline, &d.body)
                 {
-                    eprintln!("[narrative] Falha ao cachear debrief pós-corrida: {e:?}");
+                    crate::diagnostico::linha(
+                        "narrative",
+                        &format!("falha ao cachear o debrief pós-corrida: {e:?}"),
+                    );
                 }
                 Ok(PostRaceAiResult {
                     headline: Some(d.headline),
@@ -401,7 +410,7 @@ pub async fn post_race_debrief_ai(
                 status: AiStatus::RateLimited,
             }),
             Err(err) => {
-                eprintln!("[narrative] Debrief pós-corrida falhou: {err:?}");
+                client::registrar_falha("debrief pós-corrida", &err);
                 Ok(PostRaceAiResult {
                     headline: None,
                     body: None,

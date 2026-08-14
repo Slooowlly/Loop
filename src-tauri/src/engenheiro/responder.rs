@@ -96,9 +96,21 @@ fn resposta(e: &EstadoAgora, extras: &Extras, intencao: Intencao) -> Option<Vec<
         // informação de "o carro da frente está a um e dois", sobre uma pessoa em vez de um
         // carro. Só quando o sobrenome não existe em áudio — piloto de save antigo, humano
         // no grid — é que a fala anônima volta, ainda correta.
-        let base = viz
-            .as_ref()
-            .and_then(|v| vizinhanca::pecas(v, frente, &extras.vizinhanca))
+        //
+        // E ele só tenta DENTRO da corrida. `fala::renderizar` fecha a porta fora dela
+        // (`em_corrida_de_verdade`), mas aqui ele era a reserva, e não o caminho — então a
+        // fala nomeada passava por cima do portão e entregava, na volta de formação, "Seu
+        // rival, Cooper, está a um e dois na sua frente" sobre uma fila andando devagar. Era
+        // a única fala do acervo que atravessava a formação inteira, e a mais convincente de
+        // todas, porque tem nome próprio. Fechado o portão, a pergunta cai onde o contrato já
+        // mandava: no fallback de `fala::renderizar`, que devolve `sem_telemetria` sem sim e
+        // `None` — o modelo — na formação.
+        let base = fala::em_corrida_de_verdade(e)
+            .then(|| {
+                viz.as_ref()
+                    .and_then(|v| vizinhanca::pecas(v, frente, &extras.vizinhanca))
+            })
+            .flatten()
             .or_else(|| fala::renderizar(e, intencao));
         if let Some(mut pecas) = base {
             // A MEMÓRIA no fim, e só quando há resposta a que ela se referir. "São quatro

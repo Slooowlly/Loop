@@ -356,7 +356,8 @@ fn preencher_uma_vaga(
     let candidato_provado =
         best_proven_promotion_candidate(vacancy, mundo.current_by_id, mundo.market_contexts);
 
-    if candidato_provado.is_none() && tentar_resgate_por_escassez(conn, vacancy, mundo, estado, rng)?
+    if candidato_provado.is_none()
+        && tentar_resgate_por_escassez(conn, vacancy, mundo, estado, rng)?
     {
         return Ok(DesfechoDaVaga::Preencheu);
     }

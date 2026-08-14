@@ -582,6 +582,123 @@ fn oficial_classifica_primeiro_e_desempata_por_numero() {
     assert_eq!(ordenar(OrderMode::Oficial, &cars), vec![2, 1, 3, 0]);
 }
 
+// ── Feed do rádio da equipe: a época e os ids que o cursor do front segue ───────
+//
+// `get_breakdown_feed` em si não é testável (lê o log vivo do monitor e abre o save), mas a
+// montagem do feed é: [`montar_feed`] recebe a época, as linhas do log e os contextos já
+// resolvidos, e devolve os cards com a fusão de quebras simultâneas aplicada.
+mod radio {
+    use super::super::radio::{montar_feed, LinhaDeQuebra};
+    use crate::engenheiro::quebra::Contexto;
+
+    /// Uma linha de quebra sem vínculo nenhum com o jogador — é o único caso que a fusão
+    /// aceita, e é justamente nele que o `id` nascia sem a época.
+    fn sem_vinculo(nome: &str, peca: &str) -> Contexto {
+        Contexto {
+            nome_completo: nome.to_string(),
+            equipe: Some("Kitsune".to_string()),
+            assento: 1,
+            e_nemesis: false,
+            e_rival: false,
+            e_companheiro: false,
+            lidera_campeonato: false,
+            delta_pontos: None,
+            peca: peca.to_string(),
+            severidade: "dnf".to_string(),
+            variante: 0,
+            abandonos_ate_aqui: 1,
+        }
+    }
+
+    fn linha(lap: u32) -> LinhaDeQuebra {
+        LinhaDeQuebra {
+            lap,
+            severity: "dnf".to_string(),
+            label: "Motor".to_string(),
+        }
+    }
+
+    /// CONTRATO DE TIPO, verificado na compilação: `LinhaDeQuebra` é um espelho do que o log do
+    /// monitor guarda, e a volta dele é `u32`. Enquanto o espelho declarava `i32`, o produtor
+    /// carregava um `as i32` que não servia a consumidor nenhum — a volta não cruza a ponte e só
+    /// é lida na igualdade que funde duas quebras do mesmo instante. Esta função deixa de
+    /// compilar no dia em que os dois lados divergirem de novo.
+    fn _a_volta_do_log_entra_no_espelho_sem_cast(
+        o: &crate::iracing_sdk::race_monitor::BreakdownOutcome,
+    ) -> LinhaDeQuebra {
+        LinhaDeQuebra {
+            lap: o.lap,
+            severity: o.severity.key().to_string(),
+            label: o.label.clone(),
+        }
+    }
+
+    /// O defeito: a fala FUNDIDA nascia com `id = i + 1`, sem a época do rádio. Depois de um
+    /// reinício de tentativa — que zera o log e avança a época — um card fundido renascia com
+    /// id 1 enquanto o front já tinha visto ids muito maiores, e o overlay, que só mostra id
+    /// novo, ficava mudo pelo resto da sessão.
+    #[test]
+    fn a_fala_fundida_nasce_com_a_epoca_do_radio() {
+        const EPOCA: usize = 1_000;
+        let linhas = [linha(7), linha(7)];
+        let contextos = [
+            sem_vinculo("James Cooper", "engine"),
+            sem_vinculo("Owen Turner", "gearbox"),
+        ];
+
+        let feed = montar_feed(EPOCA, &linhas, &contextos);
+
+        assert_eq!(feed.len(), 1, "duas quebras na mesma volta viram uma fala");
+        assert_eq!(feed[0].id, EPOCA + 1, "o id da fundida ignorou a época");
+    }
+
+    /// A época é um piso: todo id do feed tem de estar acima do que o front já viu, fundido
+    /// ou não, e a sequência tem de subir.
+    #[test]
+    fn os_ids_sobem_e_ficam_acima_da_epoca() {
+        const EPOCA: usize = 1_000;
+        // Duas na volta 7 (fundem) e uma solta na volta 9.
+        let linhas = [linha(7), linha(7), linha(9)];
+        let contextos = [
+            sem_vinculo("James Cooper", "engine"),
+            sem_vinculo("Owen Turner", "gearbox"),
+            sem_vinculo("Liam Walker", "suspension"),
+        ];
+
+        let feed = montar_feed(EPOCA, &linhas, &contextos);
+
+        assert_eq!(feed.len(), 2);
+        let ids: Vec<usize> = feed.iter().map(|m| m.id).collect();
+        assert!(
+            ids.iter().all(|id| *id >= EPOCA),
+            "id abaixo da época: {ids:?}"
+        );
+        assert!(
+            ids.windows(2).all(|p| p[1] > p[0]),
+            "os ids não sobem: {ids:?}"
+        );
+        assert_eq!(ids, vec![EPOCA + 1, EPOCA + 2]);
+    }
+
+    /// Sem época (primeira tentativa da corrida) o feed continua nos índices do log, que é o
+    /// contrato que já existia para as falas soltas.
+    #[test]
+    fn sem_epoca_os_ids_sao_os_indices_do_log() {
+        let linhas = [linha(7), linha(9)];
+        let contextos = [
+            sem_vinculo("James Cooper", "engine"),
+            sem_vinculo("Owen Turner", "gearbox"),
+        ];
+
+        let ids: Vec<usize> = montar_feed(0, &linhas, &contextos)
+            .iter()
+            .map(|m| m.id)
+            .collect();
+
+        assert_eq!(ids, vec![0, 1]);
+    }
+}
+
 // ── Medição do custo de `get_overlay_data` (ignorada por padrão) ─────────
 // Roda contra um save REAL. Não é asserção: imprime os tempos para decidir
 // onde otimizar o caminho de 500 ms do overlay.
@@ -914,7 +1031,10 @@ mod montagem {
         let carros = vec![(meta(1, 11, CLASSE), Some(na_pista(1, 1, 90.0)))];
         let mut pista = Pista::default();
         pista.breakdown_by_idx.insert(1, "dnf");
-        assert_eq!(torre(&carros, &pista, OrderMode::Oficial)[0]["cars"][0]["flag"], "black");
+        assert_eq!(
+            torre(&carros, &pista, OrderMode::Oficial)[0]["cars"][0]["flag"],
+            "black"
+        );
 
         let mut pista = Pista::default();
         pista.breakdown_by_idx.insert(1, "heavy");
@@ -1059,7 +1179,16 @@ mod montagem {
         // superestimativa de ritmo que subestimava o TOTAL na torre (bug #6, parte 2).
         let voltas = [95.0, 95.0, 95.0, 95.0, 95.0];
         let contagem = voltas_do_cabecalho(
-            10, 0, false, true, true, 950.0, 0, 32767, &voltas, Some(90.0),
+            10,
+            0,
+            false,
+            true,
+            true,
+            950.0,
+            0,
+            32767,
+            &voltas,
+            Some(90.0),
         );
         assert_eq!(contagem.lap, 11);
         assert_eq!(contagem.total, 20);
@@ -1077,7 +1206,16 @@ mod montagem {
         // Classificatória: o cabeçalho mostra o relógio, não um "/total" inventado.
         let voltas = [95.0, 95.0, 95.0];
         let contagem = voltas_do_cabecalho(
-            3, 0, false, true, false, 300.0, 0, 32767, &voltas, Some(90.0),
+            3,
+            0,
+            false,
+            true,
+            false,
+            300.0,
+            0,
+            32767,
+            &voltas,
+            Some(90.0),
         );
         assert_eq!(contagem.total, 0);
     }
@@ -1125,5 +1263,72 @@ mod montagem {
         let relogio = relogio_da_sessao(480.0, 0.0, None);
         assert_eq!(relogio.remaining_s, Some(0));
         assert_eq!(relogio.elapsed_s, Some(480));
+    }
+}
+
+// ─── O CANAL DA CLASSIFICAÇÃO: do log do monitor ao card do overlay ──────────
+//
+// O canal existia pela metade: `quali.rs` decidia a fala e a empilhava no `classificacao_log`,
+// e nenhum comando lia esse log — a família inteira aparecia no registro do rádio como
+// `decidida` e nunca como `tocada`. Estes dois casos prendem as duas pontas da costura.
+
+mod classificacao {
+    use crate::commands::overlay::get_classificacao_feed;
+    use crate::engenheiro::classificacao::Fala;
+    use crate::iracing_sdk::race_monitor;
+
+    fn fala(chave: &str, texto: &str) -> Fala {
+        Fala {
+            pecas: vec![chave.to_string()],
+            texto: texto.to_string(),
+        }
+    }
+
+    /// **A fala escrita no log do monitor chega ao comando que a UI consulta.** É a cadeia
+    /// inteira do lado do Rust; o resto (comando → hook → card) está em
+    /// `src/overlay/useBreakdownFeed.test.js`.
+    ///
+    /// `#[serial]` porque o monitor é global do processo — dois casos escrevendo no mesmo log
+    /// leriam um o retrato do outro.
+    #[test]
+    #[serial_test::serial]
+    fn a_fala_posta_no_log_chega_ao_comando() {
+        race_monitor::reset();
+        let base = race_monitor::radio_epoch();
+
+        race_monitor::injetar_fala_de_classificacao(fala("cl_despedida_0", "Vamos lá."));
+        race_monitor::injetar_fala_de_classificacao(fala("cl_perdeu_0", "Perdeu essa."));
+
+        let feed = get_classificacao_feed().expect("o comando não falha sem sessão");
+        race_monitor::reset();
+
+        assert_eq!(feed.len(), 2, "o comando não leu o log da classificação");
+        assert_eq!(feed[0].text, "Vamos lá.");
+        assert_eq!(feed[0].pecas, vec!["cl_despedida_0".to_string()]);
+        assert_eq!(feed[1].text, "Perdeu essa.");
+        // Severidade própria: o front escolhe por ela o canal de voz e o tom do card, e nada
+        // aqui é quebra.
+        assert_eq!(feed[0].severity, "quali");
+        // Ids CRESCENTES a partir da época — é deles que o cursor do overlay depende.
+        assert_eq!((feed[0].id, feed[1].id), (base, base + 1));
+    }
+
+    /// **A época entra no `id`, como nos outros canais.** Sem ela, o log esvaziado por um
+    /// reinício de tentativa devolveria ids repetidos e o overlay — que só mostra id inédito —
+    /// emudeceria pelo resto da sessão.
+    #[test]
+    #[serial_test::serial]
+    fn o_id_nasce_da_epoca_e_nao_do_indice_cru() {
+        use super::super::radio::montar_classificacao;
+
+        let log = [
+            fala("cl_despedida_0", "Vamos lá."),
+            fala("cl_perdeu_0", "Perdeu essa."),
+        ];
+        let ids: Vec<usize> = montar_classificacao(41, &log)
+            .iter()
+            .map(|m| m.id)
+            .collect();
+        assert_eq!(ids, vec![41, 42]);
     }
 }

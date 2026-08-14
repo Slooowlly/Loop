@@ -78,11 +78,37 @@ pub fn peek_ritmo_log() -> Vec<FalaDeRitmo> {
     lock().ritmo_log.clone()
 }
 
+/// O retrato dos logs do rádio num lock só: época e tamanho de cada um.
+///
+/// Existe para o [`cutucao`](super::cutucao) poder perguntar "cresceu?" a 60 Hz sem clonar
+/// nada. Os `peek_*` acima clonam o log inteiro, e pagá-los por tique para descobrir que o
+/// tamanho não mudou seria caro num caminho que roda no amostrador.
+pub fn radio_tamanhos() -> super::cutucao::Tamanhos {
+    let m = lock();
+    super::cutucao::Tamanhos {
+        epoch: m.radio_epoch,
+        quebras: m.breakdown_log.len(),
+        ritmo: m.ritmo_log.len(),
+        avisos: m.player_warning_log.len(),
+        classificacao: m.classificacao_log.len(),
+    }
+}
+
 /// Espia (sem drenar) o log do engenheiro na CLASSIFICAÇÃO — a despedida antes da volta lançada
 /// e o comentário da volta que morreu. Canal SEPARADO dos outros pelo mesmo motivo de sempre:
 /// os logs crescem em ritmos próprios e um id só embaralharia os cursores do overlay.
 pub fn peek_classificacao_log() -> Vec<crate::engenheiro::classificacao::Fala> {
     lock().classificacao_log.clone()
+}
+
+/// Só para TESTE: escreve uma fala no log da classificação do monitor GLOBAL.
+///
+/// Existe para o teste do canal poder exercitar a cadeia inteira — produtor → comando —, que é
+/// a costura que faltava: o log era produzido e nenhum comando o lia. O `#[cfg(test)]` impede
+/// que ela vire uma porta de produção para escrever no monitor por fora do amostrador.
+#[cfg(test)]
+pub fn injetar_fala_de_classificacao(f: crate::engenheiro::classificacao::Fala) {
+    lock().classificacao_log.push(f);
 }
 
 /// `true` se algum comando de quebra falhou em chegar ao iRacing nesta corrida (janela não

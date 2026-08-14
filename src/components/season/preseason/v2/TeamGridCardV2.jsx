@@ -59,7 +59,7 @@ function SeatRow({
       : "var(--text-muted)";
 
   const row = (
-    <div className="flex items-center gap-2 border-t border-white/8 py-2.5">
+    <div className="flex items-center gap-2 border-t border-white/[0.08] py-2.5">
       <DriverMiniCard driverId={driverId}>
         <p
           className={`min-w-0 flex-1 truncate leading-[1.1] ${

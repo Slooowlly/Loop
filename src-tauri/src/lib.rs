@@ -175,6 +175,7 @@ mod finance;
 mod generators;
 mod hierarchy;
 mod iracing_sdk;
+mod licensing;
 mod market;
 mod models;
 mod narrative;
@@ -392,6 +393,18 @@ pub fn run() {
                 });
             }
 
+            // O CUTUCÃO dos canais do engenheiro — quebra, ritmo, aviso, ocasião. Mesmo
+            // problema do spotter (timer estrangulado com a janela coberta) e mesma resposta,
+            // com uma diferença: aqui vai só o nome do canal, e não a mensagem. A frase de uma
+            // quebra precisa do banco do save, e o amostrador não o tem em mãos — quem monta
+            // continua sendo o `invoke` que o front já fazia. Ver `race_monitor::cutucao`.
+            {
+                let handle = app.handle().clone();
+                iracing_sdk::race_monitor::cutucao::registrar_emissor(move |canal| {
+                    let _ = handle.emit("radio-cutucao", canal);
+                });
+            }
+
             // Liga o "vigia" do iRacing já no boot: ocioso (1 Hz) enquanto o sim
             // está fechado, 60 Hz quando conecta. Assim telemetria/monitor/custid
             // ativam sozinhos, sem toggle.
@@ -506,6 +519,10 @@ pub fn run() {
             commands::career_commands::advance_season,
             commands::career_commands::skip_all_pending_races,
             commands::career_commands::get_season_champion_payload,
+            // Os cinco comandos de depuração saem do binário de release: o `cfg` aqui vira
+            // o braço do `match` do handler, então no release o nome não chega nem a
+            // existir na ponte. Ver o portão em `commands/career_commands.rs`.
+            #[cfg(debug_assertions)]
             commands::career_commands::debug_skip_to_season_finale,
             commands::career_commands::advance_market_week,
             commands::career_commands::get_preseason_state,
@@ -513,11 +530,15 @@ pub fn run() {
             commands::career_commands::set_career_resume_context,
             commands::career_commands::get_player_proposals,
             commands::career_commands::respond_to_proposal,
+            #[cfg(debug_assertions)]
             commands::career_commands::debug_prepare_market_scenario,
+            #[cfg(debug_assertions)]
             commands::career_commands::debug_poaching_auctions,
             commands::career_commands::get_player_poach_offer,
             commands::career_commands::resolve_player_poach_offer,
+            #[cfg(debug_assertions)]
             commands::career_commands::debug_force_player_poach_offer,
+            #[cfg(debug_assertions)]
             commands::career_commands::debug_stamp_player_championship,
             commands::career_commands::get_news,
             commands::career_commands::delete_career,
@@ -542,7 +563,6 @@ pub fn run() {
             commands::career_commands::toggle_driver_favorite,
             commands::career_commands::get_season_market_board,
             commands::career_commands::get_transfer_window_state,
-            commands::career_commands::advance_transfer_window,
             commands::career_commands::get_global_team_history,
             commands::career_commands::get_band_champions,
             commands::career_commands::get_briefing_phrase_history,
@@ -568,6 +588,7 @@ pub fn run() {
             commands::iracing::iracing_read_telemetry,
             commands::iracing::iracing_diagnostico,
             commands::iracing::iracing_log_ler,
+            commands::iracing::diagnostico_registrar,
             commands::iracing::iracing_log_caminho,
             commands::iracing::iracing_log_revelar,
             commands::iracing::radio_registrar,
@@ -691,6 +712,7 @@ pub fn run() {
             commands::overlay::get_overlay_data,
             commands::overlay::get_breakdown_feed,
             commands::overlay::get_pace_feed,
+            commands::overlay::get_classificacao_feed,
             commands::overlay::overlay_demo_messages,
             commands::overlay::get_player_warnings,
             commands::overlay::iracing_chat_blocked,

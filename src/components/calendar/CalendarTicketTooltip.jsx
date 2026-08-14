@@ -121,7 +121,7 @@ function RaceTicket({ race, compact = false }) {
 
 function TicketDetail({ label, value }) {
   return (
-    <div className="min-w-[76px] rounded-full border border-white/8 bg-white/[0.052] px-2 py-1.5 text-center">
+    <div className="min-w-[76px] rounded-full border border-white/[0.08] bg-white/[0.052] px-2 py-1.5 text-center">
       <b className="block text-[8px] font-bold uppercase leading-none tracking-[0.12em] text-text-muted">
         {label}
       </b>

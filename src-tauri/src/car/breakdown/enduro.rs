@@ -8,8 +8,9 @@
 //!    parada longa. Os carros pingam no box mas cruzam a bandeira.
 //! 2. **A rampa de fim** ([`enduro_late_ramp`]): desgaste por volta que sobe da metade da
 //!    corrida em diante — o carro se arrastando nas últimas horas.
-//! 3. **O sobrecusto de peça** ([`enduro_economy_wear_mult`]): o desgaste que PERSISTE na
-//!    economia, aliviado por parada real e limitado por [`ENDURO_SURCHARGE_CAP`].
+//! 3. **O sobrecusto de peça** ([`DuracaoDeProva::mult_de_desgaste_na_economia`]): o desgaste
+//!    que PERSISTE na economia, aliviado por parada real e limitado por
+//!    [`ENDURO_SURCHARGE_CAP`].
 //!
 //! Ver o design em `docs/superpowers/specs/2026-07-18-car-breakdown-system.md` (enduro).
 
@@ -64,25 +65,39 @@ pub(super) const ENDURO_STINT_MIN: f64 = 30.0;
 /// Existe por causa de uma armadilha medida: `constants::categories` guarda
 /// `duracao_corrida_min = 0` como SENTINELA de "quem sorteia a duração é o calendário", e a
 /// categoria sentinelada é justamente o **Endurance**. Quem lia a constante e passava o zero
-/// para [`is_enduro_duration`] recebia `false` e tratava uma prova de 6 horas como sprint. Os
-/// call sites que erravam foram consertados um a um, mas a assinatura `u16` continuava
-/// aceitando o zero de braços abertos — o bug tinha conserto, a armadilha não.
+/// para o gate de enduro recebia `false` e tratava uma prova de 6 horas como sprint. Os call
+/// sites que erravam foram consertados um a um, mas a assinatura `u16` continuava aceitando o
+/// zero de braços abertos — o bug tinha conserto, a armadilha não.
 ///
-/// A cascata que RESOLVE a sentinela mora em `calendar::entry::duracao_efetiva_min` (etapa →
-/// categoria → padrão de sprint). Este tipo é o outro lado da mesma pinça: ele se recusa a
-/// existir com zero, então o que a cascata não resolveu não atravessa até o gate.
+/// Hoje a armadilha está fechada dos dois lados. A cascata que RESOLVE a sentinela mora em
+/// `calendar::entry::duracao_efetiva` (etapa → categoria → padrão de sprint) e **devolve este
+/// tipo**, não `u16`; e as formas livres que aceitavam minutos crus
+/// (`is_enduro_duration`/`modeled_ai_pits`/`enduro_economy_wear_mult`) não existem mais. Não há
+/// como um call site novo passar zero em silêncio: ou ele tem uma `DuracaoDeProva`, ou não
+/// alcança o gate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DuracaoDeProva(u16);
 
 impl DuracaoDeProva {
     /// `None` para a sentinela. Quem tem só a constante da categoria em mãos deve passar
-    /// antes por `calendar::entry::duracao_efetiva_min`, que é quem sabe a cascata.
+    /// antes por `calendar::entry::duracao_efetiva`, que é quem sabe a cascata.
     pub const fn nova(minutos: u16) -> Option<Self> {
         if minutos == 0 {
             None
         } else {
             Some(Self(minutos))
         }
+    }
+
+    /// Para duração LITERAL, conhecida em tempo de compilação (padrão de sprint, corrida de
+    /// referência de teste). Em contexto `const` o zero vira erro de COMPILAÇÃO; fora dele,
+    /// pânico imediato. Nos dois casos a sentinela aparece, em vez de virar sprint silencioso.
+    pub const fn constante(minutos: u16) -> Self {
+        assert!(
+            minutos > 0,
+            "DuracaoDeProva::constante não aceita a sentinela 0 — use `nova` e trate o None"
+        );
+        Self(minutos)
     }
 
     pub const fn minutos(self) -> u16 {
@@ -94,7 +109,8 @@ impl DuracaoDeProva {
         self.0 as f64 > ENDURO_DURATION_GATE_MIN
     }
 
-    /// Paradas MODELADAS da IA por esta duração — ver [`modeled_ai_pits`].
+    /// Paradas MODELADAS da IA por esta duração (o jogador usa o pit REAL do SDK). Um stint
+    /// dura ~[`ENDURO_STINT_MIN`] min → uma corrida de 60 min ≈ 2 paradas. 0 fora do enduro.
     pub fn paradas_modeladas_da_ia(self) -> u32 {
         if !self.e_enduro() {
             return 0;
@@ -102,22 +118,18 @@ impl DuracaoDeProva {
         ((self.0 as f64) / ENDURO_STINT_MIN).floor().max(0.0) as u32
     }
 
-    /// Multiplicador de desgaste da etapa na economia — ver [`enduro_economy_wear_mult`].
+    /// Multiplicador de desgaste (→ CUSTO) da corrida na ECONOMIA da grade toda: 1.0 no
+    /// sprint; no enduro sobe com a duração ([`enduro_surcharge`]) e é aliviado por paradas
+    /// reais ([`enduro_pit_relief`]). O sobrecusto persiste no desgaste → as peças chegam ao
+    /// fim da vida mais cedo → mais trocas ao longo da temporada de enduro (a conta que o
+    /// usuário pediu). Uma parada nunca leva abaixo de 1.0 (o alívio só corta o sobrecusto,
+    /// não o desgaste-base).
     pub fn mult_de_desgaste_na_economia(self, genuine_pits: u32) -> f64 {
         if !self.e_enduro() {
             return 1.0;
         }
         1.0 + enduro_surcharge(self.0) * (1.0 - enduro_pit_relief(genuine_pits))
     }
-}
-
-/// A corrida é ENDURO pela duração (min)? Gate único usado no risco ao vivo E na economia.
-///
-/// **Prefira [`DuracaoDeProva::e_enduro`].** Esta forma aceita a sentinela `0` e responde
-/// `false` para ela, que é exatamente o modo como o Endurance já foi tratado como sprint uma
-/// vez. Ela segue viva só enquanto os call sites de `commands/` não migram para o tipo.
-pub fn is_enduro_duration(duracao_min: u16) -> bool {
-    DuracaoDeProva::nova(duracao_min).is_some_and(DuracaoDeProva::e_enduro)
 }
 
 /// Multiplicador de desgaste POR VOLTA pela fase da corrida no enduro: 1.0 até a metade
@@ -144,25 +156,8 @@ pub fn enduro_pit_relief(genuine_pits: u32) -> f64 {
     (ENDURO_PIT_RELIEF * genuine_pits as f64).min(ENDURO_RELIEF_CAP)
 }
 
-/// Paradas MODELADAS da IA pela duração (o jogador usa o pit REAL do SDK). Um stint dura
-/// ~[`ENDURO_STINT_MIN`] min → uma corrida de 60 min ≈ 2 paradas. 0 fora do enduro.
-///
-/// **Prefira [`DuracaoDeProva::paradas_modeladas_da_ia`]** — ver [`DuracaoDeProva`].
-pub fn modeled_ai_pits(duracao_min: u16) -> u32 {
-    DuracaoDeProva::nova(duracao_min)
-        .map(DuracaoDeProva::paradas_modeladas_da_ia)
-        .unwrap_or(0)
-}
-
-/// Multiplicador de desgaste (→ CUSTO) da corrida na ECONOMIA da grade toda: 1.0 no sprint;
-/// no enduro sobe com a duração ([`enduro_surcharge`]) e é aliviado por paradas reais
-/// ([`enduro_pit_relief`]). O sobrecusto persiste no desgaste → as peças chegam ao fim da vida
-/// mais cedo → mais trocas ao longo da temporada de enduro (a conta que o usuário pediu). Uma
-/// parada nunca leva abaixo de 1.0 (o alívio só corta o sobrecusto, não o desgaste-base).
-///
-/// **Prefira [`DuracaoDeProva::mult_de_desgaste_na_economia`]** — ver [`DuracaoDeProva`].
-pub fn enduro_economy_wear_mult(duracao_min: u16, genuine_pits: u32) -> f64 {
-    DuracaoDeProva::nova(duracao_min)
-        .map(|d| d.mult_de_desgaste_na_economia(genuine_pits))
-        .unwrap_or(1.0)
-}
+// As formas livres que recebiam a duração como `u16` cru — `is_enduro_duration`,
+// `modeled_ai_pits` e `enduro_economy_wear_mult` — foram REMOVIDAS. Elas aceitavam a sentinela
+// `0` e respondiam "sprint" por ela, que é exatamente o modo como o Endurance já foi tratado
+// como corrida de 25 minutos. Toda a régua de enduro agora entra por [`DuracaoDeProva`], que
+// não existe com zero.

@@ -1,7 +1,7 @@
 // GERADO por scripts/gen-track-countries.mjs — não editar à mão.
-// Mapa nome→país (com bandeira), de src-tauri/src/constants/tracks.rs. Inclui nome
+// Mapa nome→país (com bandeira), de src-tauri/src/constants/tracks/dados.rs. Inclui nome
 // completo, nome do local (antes de " - ") e nome curto, para casar com o track_name
-// que o calendário guardar (ver split_track_name em calendar/mod.rs).
+// que o calendário guardar (ver split_track_name em calendar/montagem.rs).
 export const TRACK_COUNTRIES = {
   "Adelaide": "🇦🇺 Austrália",
   "Adelaide Street Circuit": "🇦🇺 Austrália",

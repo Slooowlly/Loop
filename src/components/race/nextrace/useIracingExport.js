@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 
+import { bestEffortComRetorno } from "../../../utils/bestEffort";
 import { exportSuccess } from "../../../utils/sfx";
-import { IRACING_TUTORIAL_KEY, carKeyForCategory, getDisplayError } from "./nextRaceHelpers";
+import { IRACING_TUTORIAL_KEY, getDisplayError } from "./nextRaceHelpers";
 
 // Chave (por save) do aviso único da pintura. A cor do carro é aplicada em toda
 // exportação sem perguntar nada, e avisar sempre viraria ruído. Avisamos uma vez,
@@ -43,12 +44,13 @@ export function useIracingExport({ careerId, player, playerTeam, setError }) {
   // Pinta o carro do jogador na cor da equipe junto com a exportação da etapa. Sem
   // pergunta: o arquivo é local (só ele vê essa cor), a cor é a da carreira, e o
   // .tga que já existia fica preservado ao lado, em .tga.loop-bak. O backend devolve
-  // null quando a pintura está desligada nas Configurações ou quando ainda não temos
-  // o ID do iRacing — nos dois casos não há nada a dizer.
-  async function pintarCarro(careerIdAtual, carKey) {
+  // null quando a pintura está desligada nas Configurações, quando ainda não temos o ID
+  // do iRacing ou quando a categoria não tem carro definido no export — nesses casos não
+  // há nada a dizer. Vai a CATEGORIA, não uma car_key: quem traduz é o Rust.
+  async function pintarCarro(careerIdAtual, categoria) {
     let res;
     try {
-      res = await invoke("iracing_auto_paint_player", { careerId: careerIdAtual, carKey });
+      res = await invoke("iracing_auto_paint_player", { careerId: careerIdAtual, categoria });
     } catch {
       return; // pintura é acessório da exportação, nunca a derruba
     }
@@ -77,29 +79,52 @@ export function useIracingExport({ careerId, player, playerTeam, setError }) {
       return;
     }
     const rosterName = `Carreira ${player?.nome ?? "Loop"}`.trim();
-    const carKey = carKeyForCategory(categoria);
     setExportNotice("");
     setIracingFocusMsg("");
     setIsExporting(true);
     try {
-      await invoke("iracing_generate_roster", { careerId, categoria, rosterName, carKey });
-      await invoke("iracing_generate_season", { careerId, categoria, rosterName, carKey });
-      // Garante a macro de bandeira instalada agora — o iRacing está fechado neste
-      // momento, então a escrita no app.ini "cola" (o sim só reescreve ao fechar).
-      // Não-fatal: se falhar (ex.: app.ini não encontrado), não bloqueia a exportação.
-      await invoke("iracing_install_yellow_macro").catch(() => {});
-      // Mesmo tratamento para o modo janela (pré-requisito do overlay): o boot do
-      // Loop já tentou, e esta é a segunda chance para quem abriu o Loop com o
-      // simulador rodando. Ajustar depois que ele entrar no sim não adiantaria — o
-      // iRacing reescreve esses arquivos ao fechar. Não-fatal e sem pergunta.
-      await invoke("iracing_modo_janela_aplicar").catch(() => {});
+      // O carro sai da categoria dentro do Rust. Categoria que o export não sabe fazer
+      // (GT4, GT3, Production, Endurance) volta como erro aqui, com o motivo — antes ela
+      // seguia calada e a etapa saía num MX-5.
+      await invoke("iracing_generate_roster", { careerId, categoria, rosterName });
+      await invoke("iracing_generate_season", { careerId, categoria, rosterName });
+      // Os dois ajustes abaixo são NÃO-FATAIS para a exportação e, ao mesmo tempo,
+      // pré-requisitos de features que o jogador vai usar depois: a bandeira amarela
+      // automática e o overlay. Derrubar a etapa por eles trocaria a corrida por um
+      // acessório; engoli-los calados (o que este trecho fazia até 11/08/2026) fazia a
+      // feature simplesmente não acontecer, sem uma linha para conferir depois. O meio
+      // termo é este: a exportação segue, a falha vai para o log de diagnóstico e o
+      // jogador lê uma linha discreta dizendo o que ficou de fora.
+      const ajustes = [];
+      // A macro de bandeira só "cola" com o iRacing fechado, que é o estado dele agora
+      // (o sim reescreve o app.ini ao fechar).
+      const macro = await bestEffortComRetorno(
+        invoke("iracing_install_yellow_macro"),
+        "iracing_install_yellow_macro",
+      );
+      if (!macro.ok) ajustes.push(t("nextRaceTab.iracing.adjustmentYellowMacro"));
+      // Modo janela: o boot do Loop já tentou, e esta é a segunda chance para quem abriu
+      // o Loop com o simulador rodando. Ajustar depois que ele entrar no sim não
+      // adiantaria, pela mesma reescrita ao fechar.
+      const janela = await bestEffortComRetorno(
+        invoke("iracing_modo_janela_aplicar"),
+        "iracing_modo_janela_aplicar",
+      );
+      if (!janela.ok) ajustes.push(t("nextRaceTab.iracing.adjustmentWindowMode"));
       dismissToasts();
       setExported(true);
       exportSuccess();
       agendarToastsDeIda();
+      // Vai na linha discreta que já existe abaixo do cabeçalho, e não num toast: a
+      // exportação DEU CERTO, e um toast de erro sobre um ajuste acessório competiria
+      // com o convite de entrar no simulador, que é a ação que importa agora. A linha
+      // some no próximo simular ou avanço de temporada, junto com o resto do aviso.
+      if (ajustes.length > 0) {
+        setExportNotice(t("nextRaceTab.iracing.adjustmentsFailed", { itens: ajustes.join(", ") }));
+      }
       // Depois do `dismissToasts` acima, senão o aviso da pintura nasceria e morreria
       // no mesmo instante.
-      await pintarCarro(careerId, carKey);
+      await pintarCarro(careerId, categoria);
     } catch (invokeError) {
       setError(getDisplayError(invokeError, t("nextRaceTab.errors.export")));
     } finally {

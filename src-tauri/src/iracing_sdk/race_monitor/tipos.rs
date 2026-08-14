@@ -595,7 +595,7 @@ impl BreakdownOutcome {
             severity: ev.severity,
             penalty_secs: ev.penalty_secs,
             forced: ev.forced,
-            label: ev.problem_label().to_string(),
+            label: ev.problem_label(),
         }
     }
 }

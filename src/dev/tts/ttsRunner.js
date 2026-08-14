@@ -1,3 +1,4 @@
+// i18n-ignore-file — bancada da POC de TTS, fora do caminho do jogador.
 // Orquestra UMA geração de ponta a ponta e devolve o registro medido.
 //
 // Sequência: abre o contexto de áudio -> assina os eventos -> zera o cronômetro ->

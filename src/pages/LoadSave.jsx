@@ -17,7 +17,7 @@ function DeleteSaveConfirmModal({ careerId, onConfirm, onCancel, deleting = fals
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
       <GlassCard
         hover={false}
-        className="glass-strong relative w-full max-w-md rounded-[28px] border-white/12 p-6 sm:p-7"
+        className="glass-strong relative w-full max-w-md rounded-[28px] border-white/[0.12] p-6 sm:p-7"
         role="dialog"
         aria-modal="true"
         aria-labelledby="delete-save-title"

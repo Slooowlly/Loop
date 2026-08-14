@@ -421,7 +421,6 @@ fn noticia_de_temporada_nao_carrega_rodada() {
         "P001",
         "P002",
         Some("T001"),
-        &std::collections::HashMap::new(),
     )
     .expect("cruzou threshold, deve gerar item");
 
@@ -634,6 +633,7 @@ fn chegada(pilot_id: &str, grid_position: i32) -> crate::simulation::race::RaceD
         gap_to_winner_ms: 0.0,
         is_dnf: false,
         dnf_reason: None,
+        dnf_reason_key: None,
         dnf_segment: None,
         incidents_count: 0,
         incidents: Vec::new(),
@@ -904,6 +904,94 @@ fn colisao_com_abandono_cria_do_zero() {
     let summaries = get_pilot_rivalries(&conn, "P001").unwrap();
     // h=5, r=14 → perceived = 0.6*5 + 0.4*14 = 3.0 + 5.6 = 8.6
     assert!((summaries[0].perceived_intensity - 8.6).abs() < 1e-9);
+}
+
+// ── Desempate entre dois incidentes do mesmo par ──────────────────────────
+
+/// O CASO DO ENUNCIADO: toque leve comum primeiro, toque leve em contexto de
+/// título depois, entre a mesma dupla. Os dois têm a mesma base de severidade, e
+/// quem tem de ficar é o segundo — é o toque que aconteceu com o campeonato em
+/// jogo. Com o critério antigo (`>` só na severidade) o primeiro travava a entrada
+/// e o par pontuava pelo contexto errado; na faixa leve isso decidia inclusive se
+/// a ficha abria.
+#[test]
+fn toque_leve_em_contexto_de_titulo_substitui_o_toque_leve_comum() {
+    const LEVE: f64 = 2.0;
+    let comum = (LEVE, 1.0);
+    let com_titulo = (LEVE, peso_do_contexto(1, 20, 20, true));
+
+    assert!(
+        incidente_substitui_o_do_par(com_titulo, comum),
+        "empatada a severidade, o contexto mais relevante tem que entrar"
+    );
+    assert!(
+        !incidente_substitui_o_do_par(comum, com_titulo),
+        "e o de contexto menor não pode desfazer a troca"
+    );
+}
+
+/// A PRECEDÊNCIA DA SEVERIDADE É ABSOLUTA. O desempate por contexto só vale no
+/// empate: um toque leve no maior contexto possível não desloca um toque grave que
+/// aconteceu no meio do pelotão.
+#[test]
+fn contexto_nao_derruba_severidade_maior() {
+    let leve_no_maior_contexto = (2.0, peso_do_contexto(1, 20, 20, true));
+    let grave_sem_contexto = (7.0, 1.0);
+
+    assert!(!incidente_substitui_o_do_par(
+        leve_no_maior_contexto,
+        grave_sem_contexto
+    ));
+    assert!(incidente_substitui_o_do_par(
+        grave_sem_contexto,
+        leve_no_maior_contexto
+    ));
+}
+
+/// Empatados nos dois eixos, fica o primeiro: dois encostões idênticos no mesmo
+/// contexto são o mesmo capítulo, e trocar um pelo outro só embaralharia a ordem.
+#[test]
+fn incidentes_identicos_nao_se_substituem() {
+    assert!(!incidente_substitui_o_do_par((2.0, 1.8), (2.0, 1.8)));
+}
+
+/// **B46 — POR QUE O DESEMPATE POR CONTEXTO NÃO MUDA COMPORTAMENTO.**
+///
+/// Medido em 12/08/2026, e o resultado é o contrário do que o enunciado supunha: não é
+/// que falte um terceiro critério de desempate. É que, dentro de UMA corrida e de UM
+/// par, dois incidentes da mesma faixa de severidade são indistinguíveis na CARGA que o
+/// evento aplica.
+///
+/// Duas coisas seguram isso, e este teste fixa as duas:
+///
+/// 1. `peso_do_contexto` é constante no par. Os quatro insumos dele — o pior grid dos
+///    dois, a rodada, o total de rodadas e a briga do título — são fatos da corrida e do
+///    par, nunca do incidente. Logo o item 2 da regra empata sempre.
+/// 2. O que se guarda por par é `((h, r), peso)`, e `h`/`r` saem da FAIXA de severidade,
+///    não do incidente. Mesma faixa e mesmo peso ⇒ carga idêntica.
+///
+/// A consequência prática: qualquer critério individual que se acrescente (estágio da
+/// corrida, posições perdidas, volta) só escolheria qual dos dois incidentes idênticos
+/// fica guardado, sem mover um número do evento aplicado. Fazer o contexto individual
+/// pesar exige colocá-lo DENTRO de `peso_do_contexto`, o que é peso novo — decisão de
+/// balanceamento, não conserto.
+#[test]
+fn dois_incidentes_do_mesmo_par_na_mesma_corrida_carregam_o_mesmo_evento() {
+    // Todos os insumos do peso são do par e da corrida: qualquer incidente entre estes
+    // dois pilotos nesta corrida lê exatamente o mesmo peso.
+    let peso_do_par = peso_do_contexto(2, 18, 20, true);
+    assert_eq!(peso_do_par, peso_do_contexto(2, 18, 20, true));
+
+    // A faixa leve dá (h, r) = (2.0, 8.0) para os dois toques, na volta 2 ou na última.
+    const LEVE: (f64, f64) = (2.0, 8.0);
+    let carga = |(h, r): (f64, f64), peso: f64| (h * peso, r * peso);
+    assert_eq!(carga(LEVE, peso_do_par), carga(LEVE, peso_do_par));
+
+    // E é por isso que o desempate empata: nada resta para comparar.
+    assert!(!incidente_substitui_o_do_par(
+        (LEVE.0, peso_do_par),
+        (LEVE.0, peso_do_par)
+    ));
 }
 
 // ── Passo 7: Campeonato ───────────────────────────────────────────────────

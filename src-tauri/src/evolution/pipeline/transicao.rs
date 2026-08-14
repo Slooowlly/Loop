@@ -20,18 +20,26 @@ pub(super) fn create_next_season_phase(
     Ok(new_season)
 }
 
+/// Abre a pré-temporada e devolve, no modo jogável, o plano em STAGING.
+///
+/// O arquivo não é publicado aqui: quem recebe o guard tem que chamar `publicar`
+/// depois do commit da transação. Enquanto isso não acontece, qualquer saída de erro
+/// descarta o staging no `Drop` e o `preseason_plan.json` anterior segue no lugar.
 pub(super) fn initialize_preseason_phase(
     conn: &Connection,
     new_season: &Season,
     save_path: &Path,
     rng: &mut impl Rng,
     mode: EndOfSeasonMode,
-) -> Result<(bool, i32), String> {
+) -> Result<(bool, i32, Option<PreSeasonPlanStaging>), String> {
     let mut preseason_plan = initialize_preseason(conn, new_season.numero, rng)
         .map_err(|e| format!("Erro ao inicializar pre-temporada: {e}"))?;
+    let mut staging = None;
     if mode == EndOfSeasonMode::Playable {
-        save_preseason_plan(save_path, &preseason_plan)
-            .map_err(|e| format!("Erro ao salvar plano da pre-temporada: {e}"))?;
+        staging = Some(
+            PreSeasonPlanStaging::preparar(save_path, &preseason_plan)
+                .map_err(|e| format!("Erro ao salvar plano da pre-temporada: {e}"))?,
+        );
     } else {
         // Não-interativo: a IA resolve a janela sozinha (jogador sempre espera →
         // garantia de porta no fecho). Backstop contra loop infinito (a janela fecha
@@ -48,5 +56,5 @@ pub(super) fn initialize_preseason_phase(
             }
         }
     }
-    Ok((true, preseason_plan.state.total_weeks))
+    Ok((true, preseason_plan.state.total_weeks, staging))
 }
