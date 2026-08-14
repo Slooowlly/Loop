@@ -102,21 +102,40 @@ pub const SOCORROS_MAX_POR_TEMPORADA: i32 = 2;
 /// saúde do mundo é `caixa − dívida` em meses de operação, o socorro **piorava o indicador no
 /// instante em que era concedido** — a primeira coisa que a medição de B50 apontou.
 ///
-/// Medido no harness de economia (20 temporadas × réplicas, 7 categorias), colapso médio do
-/// mundo, com todos os outros parâmetros iguais:
+/// # A medição de 12/08/2026 não valia, e a de 14/08 vale
 ///
-/// | taxa | colapso% | dívida criada (meses) | socorros por tomador |
-/// |---|---|---|---|
-/// | sem socorro (piso) | 20,92 | 0 | 0 |
-/// | 1,18 | 21,49 | 26,4 | 2,17 |
-/// | 1,08 | 21,22 | 27,7 | 2,60 |
-/// | **1,00** | **20,97** | 26,1 | 2,52 |
-/// | absoluta antiga | 24,23 | 1046,3 | 45,42 |
+/// A tabela que justificava este número foi levantada quando o socorro estava INERTE em cinco
+/// das seis arenas, pelo piso absoluto do cheque especial (ver [`SOCORRO_LIGADO`]). Ela
+/// comparava variantes de um botão desligado: os `26,1` meses de dívida do mundo eram o
+/// `mazda_amador` sozinho, diluído por sete arenas, e é por isso que ela dizia `2,52` socorros
+/// por tomador, que é a leitura de uma arena só.
 ///
-/// Só em 1,00 o braço com socorro encosta no piso do braço SEM socorro (20,97 contra 20,92, um
-/// vigésimo de ponto percentual). Nenhum valor zera essa diferença, e isso é estrutural: a
-/// equipe socorrida continua operando em colapso em vez de ser vendida, e a venda é justamente
-/// o que tira uma equipe da conta. O que a taxa controlava era o resto, e o resto some aqui.
+/// Refeita em 14/08/2026 com o piso já relativo e o mecanismo vivo na escada inteira, mesmo
+/// harness (4 réplicas × 20 temporadas, 7 arenas), média do mundo:
+///
+/// | braço | colapso% | vendas | dívida criada (meses) | juro pago (meses) | por tomador |
+/// |---|---|---|---|---|---|
+/// | sem socorro (piso) | 19,63 | 21,6 | 0 | 33,3 | 0 |
+/// | **1,00 (produção)** | **20,62** | **23,4** | 133,5 | 70,3 | 12,36 |
+/// | 1,08 | 21,21 | 24,0 | 141,8 | 75,6 | 12,24 |
+/// | principal 1 mês, taxa 1,18 | 21,03 | 23,6 | 103,2 | 61,3 | 16,48 |
+/// | principal 1 mês, taxa 1,08 | 20,65 | 23,4 | 96,9 | 57,6 | 16,64 |
+/// | amortizada | 21,83 | 24,6 | 139,5 | 102,4 | 13,06 |
+/// | absoluta antiga | 24,25 | 27,8 | 1032,3 | 300,5 | 44,83 |
+///
+/// **A escolha de 1,00 se sustenta**, agora por medição válida: entre os braços de dois meses
+/// de principal, ele é o de menor colapso, e continua sendo o único que não piora o indicador
+/// no ato da concessão.
+///
+/// O braço com socorro segue acima do braço SEM socorro, e isso é estrutural: a equipe
+/// socorrida continua operando em colapso em vez de ser vendida, e a venda é justamente o que
+/// tira uma equipe da conta. Nenhum valor de taxa zera essa diferença.
+///
+/// **O que a medição nova abriu, e está no D-13 do backlog:** o braço de principal 1 mês com
+/// taxa 1,08 empata com a produção em colapso (20,65 contra 20,62, dentro do ruído de 8 a 10%
+/// do harness) e em vendas (23,4 nos dois), criando 27% menos dívida e pagando 18% menos juro
+/// — as duas diferenças fora do ruído. Trocar principal e taxa é calibração própria, e não
+/// entrou junto do religamento de propósito.
 ///
 /// **Socorro continua não sendo de graça**, e o custo não é a taxa: é o JURO. A dívida em
 /// banda de colapso paga 5% por rodada (`debt_interest_rate_for_state`), e a medição mostra
@@ -237,27 +256,51 @@ pub fn parcela_de_paraquedas(categoria: &str, classe: Option<&str>, rodadas: f64
     total_de_paraquedas(categoria, classe) / rodadas.max(1.0)
 }
 
-/// **O socorro está DESLIGADO na produção desde 14/08/2026, e isso é decisão, não acidente.**
+/// **O socorro está LIGADO na produção desde 14/08/2026**, e a trava fica no lugar como
+/// interruptor declarado, com o custo do religamento medido logo abaixo.
 ///
-/// Ele já estava inerte em quase toda a escada, e ninguém sabia: o piso do cheque especial de
-/// [`crate::finance::cashflow::PISO_CHEQUE_ESPECIAL_MESES`] era absoluto (-100 mil) e travava
-/// o caixa ACIMA do portão de necessidade, que é relativo. Medido no harness
-/// `medir_emprestimo_de_emergencia`, o braço `producao` era idêntico ao braço `sem socorro`
-/// em cinco das seis arenas; só o `mazda_amador` emprestava.
+/// # A história curta, porque ela explica os números que estão escritos neste arquivo
 ///
-/// Passar o piso para meses de operação conserta a unidade e, de quebra, RELIGARIA o socorro
-/// em cinco arenas de uma vez. Religar não é neutro: no `gt3`, o braço que empresta de verdade
-/// sobe o colapso de 46,16% para 53,04% e as vendas de 62,8 para 72,5, porque equipe socorrida
-/// segue operando em colapso em vez de ser vendida. Por isso as duas coisas foram separadas:
-/// aqui entra só o conserto do piso, com o socorro travado, e o religamento é decisão própria
-/// com medição própria (ver D-12 no `docs/backlog.md`).
+/// O socorro passou um tempo INERTE em quase toda a escada sem que ninguém soubesse. O piso do
+/// cheque especial de [`crate::finance::cashflow::PISO_CHEQUE_ESPECIAL_MESES`] era absoluto
+/// (-100 mil) e travava o caixa ACIMA do portão de necessidade, que é relativo: onde
+/// `2 × mensal` passava dos 100 mil, o portão nunca abria. No harness
+/// `medir_emprestimo_de_emergencia`, o braço `producao` era idêntico ao braço `sem socorro` em
+/// cinco das seis arenas, coluna por coluna. Só o `mazda_amador` emprestava.
 ///
-/// **A trava não some com o mecanismo.** Os portões seguem em
-/// [`emergency_loan_amount_na_temporada`], testados um a um, e a aplicação segue em
-/// [`aplicar_socorro_sem_trava`], que é por onde os testes e os braços de medição do harness
-/// entram. O que esta constante desliga é só o caminho de PRODUÇÃO. Religar é trocar `false`
-/// por `true` e rodar o harness.
-pub const SOCORRO_LIGADO: bool = false;
+/// Consertar o piso religaria o mecanismo na escada inteira de uma vez, então as duas coisas
+/// foram separadas de propósito: primeiro o piso, com esta trava fechada; depois o
+/// religamento, com medição própria. Este é o segundo passo.
+///
+/// # O que o religamento custa, medido
+///
+/// Mesmo harness, 4 réplicas × 20 temporadas, média das sete arenas. `travado` é o mundo com
+/// o piso já relativo e esta constante em `false`; `ligado` é como ele fica agora:
+///
+/// | | travado | ligado |
+/// |---|---|---|
+/// | colapso % | 19,63 | 20,62 |
+/// | vendas | 21,6 | 23,4 |
+/// | juros pagos (meses) | 33,27 | 70,29 |
+/// | principal emprestado (meses) | 0,0 | 74,5 |
+///
+/// **O socorro piora as três colunas, e isso é estrutural, não calibração.** A equipe
+/// socorrida continua operando em colapso em vez de ser vendida, e a venda é o que tira uma
+/// equipe da conta. Nenhum valor de principal ou de taxa zera essa diferença: o harness varreu
+/// principal de 1 e 2 meses e taxa de 1,00, 1,08 e 1,18, e todos os braços que emprestam ficam
+/// acima do braço que não empresta.
+///
+/// Ligar assim mesmo é decisão de PRODUTO, não de saúde do agregado. Uma equipe que some do
+/// grid no meio da temporada por falta de caixa é pior de jogar do que uma equipe endividada
+/// que termina o ano, e o socorro é o que compra esse ano. O preço está na tabela.
+///
+/// # A trava continua existindo, e por quê
+///
+/// Ela é o interruptor: desligar de novo é trocar `true` por `false`, e o par de comparação
+/// já está montado no harness. Os portões seguem em [`emergency_loan_amount_na_temporada`],
+/// testados um a um, e a aplicação em [`aplicar_socorro_sem_trava`], que é por onde os testes
+/// e os braços de medição entram sem passar por aqui.
+pub const SOCORRO_LIGADO: bool = true;
 
 /// Aplica o socorro, se houver, e REGISTRA que ele aconteceu.
 ///

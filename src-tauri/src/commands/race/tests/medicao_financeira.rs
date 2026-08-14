@@ -7240,15 +7240,15 @@ fn medir_emprestimo_de_emergencia() {
     cabecalho_saude();
 
     println!(
-        "\n!! ATENCAO, DESDE 14/08/2026: o braco 'producao' passa pela TRAVA\n\
-         (finance::events::SOCORRO_LIGADO, hoje false), entao ele mede o socorro DESLIGADO e\n\
-         tem de bater com 'sem socorro' em toda coluna. O mecanismo como ele seria SE religado\n\
-         esta no braco 'taxa 1,00 (sem taxa)', que entra pelos portoes sem passar pela trava e\n\
-         usa o principal e a taxa da producao. E esse o par a comparar no D-12.\n"
+        "\n!! O braco 'producao' passa pela TRAVA (finance::events::SOCORRO_LIGADO). Com ela\n\
+         ABERTA, que e o estado desde 14/08/2026, ele tem de bater com 'taxa 1,00 (sem taxa)',\n\
+         que entra pelos portoes sem passar pela trava e usa o mesmo principal e a mesma taxa.\n\
+         Se um dia ela for fechada de novo, 'producao' passa a bater com 'sem socorro'. Esse\n\
+         par de igualdades e o que diz em qual estado o mundo foi medido.\n"
     );
 
     let bracos: &[(&str, Socorro)] = &[
-        ("producao (travado)", Socorro::Producao),
+        ("producao", Socorro::Producao),
         ("sem socorro", Socorro::Sem),
         ("absoluta (a antiga)", Socorro::Absoluta),
         ("taxa amortizada", Socorro::Amortizada),
