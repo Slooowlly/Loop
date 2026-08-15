@@ -8,10 +8,13 @@ import { renderBulletinParagraphs, splitBulletinParagraphs } from "./bulletinTex
 import { getTrackImageSrc } from "../../utils/trackImages";
 
 // ── Distribuição do texto no spread ──────────────────────────────────────────────
-// A matéria de IA cresce com o tamanho do grid: num grid cheio ela passa de sete
-// parágrafos, a página esquerda estica por duas telas e a direita fica um vazio.
+// Matéria longa estica a página esquerda por duas telas e deixa a direita num vazio.
 // Acima deste tamanho a matéria CONTINUA na página direita, como numa revista.
-const CORPO_LONGO_CHARS = 1500;
+// O alvo pedido ao servidor é 250–340 palavras (`SEASON_PREVIEW_TARGET_WORDS`), ou seja
+// uns 2.100 caracteres no pior caso: o limiar fica ACIMA disso de propósito, para a
+// continuação ser a exceção de quando o modelo estoura o pedido. Abaixo dele a
+// matéria toda cabe na esquerda, e quebrá-la em 2+2 parágrafos só faria barulho.
+const CORPO_LONGO_CHARS = 2400;
 // A esquerda leva um pouco mais de texto porque a direita já carrega foto e tabela.
 const FATIA_ESQUERDA = 0.55;
 

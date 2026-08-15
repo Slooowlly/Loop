@@ -58,13 +58,15 @@ use relacoes::*;
 
 // ── Curadoria ────────────────────────────────────────────────────────────────────
 /// Quantos nomes entram em FAVORITOS (o topo da percepção pública).
-const FAVORITES_COUNT: usize = 5;
+const FAVORITES_COUNT: usize = 3;
 /// Quantos entram em PROMESSAS / INCÓGNITAS (o segundo pelotão).
-const PROMISES_COUNT: usize = 5;
+const PROMISES_COUNT: usize = 3;
 /// Piso de pilotos com dossiê no bundle. A matéria de IA fica rasa quando só há meia
 /// dúzia de nomes para trabalhar, mas com o grid inteiro ela cobre todo mundo e vira
-/// um catálogo — sete é o meio-termo: dá o que escrever sem virar chamada nominal.
-const MIN_PROFILED: usize = 7;
+/// um catálogo. Já foi 7, com 5 favoritos e 5 promessas: o texto saía com dez nomes
+/// para apresentar e ninguém terminava de ler. Seis é o número que cabe no espaço que
+/// a revista dá à matéria, e cada um continua ganhando tratamento próprio.
+const MIN_PROFILED: usize = 6;
 /// Quantos nomes o FALLBACK cita no pelotão de trás. O bundle da IA pode ser generoso
 /// (é insumo), mas a prosa determinística vira lista se despejar dez nomes.
 const FB_PACK_COUNT: usize = 3;

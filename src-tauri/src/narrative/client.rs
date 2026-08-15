@@ -48,12 +48,14 @@ const WORLD_NOTES_URL: &str = concat!(host_do_servidor!(), "/world-notes");
 /// `docs/season-preview-design.md` e `docs/season-preview-endpoint.md`.
 const SEASON_PREVIEW_URL: &str = concat!(host_do_servidor!(), "/season-preview");
 /// Comprimento-alvo da prévia, em palavras. Vai no payload (`target_words`) porque a
-/// matéria é a peça principal da aba e o bundle hoje carrega uns dez dossiês. Já foi
-/// 700–900, e no playtest ninguém terminava de ler; 450–600 ainda dá tratamento próprio
-/// a cada favorito (1–2 frases) e uma frase por promessa — abaixo de ~400 vira legenda
-/// de foto, que é o que fazia a matéria soar rasa. O servidor manda no texto final;
-/// isto é o pedido do cliente.
-const SEASON_PREVIEW_TARGET_WORDS: (u32, u32) = (450, 600);
+/// matéria é a peça principal da aba, e anda junto com quantos dossiês o bundle carrega
+/// (`MIN_PROFILED` em `commands/season_preview.rs`): o alvo é o espaço para apresentar
+/// os nomes que chegam. Já foi 700–900 com dez dossiês, depois 450–600 com os mesmos
+/// dez, e em ambos a matéria ficou longa demais para ser lida. Com seis dossiês,
+/// 250–340 ainda dá 1–2 frases por favorito e uma frase por promessa. Cortar o alvo
+/// sem cortar dossiê é o que faz a matéria virar chamada nominal. O servidor manda no
+/// texto final; isto é o pedido do cliente.
+const SEASON_PREVIEW_TARGET_WORDS: (u32, u32) = (250, 340);
 /// `pub(crate)` porque a telemetria de produto (`crate::telemetry`) entra pela
 /// MESMA porta do servidor — um segredo só, um lugar só pra trocar.
 pub(crate) const APP_SECRET: &str =

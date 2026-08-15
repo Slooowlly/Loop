@@ -71,8 +71,8 @@ Estas regras valem para **todo o texto gerado** — IA ou fallback determinísti
 
 ## 4. Anatomia da matéria (estrutura de seções)
 
-A matéria tem **manchete + linha-fina + corpo em 4 blocos**. O corpo é substancial:
-**alvo de 4 a 6 parágrafos, ~450–600 palavras**. Cada bloco tem um papel; a IA recebe os
+A matéria tem **manchete + linha-fina + corpo em 4 blocos**. O corpo cabe numa leitura
+curta: **alvo de 4 parágrafos, ~250–340 palavras**. Cada bloco tem um papel; a IA recebe os
 fatos já organizados por bloco (ver §6) e o prompt exige que todos apareçam.
 
 1. **Chamada (manchete + linha-fina + lead).**
@@ -294,18 +294,19 @@ retrospecto. Publicação séria, não fofoca.
 - **Teça as `RELAÇÕES` como enredo**, quando houver: "velhos conhecidos", ex-parceiros que
   se reencontram, uma rivalidade que a categoria herda. Trate-as como história do **grid**,
   em 3ª pessoa — não como algo que envolve "você". No máximo 1–2, sem forçar.
-- Estruture em **manchete + linha-fina + 4 blocos** (§4). O bundle traz **dez dossiês**
-  (5 em `FAVORITOS`, 5 em `PROMESSAS`) e **todos** devem aparecer no texto: cada um dos
-  cinco favoritos ganha um **tratamento próprio** (uma ou duas frases — o que ele já fez,
+- Estruture em **manchete + linha-fina + 4 blocos** (§4). O bundle traz **seis dossiês**
+  (3 em `FAVORITOS`, 3 em `PROMESSAS`) e **todos** devem aparecer no texto: cada um dos
+  três favoritos ganha um **tratamento próprio** (uma ou duas frases — o que ele já fez,
   como pilota, o que se espera dele), e cada nome de `PROMESSAS` ganha ao menos **uma
   frase própria**. Uma lista de nomes despejados numa frase só não cumpre isso.
 - Quando um piloto tiver traço de estilo, teça-o na descrição dele — e **não repita a
-  mesma construção** de um piloto para o outro ("Fulano chega como X: Y" dez vezes é o
+  mesma construção** de um piloto para o outro ("Fulano chega como X: Y" seis vezes é o
   fracasso que esta regra existe para evitar). Varie a forma da frase a cada nome.
-- Comprimento-alvo: **450–600 palavras** — o payload manda o intervalo em `target_words`,
-  e ele é a autoridade. Já foi 700–900, mas no playtest a matéria ficou longa demais para
-  ser lida; abaixo de ~400, com dez pilotos a cobrir, vira legenda de foto. O intervalo
-  atual dá 1–2 frases por favorito e uma frase por promessa, com fôlego de revista.
+- Comprimento-alvo: **250–340 palavras** — o payload manda o intervalo em `target_words`,
+  e ele é a autoridade. Já foi 700–900 e depois 450–600, sempre com dez dossiês, e nas
+  duas medidas a matéria ficou longa demais para ser lida. O corte de agosto/2026 mexeu
+  nas duas pontas ao mesmo tempo: seis dossiês e 250–340 palavras. Cortar só o alvo, com
+  dez nomes a cobrir, viraria chamada nominal, que é o modo de falha a evitar.
 - Feche pela **etapa de abertura**.
 
 **Formato de resposta** (JSON):
