@@ -295,8 +295,7 @@
       "standings": "Home",
       "news": "Notícias",
       "myTeam": "Minha Equipe",
-      "calendar": "Calendário",
-      "carreira": "Carreira"
+      "calendar": "Calendário"
     },
     "date": "Data",
     "back": "Voltar",
@@ -333,9 +332,19 @@
   },
   "seasonBanner": {
     "finished": "Temporada Encerrada",
+    "finishedYear": "Temporada {{year}} Encerrada",
+    "championWord": "Campeão",
     "championTbd": "Campeão definido",
+    "playerResult": "Você terminou em P{{position}}, com {{points}} pontos",
+    "clinch": "Título fechado com {{margin}} pontos de vantagem sobre {{runnerUp}}",
+    "clinchSolo": "Título fechado com {{points}} pontos",
+    "stats": {
+      "points": "Pontos",
+      "wins": "Vitórias",
+      "podiums": "Pódios",
+      "margin": "Margem"
+    },
     "seasonEnd": "Fim de temporada",
-    "summary": "{{season}} terminou com {{champion}} no topo da {{championship}}.",
     "noTeam": "- Sem equipe nesta temporada",
     "noPendingRace": "- Sem corrida pendente"
   },
@@ -393,7 +402,14 @@
       "next": "Próxima",
       "race": "Corrida",
       "special": "Especial",
-      "nextRaceLabel": "Próxima corrida"
+      "nextRaceLabel": "Próxima corrida",
+      "heroRound": "Rodada {{n}} de {{total}}",
+      "heroInDays_one": "Em {{count}} dia",
+      "heroInDays_other": "Em {{count}} dias",
+      "heroStart": "Largada",
+      "heroCategory": "Categoria",
+      "heroGoToRace": "Ir para a corrida",
+      "thenComes": "A seguir"
     },
     "phase": {
       "mercado": "Mercado",
@@ -1371,8 +1387,6 @@
       "goalPersonal": "Meta Pessoal",
       "goalTitle": "Meta Título",
       "contractExpiring": "Contrato expirando",
-      "contractWarningPrefix": "Seu contrato com",
-      "contractWarningSuffix": "encerra ao fim desta temporada.",
       "podiumFavorites": "Os 6 Favoritos ao Pódio",
       "buildingAnalysis": "Montando analise...",
       "championshipTable": "Tabela Geral do Campeonato",
@@ -1383,6 +1397,13 @@
       "colDriver": "Piloto",
       "colTeam": "Equipe",
       "colPts": "Pts"
+    },
+    "contractAlert": {
+      "eyebrow": "Aviso da diretoria",
+      "headline": "Seu contrato com a equipe encerra ao fim desta temporada.",
+      "body": "Esta é a última etapa valendo pelo vínculo atual. O que você fizer aqui é a última leitura que a equipe leva para a mesa de negociação.",
+      "seasonNote": "Vínculo válido até {{year}}",
+      "action": "Entendi"
     },
     "paint": {
       "toastPainted": "🎨 Seu carro foi pintado na cor {{color}} da equipe, na sua garagem do iRacing. Pode desligar isso em Configurações.",
@@ -2412,149 +2433,6 @@
       }
     }
   },
-  "carreiraTab": {
-    "loading": "Carregando a sua carreira...",
-    "errors": {
-      "load": "Não foi possível carregar a sua carreira.",
-      "retry": "Tentar de novo",
-      "noPlayer": "Nenhum piloto do jogador nesta carreira."
-    },
-    "sections": {
-      "piloto": "Meu piloto",
-      "historia": "História",
-      "trofeus": "Troféus",
-      "rivais": "Rivais",
-      "mercado": "Mercado"
-    },
-    "header": {
-      "championship": "Campeonato",
-      "motivation": "Motivação",
-      "injuredFor_one": "Lesionado por {{count}} corrida",
-      "injuredFor_other": "Lesionado por {{count}} corridas"
-    },
-    "piloto": {
-      "now": "Como você está",
-      "points": "Pontos",
-      "recentAverage": "Média recente",
-      "license": "Licença",
-      "injuryFallback": "Lesão em recuperação",
-      "injuryDetail": "Faltam {{remaining}} de {{total}} corridas para a recuperação.",
-      "injuryWhere": "Aconteceu em {{track}}",
-      "arc": "Arco da carreira",
-      "experience": "Experiência",
-      "development": "Desenvolvimento",
-      "headroom": "Margem até o teto",
-      "arcEmpty": "Ainda não há arco de carreira medido.",
-      "personality": "Personalidade",
-      "stardom": "Estrelato",
-      "charisma": "Carisma",
-      "technicalRead": "Leitura técnica",
-      "gridReference": "Grid {{value}}"
-    },
-    "historia": {
-      "summary": "A carreira em números",
-      "seasons": "Temporadas",
-      "races": "Corridas",
-      "categories": "Categorias",
-      "teams": "Equipes",
-      "promotions": "Promoções",
-      "demotions": "Rebaixamentos",
-      "idleYears": "Sem assento",
-      "ladder": "A escada percorrida",
-      "curve": "Onde você fechou cada temporada",
-      "seasonTable": "Temporada por temporada",
-      "debut": "Estreia em {{year}} pela {{team}}",
-      "unknownTeam": "Equipe desconhecida",
-      "colYear": "Ano",
-      "colCategory": "Categoria",
-      "colTeam": "Equipe",
-      "colPosition": "Posição",
-      "colRaces": "Corridas",
-      "colWins": "Vitórias",
-      "colPodiums": "Pódios",
-      "colPoints": "Pontos",
-      "inProgress": "Em curso",
-      "empty": "Nenhuma temporada registrada ainda."
-    },
-    "trofeus": {
-      "shelf": "Títulos",
-      "titlesWithoutDetail_one": "{{count}} título de campeão, sem o registro do ano.",
-      "titlesWithoutDetail_other": "{{count}} títulos de campeão, sem o registro dos anos.",
-      "noTitles": "Nenhum título ainda. A prateleira está esperando.",
-      "career": "O acervo da carreira",
-      "starts": "Largadas",
-      "wins": "Vitórias",
-      "podiums": "Pódios",
-      "poles": "Poles",
-      "polesConverted_one": "{{count}} virou vitória",
-      "polesConverted_other": "{{count}} viraram vitória",
-      "fastestLaps": "Voltas mais rápidas",
-      "points": "Pontos",
-      "bestFinish": "Melhor resultado: P{{position}}",
-      "reliability": "{{dnfs}} abandonos ({{rate}}% das largadas). Maior sequência de chegadas: {{streak}}.",
-      "firsts": "As primeiras vezes",
-      "firstPodium": "Primeiro pódio",
-      "firstWin": "Primeira vitória",
-      "firstTitle": "Primeiro título",
-      "firstDnf": "Primeiro abandono",
-      "peak": "O auge",
-      "bestSeason": "Melhor temporada",
-      "winStreak": "Maior sequência de vitórias",
-      "podiumStreak": "Maior sequência de pódios",
-      "top3Seasons": "Temporadas no pódio do campeonato",
-      "special": "Eventos especiais",
-      "specialEntries": "Participações",
-      "specialCallups": "Convocações",
-      "milestones": "Marcos"
-    },
-    "rivais": {
-      "title": "Quem corre contra você",
-      "count_one": "{{count}} rivalidade",
-      "count_other": "{{count}} rivalidades",
-      "empty": "Ainda ninguém. Rivalidade nasce de um toque na pista, de uma briga por título ou de dividir o mesmo box.",
-      "nemesis": "Nemesis",
-      "rival": "Rival",
-      "noTeam": "Sem equipe",
-      "otherGrid": "Não dividem mais o grid",
-      "raceScore": "Placar na corrida",
-      "meetings": "Encontros",
-      "meetingsValue_one": "{{count}} corrida no mesmo grid",
-      "meetingsValue_other": "{{count}} corridas no mesmo grid",
-      "qualiScore": "Placar no sábado",
-      "intensity": "Intensidade",
-      "origin": "Como nasceu",
-      "averageGap": "Gap médio",
-      "gapBehind": "{{value}}s atrás dele",
-      "gapAhead": "{{value}}s à frente dele",
-      "teammate": "Mesmo box",
-      "teammateValue": "{{team}}, {{years}} — {{wins}} a {{losses}}"
-    },
-    "mercado": {
-      "contract": "Meu contrato",
-      "lastYear": "Último ano de contrato. É agora que o assédio compensa.",
-      "yearsLeft_one": "Resta {{count}} temporada de contrato.",
-      "yearsLeft_other": "Restam {{count}} temporadas de contrato.",
-      "freeAgent": "Você está sem contrato.",
-      "value": "Quanto você vale",
-      "marketValue": "Valor de mercado",
-      "valueRank": "{{position}} de {{total}} no grid",
-      "estimatedSalary": "Salário de mercado",
-      "underpaid": "{{value}} acima do que você ganha",
-      "overpaid": "{{value}} abaixo do que você ganha",
-      "transferChance": "Chance de transferência",
-      "noValue": "Sem avaliação de mercado no momento.",
-      "watching": "Quem está de olho em você",
-      "watchingIntro_one": "{{count}} equipe cobiça o seu nome pelo apelo comercial.",
-      "watchingIntro_other": "{{count}} equipes cobiçam o seu nome pelo apelo comercial.",
-      "noWatchers": "Ninguém de olho por enquanto. Interesse ativo nasce da fama.",
-      "openSeats": "Vagas abertas no mundo",
-      "seatsCount": "{{eligible}} para você, de {{total}}",
-      "car": "Carro {{value}}",
-      "outOfTier": "Fora da sua faixa",
-      "noLicense": "Sem a licença",
-      "noSeats": "Nenhum assento aberto no mundo agora."
-    }
-  },
   "endOfSeason": {
     "header": {
       "title": "O Paddock Virou a Página",
@@ -2898,7 +2776,10 @@
     },
     "world": {
       "heading": "DO MUNDO DO GRID",
-      "ariaLabel": "Notícias do mundo"
+      "ariaLabel": "Notícias do mundo",
+      "subheading": "Notas do Paddock",
+      "count_one": "{{count}} Nota",
+      "count_other": "{{count}} Notas"
     },
     "cover": {
       "seasonYear": "Temporada {{year}}",
@@ -3322,7 +3203,19 @@
       "noEstimate": "Sem avaliação de mercado para comparar com o salário.",
       "freeAgentCost": "Sem contrato: não há salário para comparar com a avaliação.",
       "remainingYears_one": "{{count}} ano restante",
-      "remainingYears_other": "{{count}} anos restantes"
+      "remainingYears_other": "{{count}} anos restantes",
+      "player": {
+        "watching": "Quem está de olho em você",
+        "watchingIntro_one": "{{count}} equipe cobiça o seu nome pelo apelo comercial.",
+        "watchingIntro_other": "{{count}} equipes cobiçam o seu nome pelo apelo comercial.",
+        "noWatchers": "Ninguém de olho por enquanto. Interesse ativo nasce da fama.",
+        "openSeats": "Vagas abertas no mundo",
+        "seatsCount": "{{eligible}} para você, de {{total}}",
+        "car": "Carro {{value}}",
+        "outOfTier": "Fora da sua faixa",
+        "noLicense": "Sem a licença",
+        "noSeats": "Nenhum assento aberto no mundo agora."
+      }
     },
     "playerSkill": {
       "title": "Dossiê de Habilidade",
@@ -4298,6 +4191,10 @@
     "gap": "Gap",
     "lap": "Volta",
     "noGapData": "Sem dados de gap para este piloto.",
+    "gapTargetTeammate": "Seu companheiro",
+    "gapTargetRival": "Seu rival",
+    "tagTeammate": "Companheiro",
+    "tagRival": "Rival",
     "legendDry": "Seco",
     "legendWet": "Molhado",
     "legendFuelOnly": "Só combustível",

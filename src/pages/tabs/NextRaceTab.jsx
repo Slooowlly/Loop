@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import LoadingOverlay from "../../components/ui/LoadingOverlay";
 import IracingTutorialModal from "../../components/iracing/IracingTutorialModal";
 import ChampionshipTablePanel from "../../components/race/ChampionshipTablePanel";
+import ContractExpiringModal from "../../components/race/ContractExpiringModal";
 import EngineerBriefingPanel from "../../components/race/EngineerBriefingPanel";
 import NextRaceEmptyState from "../../components/race/NextRaceEmptyState";
 import NextRaceExportToasts from "../../components/race/NextRaceExportToasts";
@@ -66,6 +67,24 @@ function NextRaceTab() {
   const breakdownSeen = useAttentionStore(
     (state) => !!raceId && !!state.seen[`${raceId}:breakdown`]
   );
+  // Mesmo mecanismo para o alarde de contrato expirando: ele abre uma vez por
+  // etapa e cala depois que o jogador fecha, sem voltar a cada troca de aba.
+  const contractAlertSeen = useAttentionStore(
+    (state) => !!raceId && !!state.seen[`${raceId}:contract`]
+  );
+  const contractWarning = nextRaceBriefing?.contract_warning;
+  const showContractAlert =
+    contractWarning != null &&
+    !contractAlertSeen &&
+    Math.max(0, (season?.total_rodadas ?? 0) - (nextRace?.rodada ?? 0)) <= 1;
+  // O contrato guarda o NÚMERO da temporada; o jogador lê ano no calendário e no
+  // cabeçalho. Converto pela distância até a temporada corrente, que é a única que
+  // conhece o próprio ano. Sem os dois lados, o alarde omite a linha em vez de
+  // mostrar um número que não quer dizer nada.
+  const contractEndYear =
+    contractWarning != null && season?.ano != null && season?.numero != null
+      ? season.ano + (contractWarning.temporada_fim - season.numero)
+      : null;
   const weatherGlow = weatherSeen ? "" : "attn-glow-delayed";
   const breakdownGlow = breakdownSeen ? "" : "attn-glow-delayed";
   const phase = season?.fase;
@@ -229,8 +248,12 @@ function NextRaceTab() {
   const renderNarrative = (text) =>
     renderTextWithDriverMentions(text, mentionDrivers, hoveredDriverId, setHoveredDriverId);
 
+  // Sem `min-height` na raiz: a Sala de Estratégia cabe numa tela só, e as três
+  // colunas já cravam a própria altura em `calc(100vh - 19rem)`. O piso que morava
+  // aqui empurrava o conteúdo além do fim da janela e criava uma rolagem de ~40px
+  // cujo único efeito era o cabeçalho subir e sumir.
   return (
-    <div className="relative min-h-[calc(100vh-100px)]">
+    <div className="relative">
       {/* Background glass effect specific to this dashboard */}
       <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none opacity-60">
         <div className="absolute inset-x-0 -top-40 h-[600px] bg-[url('https://images.unsplash.com/photo-1541443131876-44b03de101c5?auto=format&fit=crop&q=80')] bg-cover opacity-15 filter blur-[30px] mix-blend-screen transform scale-110"></div>
@@ -273,6 +296,15 @@ function NextRaceTab() {
           onGoToIracing={iracing.handleGoToIracing}
         />
 
+        {showContractAlert && (
+          <ContractExpiringModal
+            teamName={contractWarning.equipe_nome}
+            teamColor={playerTeam?.cor_primaria}
+            yearEnd={contractEndYear}
+            onClose={() => markAttnSeen(raceId, "contract")}
+          />
+        )}
+
         {iracing.showTutorial && (
           <IracingTutorialModal
             onFinish={iracing.handleTutorialDone}
@@ -282,7 +314,7 @@ function NextRaceTab() {
         )}
 
         {/* GRID PRINCIPAL (4-4-4) */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch pb-10">
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch">
 
           {/* 1) NARRATIVA DA ETAPA */}
           <EngineerBriefingPanel
@@ -308,11 +340,6 @@ function NextRaceTab() {
             favorites={briefing.favorites}
             isLoading={isLoadingBriefing}
             hoveredDriverId={hoveredDriverId}
-            contractWarning={nextRaceBriefing?.contract_warning}
-            showContractWarning={
-              nextRaceBriefing?.contract_warning != null &&
-              Math.max(0, (season?.total_rodadas ?? 0) - (nextRace?.rodada ?? 0)) <= 1
-            }
           />
 
           {/* 3) TABELA CAMPEONATO */}

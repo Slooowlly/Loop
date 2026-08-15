@@ -62,7 +62,7 @@ function EfficiencyScatter({ teams, playerTeamId }) {
           largura de fallback dentro de uma coluna muito mais larga. */}
       <div ref={measureRef} className="min-w-0">
         {!scatter.hasData ? (
-          <p className="rounded-2xl border border-white/[0.08] bg-black/10 px-4 py-8 text-center text-xs leading-5 text-text-secondary">
+          <p className="border-y border-white/[0.08] px-4 py-8 text-center text-[11px] leading-5 text-text-secondary">
             {scatter.reason === "noPoints" ? t("myTeamTabV2.scatter.emptyNoPoints") : t("myTeamTabV2.scatter.empty")}
           </p>
         ) : (
@@ -240,10 +240,13 @@ const RESIDUAL_STROKE = {
   onPar: "stroke-text-muted",
 };
 
+// Só a cor: a placa de 44px que embalava esta seta virou ícone solto na cor do
+// veredito, pelo mesmo motivo dos medidores — a placa pesava mais que o número que
+// ela acompanha.
 const VERDICT_TILE = {
-  above: "border-status-green/25 bg-status-green/10 text-status-green",
-  below: "border-status-red/25 bg-status-red/10 text-status-red",
-  onPar: "border-white/10 bg-white/[0.06] text-text-secondary",
+  above: "text-status-green",
+  below: "text-status-red",
+  onPar: "text-text-secondary",
 };
 const VERDICT_ICON = { above: TrendingUp, below: TrendingDown, onPar: Minus };
 
@@ -261,13 +264,16 @@ function ScatterReading({ t, scatter, player }) {
   const Icone = VERDICT_ICON[verdict] ?? Minus;
 
   return (
-    <div className="flex flex-col justify-center gap-4 rounded-2xl border border-white/[0.08] bg-black/10 p-4">
+    /* Painel de leitura: filete à esquerda no lugar da caixa de canto redondo com
+       fundo próprio. Ele não é um cartão dentro do bloco, é a coluna de texto do
+       gráfico ao lado. */
+    <div className="flex flex-col justify-center gap-4 border-white/[0.08] lg:border-l lg:pl-5">
       <div className="flex items-start gap-3" data-testid="scatter-reading">
-        <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl border ${VERDICT_TILE[verdict] ?? VERDICT_TILE.onPar}`}>
-          <Icone size={22} strokeWidth={1.7} aria-hidden="true" />
+        <span className={`mt-0.5 shrink-0 ${VERDICT_TILE[verdict] ?? VERDICT_TILE.onPar}`}>
+          <Icone size={18} strokeWidth={1.7} aria-hidden="true" />
         </span>
         <div className="min-w-0">
-          <p className={`font-mono text-3xl font-semibold leading-none ${tone}`}>{formatSigned(player.residual)}</p>
+          <p className={`font-garage text-[26px] font-semibold leading-none tabular-nums ${tone}`}>{formatSigned(player.residual)}</p>
           <p className="mt-2 text-xs leading-5 text-text-secondary">
             {verdict === "above"
               ? t("myTeamTabV2.scatter.readingAbove")
@@ -314,7 +320,7 @@ function TeamLine({ label, point, tone }) {
       <div className="mt-1.5 flex items-center gap-2.5">
         <TeamBadge point={point} />
         <span className="min-w-0 flex-1 truncate text-xs text-text-primary">{point.fullName || point.name}</span>
-        <span className={`shrink-0 font-mono text-xs font-semibold ${tone}`}>{formatSigned(point.residual)}</span>
+        <span className={`shrink-0 font-garage text-xs font-semibold tabular-nums ${tone}`}>{formatSigned(point.residual)}</span>
       </div>
     </div>
   );
@@ -331,7 +337,7 @@ function TeamBadge({ point }) {
   return (
     <span
       data-testid="scatter-team-logo"
-      className="grid h-6 w-9 shrink-0 place-items-center rounded-md border border-white/10 font-mono text-[10px] font-semibold"
+      className="grid h-6 w-9 shrink-0 place-items-center rounded border border-white/10 font-garage text-[10px] font-semibold"
       style={{ backgroundColor: cor, color: readableOn(cor) }}
     >
       {point.name}
@@ -362,7 +368,7 @@ function RankLine({ icon: Icone, label, value, tone = "text-text-primary" }) {
         <Icone size={14} strokeWidth={1.7} aria-hidden="true" />
         {label}
       </span>
-      <span className={`font-mono text-xs ${tone}`}>{value}</span>
+      <span className={`font-garage text-xs tabular-nums ${tone}`}>{value}</span>
     </div>
   );
 }

@@ -94,6 +94,12 @@ a carreira em números, a escada de categorias percorrida, a curva de campeonato
 temporada por temporada, mais a prateleira de títulos com ano e equipe, as primeiras vezes e
 o auge. F-03, F-04 e F-05 fecharam juntos, como esta seção previa.
 
+**A aba foi apagada em 14/08/2026, e o buraco continua fechado.** Quem responde hoje é a
+ficha do piloto (`DriverDetailModalV2`), aberta clicando no próprio nome na Home: a aba
+Histórico dela serve a mesma trajetória, a curva de campeonato, os primeiros marcos, o auge,
+a confiabilidade e os eventos especiais, e a aba Habilidade serve o dossiê. A aba Carreira
+era uma segunda porta para o mesmo `get_driver_detail`.
+
 **O que a execução ensinou, e que a análise não tinha visto:** o backend não precisou de uma
 linha. A leitura era que a informação estava presa no `EndOfSeasonView` (uma cerimônia de
 passagem que aparece uma vez e some) e que faltava expor `race_history`. Na verdade
@@ -173,10 +179,11 @@ briefing F07 foi escrito (o arquivo `briefings/F07-espectadores-interesse.md` fo
 
 **Faltava a exibição rica do interesse ESPERADO**, que o `DESIGN.md` §17.1 pedia junto da
 outra: o público era um número no canto direito do card de clima, sem tier, sem escala e sem
-relação com o jogador — dentro de um botão que abre a previsão do tempo. Virou card próprio,
-`EventInterestCard.jsx`, com o tier (`tier_label`, traduzido pelo backend), o público, o porte
-da ocasião e a cota de plateia que a estrela do jogador puxa (`public_fame_share`), que é o
-fio entre a fama dele e a bilheteria.
+relação com o jogador — dentro de um botão que abre a previsão do tempo. Virou exibição própria,
+hoje `EventInterestBanner.jsx`, com o tier (`tier_label`, traduzido pelo backend), o público, o
+porte da ocasião e a cota de plateia que a estrela do jogador puxa (`public_fame_share`), que é o
+fio entre a fama dele e a bilheteria. Foi card na coluna de condições até 14/08/2026, quando virou
+faixa sem moldura no vão central do cabeçalho da Sala de Estratégia.
 
 **Segue fora de escopo, e continua verdade:** os três multiplicadores marcados como "uso
 futuro" (`pressure_modifier`, `media_multiplier`, `motivation_multiplier`) são calculados em

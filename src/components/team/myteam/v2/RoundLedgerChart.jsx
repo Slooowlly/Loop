@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { ChartColumn } from "lucide-react";
 
-import GlassCard from "../../../ui/GlassCard";
+import GarageSheet from "./GarageSheet";
 import Tooltip from "../../../ui/Tooltip";
 import useElementSize from "../../v2/useElementSize";
 import { formatMoney, formatMoneyCompact, formatSignedMoney } from "../../../../utils/formatters";
@@ -36,7 +36,7 @@ function RoundLedgerChart({ report, team, season }) {
   const ledger = seasonLedger({ report, team, season, view });
 
   return (
-    <GlassCard hover={false} className="rounded-[24px] p-5" data-testid="my-team-v2-round-ledger">
+    <GarageSheet className="px-4 py-3" testId="my-team-v2-round-ledger">
       <div ref={measureRef}>
         {/* Sem título: as colunas com o valor escrito já dizem o que são. O texto do
             título continua no `aria-label` do SVG, para leitor de tela. Fica só a
@@ -48,9 +48,9 @@ function RoundLedgerChart({ report, team, season }) {
         </div>
 
         {!ledger.hasData ? (
-          <div className="mt-4 rounded-2xl border border-white/[0.08] bg-black/10 px-4 py-8 text-center">
-            <ChartColumn size={26} strokeWidth={1.5} aria-hidden="true" className="mx-auto text-text-muted" />
-            <p className="mt-2.5 text-xs leading-5 text-text-secondary">{t("myTeamTabV2.ledger.empty")}</p>
+          <div className="mt-3 border-y border-white/[0.08] px-4 py-8 text-center">
+            <ChartColumn size={22} strokeWidth={1.5} aria-hidden="true" className="mx-auto text-text-muted" />
+            <p className="mt-2.5 text-[11px] leading-5 text-text-secondary">{t("myTeamTabV2.ledger.empty")}</p>
           </div>
         ) : (
           <>
@@ -109,7 +109,7 @@ function RoundLedgerChart({ report, team, season }) {
                           x={column.centerX}
                           y={column.deltaY}
                           textAnchor="middle"
-                          className={`font-mono text-[10px] ${valueClass(column)}`}
+                          className={`font-garage text-[10px] ${valueClass(column)}`}
                         >
                           {formatSignedMoney(column.net)}
                         </text>
@@ -118,7 +118,7 @@ function RoundLedgerChart({ report, team, season }) {
                           x={column.centerX}
                           y={column.cashY}
                           textAnchor="middle"
-                          className="fill-text-muted font-mono text-[10px]"
+                          className="fill-text-muted font-garage text-[10px]"
                         >
                           {formatMoneyCompact(column.cash)}
                         </text>
@@ -154,7 +154,7 @@ function RoundLedgerChart({ report, team, season }) {
             </svg>
 
             <div className="mt-3 space-y-1.5 border-t border-white/[0.08] pt-3 text-center">
-              <p className="text-xs leading-5 text-text-secondary" data-testid="ledger-reading">
+              <p className="text-[11px] leading-5 text-text-secondary" data-testid="ledger-reading">
                 {ledger.breach
                   ? t("myTeamTabV2.ledger.readingBreach", {
                       round: ledger.breach.round,
@@ -169,7 +169,7 @@ function RoundLedgerChart({ report, team, season }) {
                   de onde vem o valor, quando ele cai no caixa, e que ele é estimativa
                   presa a uma posição que ainda pode mudar. */}
               {ledger.prize > 0 ? (
-                <p className="text-xs leading-5 text-status-green/90" data-testid="ledger-prize-note">
+                <p className="text-[11px] leading-5 text-status-green/90" data-testid="ledger-prize-note">
                   {ledger.position > 0
                     ? t("myTeamTabV2.ledger.prizeNote", {
                         value: formatMoney(ledger.prize),
@@ -183,7 +183,7 @@ function RoundLedgerChart({ report, team, season }) {
           </>
         )}
       </div>
-    </GlassCard>
+    </GarageSheet>
   );
 }
 

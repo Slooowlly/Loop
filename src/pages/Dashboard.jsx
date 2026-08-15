@@ -16,7 +16,6 @@ import {
   resolvePostRaceLanding,
 } from "../utils/postRaceLanding";
 import CalendarTabRedesign from "./tabs/CalendarTabRedesign";
-import CarreiraTab from "./tabs/carreira";
 import MyTeamTab from "./tabs/myteam";
 import NewsMagazineTab from "./tabs/NewsMagazineTab";
 import NextRaceTab from "./tabs/NextRaceTab";
@@ -350,8 +349,6 @@ function Dashboard() {
         );
       case "news":
         return <NewsMagazineTab />;
-      case "carreira":
-        return <CarreiraTab />;
       case "my-team":
         return <MyTeamTab onOpenTeamRecords={openTeamRecords} />;
       case "calendar":

@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-// Cabeçalho da Sala de Estratégia: identificação da etapa + ações (simular e
-// exportar para o iRacing).
+import EventInterestBanner from "../EventInterestBanner";
+
+// Cabeçalho da Sala de Estratégia: identificação da etapa + interesse do evento +
+// ações (simular e exportar para o iRacing).
 function NextRaceHeader({
   nextRace,
   season,
@@ -35,6 +37,17 @@ function NextRaceHeader({
           </span>
         </div>
       </div>
+
+      {/* O vão entre a identificação e os botões era espaço morto, e o interesse do
+          evento gastava um card inteiro da coluna de condições para dizer o que é
+          identificação da etapa, igual ao nome da pista e à data. Sem moldura, ele
+          lê como legenda do cabeçalho. */}
+      <EventInterestBanner
+        interestLabel={briefing.interestLabel}
+        audienceEstimate={briefing.audienceEstimate}
+        audienceRankLabel={briefing.audienceRankLabel}
+        fameSharePct={briefing.fameSharePct}
+      />
 
       <div className="flex flex-col sm:flex-row items-center gap-4 mt-6 md:mt-0 w-full sm:w-auto">
         <div className="flex flex-col items-center gap-1 w-full sm:w-auto">

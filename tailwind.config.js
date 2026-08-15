@@ -16,8 +16,16 @@ export default {
         },
         text: {
           primary: '#e6edf3',
-          secondary: '#9ba3ae',
-          muted: '#484f58',
+          // Espelham as vars `--text-secondary` e `--text-muted` do `:root` em
+          // index.css, que é onde o contraste foi medido e corrigido. Aqui os
+          // valores tinham ficado para trás (#9ba3ae e #484f58), e como a UI
+          // pinta texto pelas classes do Tailwind (`text-text-muted`) e quase
+          // nunca pela var, o que o jogador via era sempre o valor velho: o
+          // muted em #484f58 dá ~2:1 sobre o fundo do painel, ilegível no
+          // tamanho em que ele aparece, rótulo de 10px maiúsculo e linha de
+          // números em 11px mono.
+          secondary: '#b6c2cf',
+          muted: '#96a5b3',
         },
         accent: {
           primary: '#58a6ff',
@@ -51,6 +59,15 @@ export default {
       fontFamily: {
         sans: ['Space Grotesk Variable', 'Segoe UI', 'system-ui', 'sans-serif'],
         mono: ['Space Grotesk Variable', 'Segoe UI', 'system-ui', 'sans-serif'],
+        // A monoespaçada de verdade da aba Minha Equipe, onde a leitura é de folha
+        // técnica e o número precisa cair em coluna. `mono` acima NÃO é
+        // monoespaçada — aponta para a mesma Space Grotesk do corpo —, e trocá-la
+        // mudaria todo o app de uma vez.
+        //
+        // Nenhuma mono é empacotada de propósito: o alvo é Windows, onde Cascadia
+        // Mono e Consolas existem sempre, e baixar um `@fontsource` a mais custaria
+        // peso no bundle para um bloco de tela.
+        garage: ['Cascadia Mono', 'Consolas', 'ui-monospace', 'monospace'],
       },
       fontSize: {
         'title-lg': ['18px', { lineHeight: '1.3', fontWeight: '700' }],

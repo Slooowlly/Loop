@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
-import { Banknote, Gauge, HeartPulse, Medal, Megaphone, Sparkles, Star, Trophy } from "lucide-react";
+import { Gauge, HeartPulse, Medal, Megaphone, Sparkles, Star, Trophy } from "lucide-react";
 
-import GlassCard from "../../../ui/GlassCard";
+import GarageSheet from "./GarageSheet";
+import GarageRow from "./GarageRow";
 import FlagIcon from "../../../ui/FlagIcon";
 import MeterBar from "./MeterBar";
 import { formatMoney } from "../../../../utils/formatters";
@@ -18,6 +19,12 @@ import { formatOrdinal, formatPercent } from "../teamMetrics";
 // pública da equipe, que multiplica o patrocínio de cada rodada. Contratar um rosto
 // conhecido é receita, não vitrine — e essa cadeia só fica visível se os dois números
 // estiverem no mesmo cartão.
+//
+// O salário desceu do canto superior direito para dentro da tabela de linhas. Lá em
+// cima ele era um número solto numa coluna própria, e a fatia da folha morava a três
+// linhas de distância do único número que a explica, o custo por ponto. Agora os
+// quatro — habilidade, mídia, salário e custo por ponto — caem na mesma coluna, e a
+// pergunta "ele devolve o que custa?" se lê de cima para baixo.
 // `payroll` é a folha dos DOIS contratos: sem ela, os dois salários lado a lado só
 // viram "a dupla é equilibrada" depois de uma divisão feita de cabeça.
 function DriverCard({ driver, averages, hasGrid, poolSize, payroll = 0, teammateMedia = null }) {
@@ -26,10 +33,10 @@ function DriverCard({ driver, averages, hasGrid, poolSize, payroll = 0, teammate
   const tenure = tenureLabel(t, driver.tenureSeasons);
 
   return (
-    <GlassCard hover={false} className="rounded-[24px] p-5" data-testid={`driver-card-${driver.role}`}>
-      <div className="flex items-start justify-between gap-3">
+    <GarageSheet testId={`driver-card-${driver.role}`}>
+      <div className="flex items-start justify-between gap-3 border-b border-white/[0.08] px-4 py-3">
         <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">{driver.role}</p>
+          <p className="font-garage text-[10px] uppercase tracking-[0.22em] text-text-muted">{driver.role}</p>
           <h4 className={`mt-1 truncate text-lg font-semibold ${driver.highlight ? "text-accent-primary" : "text-text-primary"}`}>
             {driver.name}
           </h4>
@@ -37,7 +44,7 @@ function DriverCard({ driver, averages, hasGrid, poolSize, payroll = 0, teammate
               costuma ser estreante ou estar lesionado, uma linha condicional
               desalinhava os dois cartões inteiros — medidores, estatísticas e rodapé
               desciam num lado e não no outro. A altura mínima trava o resto. */}
-          <div className="mt-2 flex min-h-[24px] flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
+          <div className="mt-2 flex min-h-[22px] flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-secondary">
             <span className="inline-flex items-center gap-1.5">
               <FlagIcon nacionalidade={driver.nationality} className="shrink-0" />
               {driver.nationalityLabel}
@@ -58,43 +65,35 @@ function DriverCard({ driver, averages, hasGrid, poolSize, payroll = 0, teammate
               </Badge>
             ) : null}
           </div>
-          {/* A posição no campeonato é a única leitura desta faixa que responde "ele
-              está indo bem?" — vale um número grande, não uma linha de metadados. A
-              altura mínima segura o alinhamento quando ainda não há posição. */}
-          <div className="mt-3 flex min-h-[38px] items-baseline gap-2.5" data-testid={`driver-championship-${driver.role}`}>
-            {driver.championshipPosition > 0 ? (
-              <>
-                <span className="font-mono text-[34px] font-semibold leading-none text-text-primary">
-                  {formatOrdinal(driver.championshipPosition)}
-                </span>
-                <span className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                  {t("myTeamTabV2.lineup.championshipLabel")}
-                </span>
-              </>
-            ) : (
-              <span className="text-xs text-text-muted">{t("myTeamTabV2.lineup.championshipPending")}</span>
-            )}
-          </div>
         </div>
-        <div className="shrink-0 text-right">
-          <p className="font-mono text-sm text-text-primary">{formatMoney(driver.salary)}</p>
-          <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-text-muted">{t("myTeamTabV2.lineup.salary")}</p>
-          {/* O peso dele na folha, colado no número que ele contextualiza. */}
-          {payrollShare === null ? null : (
-            <p className="mt-2 text-xs text-text-secondary" data-testid={`driver-payroll-share-${driver.role}`}>
-              {t("myTeamTabV2.lineup.payrollShare", { percent: formatPercent(payrollShare) })}
-            </p>
+        {/* A posição no campeonato é a única leitura desta faixa que responde "ele
+            está indo bem?" — vale um número grande, não uma linha de metadados. Ela
+            fica no alto à direita, na mesma coluna do caixa da faixa de comando: é o
+            veredito de cada bloco, sempre no mesmo canto. A altura mínima segura o
+            alinhamento quando ainda não há posição. */}
+        <div className="flex min-h-[40px] shrink-0 items-baseline gap-2 text-right" data-testid={`driver-championship-${driver.role}`}>
+          {driver.championshipPosition > 0 ? (
+            <>
+              <span className="font-garage text-[32px] font-semibold leading-none tabular-nums text-text-primary">
+                {formatOrdinal(driver.championshipPosition)}
+              </span>
+              <span className="max-w-[74px] text-[10px] uppercase leading-3 tracking-[0.16em] text-text-muted">
+                {t("myTeamTabV2.lineup.championshipLabel")}
+              </span>
+            </>
+          ) : (
+            <span className="text-[11px] text-text-muted">{t("myTeamTabV2.lineup.championshipPending")}</span>
           )}
         </div>
       </div>
 
       {!driver.hasDetail ? (
-        <p className="mt-5 rounded-2xl border border-white/[0.08] bg-black/10 px-4 py-5 text-center text-xs leading-5 text-text-secondary">
+        <p className="px-4 py-6 text-center text-[11px] leading-5 text-text-secondary">
           {t("myTeamTabV2.lineup.noDetail")}
         </p>
       ) : (
         <>
-          <div className="mt-5 space-y-4">
+          <div className="px-4 py-2">
             <MeterBar
               testId={`driver-skill-${driver.role}`}
               Icon={Gauge}
@@ -115,30 +114,34 @@ function DriverCard({ driver, averages, hasGrid, poolSize, payroll = 0, teammate
               tone={toneAgainst(driver.midia, hasGrid ? averages?.midia : null)}
               caption={mediaCaption(t, driver, teammateMedia)}
             />
+            {/* O peso dele na folha, colado no número que ele contextualiza. */}
+            <GarageRow label={t("myTeamTabV2.lineup.salary")} value={formatMoney(driver.salary)}>
+              {payrollShare === null ? null : (
+                <span data-testid={`driver-payroll-share-${driver.role}`}>
+                  {t("myTeamTabV2.lineup.payrollShare", { percent: formatPercent(payrollShare) })}
+                </span>
+              )}
+            </GarageRow>
+            {/* A leitura de gestão: quanto custa cada ponto que ele traz. Sem pontos
+                ainda, a conta não existe — e mostrar um número aqui seria inventar. */}
+            {/* Sem ícone, ao contrário dos dois medidores acima: lá a marca separa
+                barras de forma idêntica, aqui não há barra nenhuma para confundir, e
+                o ícone só empurraria o rótulo para uma segunda linha. */}
+            <GarageRow
+              label={t("myTeamTabV2.lineup.costPerPoint")}
+              value={driver.costPerPoint === null ? t("myTeamTabV2.lineup.noPoints") : formatMoney(driver.costPerPoint)}
+              divided={false}
+            />
           </div>
 
-          <div className="mt-5 grid grid-cols-3 gap-2 border-t border-white/[0.08] pt-4">
+          <div className="grid grid-cols-3 divide-x divide-white/[0.08] border-t border-white/[0.08]">
             <Stat label={t("myTeamTabV2.lineup.points")} value={driver.pontos} Icon={Star} tone="text-accent-primary" />
             <Stat label={t("myTeamTabV2.lineup.wins")} value={driver.vitorias} Icon={Trophy} tone="text-podium-gold" />
             <Stat label={t("myTeamTabV2.lineup.podiums")} value={driver.podios} Icon={Medal} tone="text-podium-silver" />
           </div>
-
-          {/* A leitura de gestão: quanto custa cada ponto que ele traz. Sem pontos
-              ainda, a conta não existe — e mostrar um número aqui seria inventar. */}
-          <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/[0.08] pt-3">
-            <span className="flex items-center gap-3.5 text-sm text-text-secondary">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] text-text-secondary">
-                <Banknote size={24} strokeWidth={1.6} aria-hidden="true" />
-              </span>
-              {t("myTeamTabV2.lineup.costPerPoint")}
-            </span>
-            <span className="font-mono text-sm text-text-primary">
-              {driver.costPerPoint === null ? t("myTeamTabV2.lineup.noPoints") : formatMoney(driver.costPerPoint)}
-            </span>
-          </div>
         </>
       )}
-    </GlassCard>
+    </GarageSheet>
   );
 }
 
@@ -151,14 +154,17 @@ function Badge({ children, tone, Icon }) {
   );
 }
 
+// O rodapé de campanha: rótulo em cima, número embaixo, alinhados à esquerda de cada
+// terço. Eram três caixas centralizadas de canto redondo com um ícone grande no topo,
+// e o ícone era o objeto mais visível de um bloco cujo assunto é o número.
 function Stat({ label, value, Icon, tone = "text-text-muted" }) {
   return (
-    <div className="rounded-2xl border border-white/[0.08] bg-black/10 p-3 text-center">
-      {Icon ? <Icon size={20} strokeWidth={1.6} aria-hidden="true" className={`mx-auto ${tone}`} /> : null}
-      <p className="mt-2 font-mono text-lg font-semibold text-text-primary">{value}</p>
-      <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-text-muted">
+    <div className="px-4 py-2.5">
+      <p className="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.18em] text-text-muted">
+        {Icon ? <Icon size={12} strokeWidth={1.8} aria-hidden="true" className={tone} /> : null}
         {label}
       </p>
+      <p className="mt-1 font-garage text-[17px] font-semibold tabular-nums text-text-primary">{value}</p>
     </div>
   );
 }

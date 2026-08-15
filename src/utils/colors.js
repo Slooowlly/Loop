@@ -5,8 +5,10 @@ export const colors = {
   FUNDO_INPUT: "#0E0E10",
   FUNDO_HEADER: "#000000",
   TEXTO_PRIMARY: "#e6edf3",
-  TEXTO_SECONDARY: "#7d8590",
-  TEXTO_MUTED: "#484f58",
+  // Mesmos valores do `:root` em index.css e do `text` em tailwind.config.js.
+  // Este arquivo é a terceira cópia da paleta e estava com os cinzas velhos.
+  TEXTO_SECONDARY: "#b6c2cf",
+  TEXTO_MUTED: "#96a5b3",
   ACCENT_PRIMARY: "#58a6ff",
   ACCENT_HOVER: "#79b8ff",
   ACCENT_PRESSED: "#388bfd",

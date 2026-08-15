@@ -169,17 +169,128 @@ describe("Header", () => {
       rodada_atual: 13,
     };
     invoke.mockResolvedValue([
-      { id: "P001", nome: "Thomas Baker", posicao_campeonato: 1 },
-      { id: "P002", nome: "R. Silva", posicao_campeonato: 2 },
+      {
+        id: "P001",
+        nome: "Thomas Baker",
+        posicao_campeonato: 1,
+        pontos: 240,
+        vitorias: 7,
+        podios: 11,
+        equipe_nome: "Apex Racing",
+        equipe_cor: "#e03a3a",
+        is_jogador: true,
+      },
+      { id: "P002", nome: "R. Silva", posicao_campeonato: 2, pontos: 198, vitorias: 3, podios: 8 },
     ]);
 
     render(<Header activeTab="standings" onTabChange={vi.fn()} />);
 
-    expect(await screen.findByText("Temporada Encerrada")).toBeInTheDocument();
+    expect(await screen.findByText("Temporada 2026 Encerrada")).toBeInTheDocument();
+    expect(screen.getByText("Campeão")).toBeInTheDocument();
     expect(screen.getByText("Thomas Baker")).toBeInTheDocument();
-    expect(screen.getByText(/ano 2026/i)).toBeInTheDocument();
-    expect(screen.queryByText(/temporada 1/i)).not.toBeInTheDocument();
+    // O placar do ano é o que o card ganhou no lugar da frase de resumo.
+    expect(screen.getByText("240")).toBeInTheDocument();
+    expect(screen.getByText("+42")).toBeInTheDocument();
+    // A linha de apoio existe nos dois estados, para o card não mudar de altura.
+    expect(screen.getByText("Título fechado com 42 pontos de vantagem sobre R. Silva")).toBeInTheDocument();
+    expect(screen.queryByText(/temporada 1 /i)).not.toBeInTheDocument();
     expect(screen.queryByText(/sem corrida pendente/i)).not.toBeInTheDocument();
+  });
+
+  it("mostra a posição do jogador no pôster quando quem levou o título foi a IA", async () => {
+    mockState.nextRace = null;
+    mockState.season = {
+      numero: 1,
+      ano: 2026,
+      total_rodadas: 12,
+      rodada_atual: 13,
+    };
+    invoke.mockResolvedValue([
+      {
+        id: "P001",
+        nome: "Thomas Baker",
+        posicao_campeonato: 1,
+        pontos: 240,
+        vitorias: 7,
+        podios: 11,
+        is_jogador: false,
+      },
+      {
+        id: "P002",
+        nome: "R. Silva",
+        posicao_campeonato: 2,
+        pontos: 198,
+        vitorias: 3,
+        podios: 8,
+      },
+      {
+        id: "P009",
+        nome: "Você",
+        posicao_campeonato: 9,
+        pontos: 54,
+        vitorias: 0,
+        podios: 1,
+        is_jogador: true,
+      },
+    ]);
+
+    render(<Header activeTab="standings" onTabChange={vi.fn()} />);
+
+    expect(await screen.findByText("Thomas Baker")).toBeInTheDocument();
+    expect(screen.getByText("Você terminou em P9, com 54 pontos")).toBeInTheDocument();
+  });
+
+  it("mostra o pôster do campeão ao abrir outra categoria com o ano já encerrado", async () => {
+    mockState.homeCategory = "mazda_production";
+    invoke.mockImplementation((comando) => {
+      if (comando === "get_calendar_for_category") {
+        return Promise.resolve([
+          {
+            id: "r10",
+            track_name: "Charlotte Motor Speedway",
+            rodada: 10,
+            display_date: "2026-11-04",
+            status: "Concluida",
+          },
+        ]);
+      }
+      if (comando === "get_drivers_by_category") {
+        return Promise.resolve([
+          {
+            id: "P100",
+            nome: "Matteo Bianchi",
+            posicao_campeonato: 1,
+            pontos: 255,
+            vitorias: 10,
+            podios: 12,
+            equipe_nome: "First Gear Motorsport",
+            equipe_cor: "#3aa0ff",
+          },
+          {
+            id: "P101",
+            nome: "Connor Martin",
+            posicao_campeonato: 2,
+            pontos: 144,
+            vitorias: 0,
+            podios: 4,
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    render(<Header activeTab="standings" onTabChange={vi.fn()} />);
+
+    expect(await screen.findByText("Matteo Bianchi")).toBeInTheDocument();
+    expect(screen.getByText("Campeão")).toBeInTheDocument();
+    expect(screen.getByText("+111")).toBeInTheDocument();
+    expect(
+      screen.getByText("Título fechado com 111 pontos de vantagem sobre Connor Martin"),
+    ).toBeInTheDocument();
+    // A última etapa disputada não pode voltar a se passar por próxima corrida.
+    expect(screen.queryByText("Charlotte Motor Speedway")).not.toBeInTheDocument();
+    // O botão de avanço continua na barra do topo: outra categoria é informativa.
+    expect(screen.getByRole("button", { name: /avançar calendário/i })).toBeInTheDocument();
   });
 
   it("uses skip-all flow when the player has no team and advances from the header", () => {

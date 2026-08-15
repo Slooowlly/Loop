@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { Cog, Gauge, ShieldCheck, Timer, Users } from "lucide-react";
 
-import GlassCard from "../../../ui/GlassCard";
+import GarageSheet, { SheetHeader } from "./GarageSheet";
+import GarageRow from "./GarageRow";
 import MeterBar from "./MeterBar";
 import { pitRisk } from "../teamMetrics";
 import { carMeterReadings } from "./gridMetrics";
@@ -31,49 +32,51 @@ function CarPanelV2({ team, teams }) {
   const strategyRisk = team?.pit_strategy_risk ?? 0;
 
   return (
-    <GlassCard hover={false} className="flex h-full flex-col rounded-[24px] p-6" data-testid="my-team-v2-car">
-      {/* Ver o comentário gêmeo em GaragePanelV2: a régua sob o título é o que separa
-          o cabeçalho do primeiro medidor — respiro sozinho não se via. */}
-      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-white/[0.08] pb-4">
-        <p className="flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-text-muted">
-          <Timer size={19} strokeWidth={1.8} aria-hidden="true" className="text-accent-primary" />
-          {t("myTeamTabV2.car.title")}
-        </p>
-        {meters[0]?.average === null ? null : (
-          <p className="text-[10px] uppercase tracking-[0.16em] text-text-muted">{t("myTeamTabV2.car.rulerLegend")}</p>
-        )}
-      </div>
+    <GarageSheet className="flex h-full flex-col" testId="my-team-v2-car">
+      {/* A régua sob o título é o que separa o cabeçalho do primeiro medidor —
+          respiro sozinho não se via. O comentário gêmeo morava no GaragePanelV2,
+          apagado em 14/08/2026 por não ter consumidor desde que a garagem foi
+          desmontada em LineupStrip e DriverCard. */}
+      <SheetHeader aside={meters[0]?.average === null ? null : t("myTeamTabV2.car.rulerLegend")}>
+        <Timer size={15} strokeWidth={1.8} aria-hidden="true" className="text-accent-primary" />
+        {t("myTeamTabV2.car.title")}
+      </SheetHeader>
 
-      {/* O cartão ocupa a linha inteira desde que a garagem foi desmontada, então os
+      {/* O bloco ocupa a linha inteira desde que a garagem foi desmontada, então os
           três medidores vão LADO A LADO no desktop: empilhados numa largura dupla,
           cada barra virava um traço de 1000px com um número na ponta, e o card
           terminava com meia tela de vazio embaixo. Empilha de novo abaixo de `lg`. */}
-      <div className="mt-6 flex flex-1 flex-col justify-evenly gap-5 lg:grid lg:grid-cols-3 lg:gap-6">
-        {meters.map((meter) => (
-          <MeterBar
-            key={meter.key}
-            testId={`car-meter-${meter.key}`}
-            Icon={METER_ICONS[meter.key]}
-            label={t(`myTeamTabV2.car.meters.${meter.key}`)}
-            value={meterValue(t, meter)}
-            percent={meter.percent}
-            averagePercent={meter.averagePercent}
-            tone={meter.tone}
-            caption={meterCaption(t, meter)}
-          />
+      <div className="flex flex-1 flex-col justify-evenly px-4 py-2 lg:grid lg:grid-cols-3 lg:gap-x-6 lg:divide-x lg:divide-white/[0.08]">
+        {meters.map((meter, index) => (
+          <div key={meter.key} className={index === 0 ? "" : "lg:pl-6"}>
+            <MeterBar
+              testId={`car-meter-${meter.key}`}
+              Icon={METER_ICONS[meter.key]}
+              label={t(`myTeamTabV2.car.meters.${meter.key}`)}
+              value={meterValue(t, meter)}
+              percent={meter.percent}
+              averagePercent={meter.averagePercent}
+              tone={meter.tone}
+              caption={meterCaption(t, meter)}
+              divided={false}
+            />
+          </div>
         ))}
       </div>
 
-      <div className="mt-5 flex items-center justify-between gap-3 border-t border-white/[0.08] pt-4">
-        <span className="flex items-center gap-3.5 text-sm text-text-secondary">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/10 bg-white/[0.06] text-text-secondary">
-            <Gauge size={24} strokeWidth={1.6} aria-hidden="true" />
-          </span>
-          {t("myTeamTabV2.car.strategyRisk")}
-        </span>
-        <span className="text-sm text-text-primary">{pitRisk(strategyRisk)}</span>
+      <div className="border-t border-white/[0.08] px-4 py-1.5">
+        <GarageRow
+          divided={false}
+          label={
+            <span className="inline-flex items-center gap-1.5">
+              <Gauge size={13} strokeWidth={1.8} aria-hidden="true" className="shrink-0" />
+              {t("myTeamTabV2.car.strategyRisk")}
+            </span>
+          }
+          value={pitRisk(strategyRisk)}
+        />
       </div>
-    </GlassCard>
+    </GarageSheet>
   );
 }
 

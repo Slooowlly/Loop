@@ -46,7 +46,7 @@ function Header({ activeTab, onTabChange }) {
 
   // As duas leituras de ponte do banner: o campeão do ano encerrado e a próxima etapa de
   // OUTRA categoria, quando o jogador abre uma série que não é a dele na tabela da Home.
-  const { seasonChampion, categoryRace } = useBannerDaEtapa({
+  const { fimDeTemporada, categoryRace, fimDeTemporadaDaCategoria } = useBannerDaEtapa({
     activeTab,
     showRaceBriefing,
     viewingOwnCategory,
@@ -137,15 +137,22 @@ function Header({ activeTab, onTabChange }) {
 
       {activeTab === "standings" && !showRaceBriefing && (
         !viewingOwnCategory ? (
-          // Vendo OUTRA categoria: banner informativo (sem botão Avançar), com a
-          // próxima corrida daquela categoria. Enquanto o calendário carrega,
-          // segura a altura do banner para não "pular" o layout.
-          categoryRace?.race ? (
+          // Vendo OUTRA categoria: banner informativo (sem botão Avançar). Com etapa
+          // pendente, a próxima corrida daquela categoria; com o ano dela encerrado, o
+          // pôster do campeão dela. Enquanto as duas leituras carregam, segura a altura
+          // do banner para não "pular" o layout.
+          categoryRace?.pending && categoryRace.race ? (
             <NextRaceBanner
               nextRace={categoryRace.race}
               championship={categoryLabel(viewedCategory)}
               totalRodadas={categoryRace.totalRodadas}
-              countdownDays={categoryRace.pending ? categoryRace.countdownDays : null}
+              countdownDays={categoryRace.countdownDays}
+            />
+          ) : fimDeTemporadaDaCategoria ? (
+            <SeasonFinishedBanner
+              season={season}
+              category={viewedCategory}
+              resumo={fimDeTemporadaDaCategoria}
             />
           ) : (
             <BannerHeightPlaceholder />
@@ -160,24 +167,25 @@ function Header({ activeTab, onTabChange }) {
             advanceLabel={rotuloDoAvanco()}
             advanceDisabled={avancoEmCurso}
           />
+        ) : hasNoPendingRace && playerTeam?.categoria ? (
+          <SeasonFinishedBanner
+            season={season}
+            category={playerTeam.categoria}
+            resumo={fimDeTemporada}
+            onAdvance={avancar}
+            advanceLabel={rotuloDoAvanco()}
+            advanceDisabled={avancoEmCurso}
+          />
         ) : (
           <div className="flex min-h-[110px] items-stretch h-[14vh]">
             <div className="mx-auto flex w-full max-w-[1680px] items-stretch px-3 sm:px-4 lg:px-5 xl:px-6">
-              {hasNoPendingRace && playerTeam?.categoria ? (
-                <SeasonFinishedBanner
-                  season={season}
-                  category={playerTeam.categoria}
-                  champion={seasonChampion}
-                />
-              ) : (
-                <p className="text-sm text-text-muted">
-                  {season
-                    ? isFreeAgent
-                      ? `${formatSurfaceSeasonLabel(season)} ${t("seasonBanner.noTeam")}`
-                      : `${formatSurfaceSeasonLabel(season)} ${t("seasonBanner.noPendingRace")}`
-                    : t("nav.loading")}
-                </p>
-              )}
+              <p className="text-sm text-text-muted">
+                {season
+                  ? isFreeAgent
+                    ? `${formatSurfaceSeasonLabel(season)} ${t("seasonBanner.noTeam")}`
+                    : `${formatSurfaceSeasonLabel(season)} ${t("seasonBanner.noPendingRace")}`
+                  : t("nav.loading")}
+              </p>
             </div>
           </div>
         )
@@ -194,34 +202,181 @@ function Header({ activeTab, onTabChange }) {
   );
 }
 
-function SeasonFinishedBanner({ season, category, champion }) {
-  const championName = champion?.nome ?? i18n.t("seasonBanner.championTbd");
-  const seasonLabel = season ? formatSurfaceSeasonLabel(season) : i18n.t("seasonBanner.seasonEnd");
+// Pôster de fim de ano: o encerramento da temporada tem o mesmo peso visual da próxima
+// etapa (mesma largura, mesma altura, mesmo botão), em vez de uma frase resumindo o que a
+// tabela logo abaixo já mostra. O ouro só acende quando a taça é do jogador — com campeão
+// de IA o card vira notícia, com a posição dele na linha de baixo.
+function SeasonFinishedBanner({
+  season,
+  category,
+  resumo,
+  onAdvance = null,
+  advanceLabel,
+  advanceDisabled,
+}) {
+  const campeao = resumo?.campeao ?? null;
+  const vice = resumo?.vice ?? null;
+  const jogador = resumo?.jogador ?? null;
+
+  const championName = campeao?.nome ?? i18n.t("seasonBanner.championTbd");
+  const jogadorECampeao = Boolean(campeao?.is_jogador);
+  const teamColor = campeao?.equipe_cor || "#f2c46d";
+  const margem = campeao && vice ? Number(campeao.pontos) - Number(vice.pontos) : null;
+
+  const kicker = season?.ano
+    ? i18n.t("seasonBanner.finishedYear", { year: season.ano })
+    : i18n.t("seasonBanner.finished");
+
+  // Linha de apoio: existe SEMPRE que há campeão, para o pôster ter a mesma altura na
+  // categoria do jogador e nas outras. O assunto é que muda — a posição dele quando ele
+  // está naquela série e não levou a taça, e a conta do título no resto.
+  const linhaDeApoio = (() => {
+    if (!campeao) return null;
+    if (jogador && !jogadorECampeao) {
+      return i18n.t("seasonBanner.playerResult", {
+        position: jogador.posicao_campeonato,
+        points: jogador.pontos,
+      });
+    }
+    if (vice?.nome && Number.isFinite(margem)) {
+      return i18n.t("seasonBanner.clinch", { margin: margem, runnerUp: vice.nome });
+    }
+    return i18n.t("seasonBanner.clinchSolo", { points: campeao.pontos });
+  })();
+
+  const numeros = campeao
+    ? [
+        { chave: "points", valor: campeao.pontos, destaque: true },
+        { chave: "wins", valor: campeao.vitorias },
+        { chave: "podiums", valor: campeao.podios },
+        ...(Number.isFinite(margem) ? [{ chave: "margin", valor: `+${margem}` }] : []),
+      ]
+    : [];
 
   return (
-    <div className="relative flex w-full items-center overflow-hidden rounded-[28px] border border-yellow-500/20 bg-[linear-gradient(135deg,rgba(24,17,5,0.96),rgba(9,15,26,0.95))] px-6 py-5 shadow-[0_18px_45px_rgba(0,0,0,0.28)]">
-      <div className="absolute inset-y-0 left-0 w-44 bg-[radial-gradient(circle_at_left,rgba(250,204,21,0.20),transparent_72%)]" />
-      <div className="absolute -right-8 top-1/2 h-28 w-28 -translate-y-1/2 rounded-full bg-yellow-300/10 blur-2xl" />
+    // Mesmo enquadramento do banner de corrida: padding por fora do container de 1680px,
+    // para o card bater com a largura das tabelas de baixo.
+    <div className="px-3 pb-1 pt-0.5 sm:px-4 lg:px-5 xl:px-6">
+      <div className="mx-auto w-full max-w-[1680px]">
+        <div className="relative overflow-hidden rounded-[28px] border border-white/5 bg-[#03060f] shadow-[0_18px_45px_rgba(0,0,0,0.38)] min-h-[196px] md:h-[clamp(200px,21vh,230px)]">
+          {/* Céu do pôster: o brilho grande é da cor da equipe campeã. */}
+          <div
+            className="pointer-events-none absolute inset-0 opacity-[0.22]"
+            style={{
+              background: `radial-gradient(900px 300px at 78% -12%, ${teamColor}, transparent 66%)`,
+            }}
+          />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(700px_280px_at_16%_120%,rgba(242,196,109,0.20),transparent_70%)]" />
 
-      <div className="relative flex min-w-0 flex-1 items-center gap-5">
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-yellow-400/30 bg-yellow-400/10 text-2xl font-black text-yellow-200 shadow-[0_0_24px_rgba(250,204,21,0.16)]">
-          1
-        </div>
+          {/* Traçado decorativo à direita — abstrato de propósito, para não afirmar um
+              circuito que não é o do encerramento. */}
+          <svg
+            className="pointer-events-none absolute inset-y-0 right-0 h-full w-[58%] opacity-40"
+            viewBox="0 0 700 210"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M60 196 C200 150 150 92 270 74 C380 58 350 20 470 18 C580 16 640 46 700 30"
+              fill="none"
+              stroke="#f2c46d"
+              strokeWidth="2.5"
+              opacity="0.38"
+            />
+            <path
+              d="M60 206 C200 160 150 102 270 84 C380 68 350 30 470 28 C580 26 640 56 700 40"
+              fill="none"
+              stroke="#ffffff"
+              strokeWidth="10"
+              opacity="0.05"
+            />
+          </svg>
 
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-yellow-300">
-            {i18n.t("seasonBanner.finished")}
-          </p>
-          <h2 className="mt-2 truncate text-3xl font-bold tracking-[-0.03em] text-text-primary sm:text-4xl">
-            {championName}
-          </h2>
-          <p className="mt-2 text-sm text-yellow-50/80 sm:text-base">
-            {i18n.t("seasonBanner.summary", {
-              season: seasonLabel,
-              champion: championName,
-              championship: categoryLabel(category),
-            })}
-          </p>
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(3,6,15,0.96)_28%,rgba(3,6,15,0.58)_62%,rgba(3,6,15,0.18)_100%)]" />
+
+          <div className="relative z-10 flex h-full flex-col justify-end gap-4 p-5 sm:p-6 md:flex-row md:items-end md:justify-between md:p-7">
+            <div className="flex min-w-0 flex-col">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[#f2c46d]">
+                  {kicker}
+                </p>
+                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-text-primary">
+                  {categoryLabel(category)}
+                </span>
+              </div>
+
+              <h2
+                className={`mt-2 text-[clamp(2.2rem,5vw,3.4rem)] font-extrabold uppercase leading-[1.02] tracking-[-0.02em] ${
+                  jogadorECampeao
+                    ? "bg-[linear-gradient(180deg,#fff3d4_8%,#e8bd63_58%,#b8912f_100%)] bg-clip-text text-transparent"
+                    : "text-white [text-shadow:0_2px_18px_rgba(0,0,0,0.55)]"
+                }`}
+              >
+                {i18n.t("seasonBanner.championWord")}
+              </h2>
+
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+                {campeao?.nacionalidade && <FlagIcon nacionalidade={campeao.nacionalidade} />}
+                <span className="text-lg font-bold tracking-[-0.01em] text-text-primary sm:text-xl">
+                  {championName}
+                </span>
+                {campeao?.equipe_nome && (
+                  <>
+                    <span className="text-white/25">•</span>
+                    <span className="font-semibold uppercase tracking-[0.06em]" style={{ color: teamColor }}>
+                      {campeao.equipe_nome}
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {linhaDeApoio && (
+                <p className="mt-2 text-[13px] font-medium text-text-secondary">{linhaDeApoio}</p>
+              )}
+            </div>
+
+            <div className="flex shrink-0 flex-wrap items-end justify-end gap-6 md:pb-1">
+              {numeros.map((numero) => (
+                <div key={numero.chave} className="text-right">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">
+                    {i18n.t(`seasonBanner.stats.${numero.chave}`)}
+                  </p>
+                  <p
+                    className={`text-[28px] font-extrabold leading-none tracking-[-0.03em] sm:text-[32px] ${
+                      numero.destaque ? "text-[#f2c46d]" : "text-text-primary"
+                    }`}
+                  >
+                    {numero.valor}
+                  </p>
+                </div>
+              ))}
+
+              {onAdvance ? (
+                <button
+                  type="button"
+                  onClick={onAdvance}
+                  disabled={advanceDisabled}
+                  className="group/btn inline-flex h-12 items-center gap-2 rounded-xl bg-[#f2c46d] px-6 text-sm font-black uppercase tracking-[0.04em] text-[#2a1c05] shadow-[0_0_22px_rgba(242,196,109,0.35)] transition hover:bg-[#ffd98a] hover:shadow-[0_0_28px_rgba(242,196,109,0.5)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f2c46d] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-70 sm:h-[52px] sm:px-8 sm:text-base"
+                >
+                  <span>{advanceLabel}</span>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-4 w-4 transition-transform group-hover/btn:translate-x-0.5"
+                    aria-hidden="true"
+                  >
+                    <path d="M5 12h14" />
+                    <path d="m13 6 6 6-6 6" />
+                  </svg>
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
       </div>
     </div>

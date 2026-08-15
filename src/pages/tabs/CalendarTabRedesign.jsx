@@ -15,8 +15,11 @@ import CalendarTicketTooltip from "../../components/calendar/CalendarTicketToolt
 import DayCellV2 from "../../components/calendar/DayCellV2.jsx";
 import EventRow from "../../components/calendar/EventRow.jsx";
 import MiniMonth from "../../components/calendar/MiniMonth.jsx";
+import NextRaceHero from "../../components/calendar/NextRaceHero.jsx";
 import StatTile from "../../components/calendar/StatTile.jsx";
 import useCalendarData from "../../components/calendar/useCalendarData.js";
+import useCareerStore from "../../stores/useCareerStore";
+import { bestEffort } from "../../utils/bestEffort.js";
 import {
   SURFACE,
   formatTrackTime,
@@ -45,6 +48,13 @@ function CalendarTabRedesign({ activeTab, raceArrivalFeedbackActive = false }) {
     upcoming,
     stats,
   } = useCalendarData(activeTab);
+
+  // O avanço do cartão da próxima etapa é o MESMO do botão "Avançar" do cabeçalho.
+  // Aqui não há troca de aba: quem clica já está no calendário, que é onde a animação
+  // dos dias roda.
+  const startCalendarAdvance = useCareerStore((state) => state.startCalendarAdvance);
+  const isCalendarAdvancing = useCareerStore((state) => state.isCalendarAdvancing);
+  const isAdvancing = useCareerStore((state) => state.isAdvancing);
 
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [showAllEvents, setShowAllEvents] = useState(false);
@@ -96,6 +106,17 @@ function CalendarTabRedesign({ activeTab, raceArrivalFeedbackActive = false }) {
   const seasonProgress = stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0;
   const daysUntilNext = temporalSummary?.days_until_next_event ?? null;
   const upcomingList = upcoming;
+  // A primeira etapa à frente sai da lista e vira o cartão do topo; a fila é o resto.
+  const heroRace = upcomingList[0] ?? null;
+  const queue = upcomingList.slice(1);
+  const QUEUE_VISIBLE = 4;
+  const visibleQueue = showAllEvents ? queue : queue.slice(0, QUEUE_VISIBLE);
+  const advancing = Boolean(isCalendarAdvancing || isAdvancing);
+
+  function advanceToRace() {
+    if (advancing) return;
+    void bestEffort(startCalendarAdvance?.(), "calendario-avancar-pelo-cartao");
+  }
 
   function goToday() {
     const nextMonth = parseDisplayDate(nextRaceEntry?.display_date)?.month;
@@ -242,28 +263,49 @@ function CalendarTabRedesign({ activeTab, raceArrivalFeedbackActive = false }) {
       {/* ── Sidebar ── */}
       <div className="flex flex-col gap-4 xl:self-start">
         <div className={`${SURFACE} overflow-hidden rounded-[28px]`}>
-          <div className="flex items-center justify-between gap-2 px-5 pb-4 pt-5">
-            <span className="kcal whitespace-nowrap text-xs uppercase italic tracking-[0.14em] text-text-secondary">
-              {t("calendar.v2.upcoming")}
-            </span>
-            {/* "Ver todos" expande a lista — antes chamava `goToday`, o mesmo handler do
-                botão "Hoje", e o clique só trocava o mês da grade sem tocar na lista. */}
-            {upcomingList.length > 5 && !showAllEvents && (
-              <button
-                type="button"
-                onClick={() => setShowAllEvents(true)}
-                className="shrink-0 whitespace-nowrap text-[10px] font-bold uppercase tracking-[0.08em] text-accent-primary transition-glass hover:text-accent-hover"
-              >
-                {t("calendar.v2.seeAll")}
-              </button>
-            )}
-          </div>
-          {upcomingList.length === 0 ? (
-            <p className="px-5 pb-5 text-[12px] text-text-muted">{t("calendar.v2.noUpcoming")}</p>
+          {heroRace ? (
+            <NextRaceHero
+              race={heroRace}
+              isNext={heroRace.id === nextRace?.id}
+              daysUntilNext={daysUntilNext}
+              totalRounds={stats.total}
+              onSelect={focusRace}
+              onAdvance={advanceToRace}
+              advancing={advancing}
+              t={t}
+            />
           ) : (
             <>
+              <div className="px-5 pb-4 pt-5">
+                <span className="kcal whitespace-nowrap text-xs uppercase italic tracking-[0.14em] text-text-secondary">
+                  {t("calendar.v2.upcoming")}
+                </span>
+              </div>
+              <p className="px-5 pb-5 text-[12px] text-text-muted">{t("calendar.v2.noUpcoming")}</p>
+            </>
+          )}
+
+          {queue.length > 0 && (
+            <>
+              <div className="flex items-center justify-between gap-2 px-5 pb-2.5 pt-1">
+                <span className="kcal whitespace-nowrap text-[11px] uppercase italic tracking-[0.14em] text-text-muted">
+                  {t("calendar.v2.thenComes")}
+                </span>
+                {/* "Ver todos" expande a lista — antes chamava `goToday`, o mesmo handler
+                    do botão "Hoje", e o clique só trocava o mês da grade sem tocar na
+                    lista. */}
+                {queue.length > QUEUE_VISIBLE && !showAllEvents && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllEvents(true)}
+                    className="shrink-0 whitespace-nowrap text-[10px] font-bold uppercase tracking-[0.08em] text-accent-primary transition-glass hover:text-accent-hover"
+                  >
+                    {t("calendar.v2.seeAll")}
+                  </button>
+                )}
+              </div>
               <div className="flex flex-col gap-2.5 px-4 pb-4">
-                {(showAllEvents ? upcomingList : upcomingList.slice(0, 5)).map((race) => (
+                {visibleQueue.map((race) => (
                   <EventRow
                     key={race.id}
                     race={race}
@@ -271,14 +313,15 @@ function CalendarTabRedesign({ activeTab, raceArrivalFeedbackActive = false }) {
                     isNext={race.id === nextRace?.id}
                     onSelect={focusRace}
                     t={t}
+                    compact
                   />
                 ))}
               </div>
-              {upcomingList.length > 5 && (
+              {queue.length > QUEUE_VISIBLE && (
                 <button
                   type="button"
                   onClick={() => setShowAllEvents((v) => !v)}
-                  className="mx-4 mb-4 flex items-center justify-center gap-1.5 rounded-2xl bg-white/[0.05] py-2.5 text-[11px] font-bold uppercase tracking-[0.1em] text-accent-primary transition-glass hover:bg-white/[0.09]"
+                  className="mx-4 mb-4 flex w-[calc(100%-32px)] items-center justify-center gap-1.5 rounded-2xl bg-white/[0.05] py-2.5 text-[11px] font-bold uppercase tracking-[0.1em] text-accent-primary transition-glass hover:bg-white/[0.09]"
                 >
                   {showAllEvents ? t("calendar.v2.seeLess") : t("calendar.v2.seeMore")}
                   <ChevronDown

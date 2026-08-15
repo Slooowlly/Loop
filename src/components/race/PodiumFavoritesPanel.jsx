@@ -1,55 +1,50 @@
 import { useTranslation } from "react-i18next";
 
+import goldTrophy from "../../assets/utilities/trophies/ouro.png";
 import RivalMarker from "../driver/RivalMarker";
 import TeamLogoMark from "../team/TeamLogoMark";
 import { getTeamGlow } from "../../utils/teamColors";
 import { getFavoriteMedalTone, getReadableTeamColor } from "./raceGridContext";
 
-// Coluna 2 da Sala de Estratégia: aviso de contrato expirando, as três metas do fim
-// de semana e o ranking de favoritos ao pódio (com a forma recente em chips).
+// Coluna 2 da Sala de Estratégia: as três metas do fim de semana e o ranking de
+// favoritos ao pódio (com a forma recente em chips). O aviso de contrato expirando
+// saiu daqui e virou o alarde de tela cheia (ContractExpiringModal).
 function PodiumFavoritesPanel({
   goals,
   favorites,
   isLoading,
   hoveredDriverId,
-  contractWarning,
-  showContractWarning,
 }) {
   const { t } = useTranslation();
 
   return (
-    <div className="xl:col-span-4 flex flex-col gap-5 xl:h-[calc(100vh-17rem)] xl:min-h-[650px]">
-      {/* Aviso de contrato expirando */}
-      {showContractWarning && (
-        <div className="bg-amber-900/30 border border-amber-500/40 rounded-2xl px-4 py-3 flex items-start gap-3">
-          <span className="text-amber-400 text-base leading-none mt-0.5">⚠</span>
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.15em] text-amber-400 font-bold mb-0.5">{t("nextRaceTab.labels.contractExpiring")}</p>
-            <p className="text-xs text-amber-100 leading-relaxed">
-              {t("nextRaceTab.labels.contractWarningPrefix")} <span className="font-semibold">{contractWarning.equipe_nome}</span> {t("nextRaceTab.labels.contractWarningSuffix")}
-            </p>
-          </div>
-        </div>
-      )}
-
+    <div className="xl:col-span-4 flex flex-col gap-5 xl:h-[calc(100vh-19rem)] xl:min-h-[650px]">
       {/* Metas */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-2xl p-4 text-center flex flex-col justify-start items-center">
-          <span className="text-2xl mb-1.5 block leading-none">👥</span>
+          <span className="mb-1.5 flex h-8 items-center justify-center text-2xl leading-none">👥</span>
           <p className="text-[9px] uppercase font-bold text-gray-500 tracking-wider">{t("nextRaceTab.labels.goalTeam")}</p>
           <p className="text-[10px] text-white font-semibold mt-1 leading-tight">
             {goals[0]?.value}
           </p>
         </div>
         <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-2xl p-4 text-center flex flex-col justify-start items-center">
-          <span className="text-xl mb-1.5 block leading-none">👤</span>
+          <span className="mb-1.5 flex h-8 items-center justify-center text-2xl leading-none">👤</span>
           <p className="text-[9px] uppercase font-bold text-gray-500 tracking-wider">{t("nextRaceTab.labels.goalPersonal")}</p>
           <p className="text-[10px] text-white font-semibold mt-1 leading-tight">
             {goals[1]?.value}
           </p>
         </div>
         <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-2xl p-4 text-center flex flex-col justify-start items-center">
-          <span className="text-xl mb-1.5 block leading-none">🏆</span>
+          {/* Os três ícones dividem a mesma caixa de 32px, senão os rótulos abaixo
+              desalinham. A arte do troféu ocupa 77% da altura do PNG — o resto é
+              margem transparente —, então a caixa de 32px desenha uma peça de ~25px,
+              a mesma altura do glifo dos emojis vizinhos em `text-2xl`. */}
+          <img
+            src={goldTrophy}
+            alt=""
+            className="mb-1.5 h-8 w-8 object-contain drop-shadow-[0_0_10px_rgba(255,255,255,0.16)]"
+          />
           <p className="text-[9px] uppercase font-bold text-gray-500 tracking-wider">{t("nextRaceTab.labels.goalTitle")}</p>
           <p className="text-[10px] text-white font-semibold mt-1 leading-tight">
             {goals[2]?.value}

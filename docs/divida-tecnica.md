@@ -236,7 +236,8 @@ Precisa de decisão sobre QUEM grava (a Sala de Estratégia, no preparo do fim d
 Era o item mais antigo de `SEM_CONSUMIDOR_CONHECIDO` no guard
 [`invoke-contra-generate-handler`](../scripts/tests/invoke-contra-generate-handler.test.mjs),
 classificado ali como "feature futura, esperando o F-01". O F-01 chegou, e a tela que o item
-pedia — a seção Mercado da aba Carreira — recusou ligá-lo.
+pedia — a seção Mercado da aba Carreira, apagada em 14/08/2026 junto com a aba — recusou
+ligá-lo.
 
 O motivo é que ele nunca avançou nada. `advance_transfer_window_in_base_dir` tinha o corpo
 IDÊNTICO ao de `get_transfer_window_state_in_base_dir`, e o único parâmetro que os distinguia

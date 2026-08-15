@@ -2,7 +2,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Waypoints } from "lucide-react";
 
-import GlassCard from "../../../ui/GlassCard";
+import GarageSheet from "./GarageSheet";
 import useElementSize from "../../v2/useElementSize";
 import { formatMoney } from "../../../../utils/formatters";
 import { EXPENSE_LINES, INCOME_LINES } from "../teamMetrics";
@@ -38,23 +38,23 @@ function RoundMoneyFlow({ latest, teamColor }) {
   });
 
   return (
-    <GlassCard hover={false} className="rounded-[24px] p-5" data-testid="my-team-v2-round-flow">
+    <GarageSheet className="px-4 py-3" testId="my-team-v2-round-flow">
       <div ref={measureRef}>
         {/* Sem título: o desenho se explica — dinheiro entra à esquerda, sai à direita.
             O texto do título sobrevive só como `aria-label` do SVG, para quem lê por
             leitor de tela e não tem a imagem. */}
         <div className="flex flex-wrap items-baseline justify-end gap-3">
           {flow.hasData ? (
-            <p className="font-mono text-xs text-text-secondary">
+            <p className="font-garage text-[11px] tabular-nums text-text-secondary">
               {t("myTeamTabV2.flow.totalIncome", { value: formatMoney(flow.incomeTotal) })}
             </p>
           ) : null}
         </div>
 
         {!flow.hasData ? (
-          <div className="mt-4 rounded-2xl border border-white/[0.08] bg-black/10 px-4 py-6 text-center">
-            <Waypoints size={26} strokeWidth={1.5} aria-hidden="true" className="mx-auto text-text-muted" />
-            <p className="mt-2.5 text-xs leading-5 text-text-secondary">{t("myTeamTabV2.flow.empty")}</p>
+          <div className="mt-3 border-y border-white/[0.08] px-4 py-6 text-center">
+            <Waypoints size={22} strokeWidth={1.5} aria-hidden="true" className="mx-auto text-text-muted" />
+            <p className="mt-2.5 text-[11px] leading-5 text-text-secondary">{t("myTeamTabV2.flow.empty")}</p>
           </div>
         ) : (
           <svg
@@ -171,7 +171,7 @@ function RoundMoneyFlow({ latest, teamColor }) {
           </svg>
         )}
       </div>
-    </GlassCard>
+    </GarageSheet>
   );
 }
 
@@ -189,7 +189,7 @@ function FlowLabel({ x, y, anchor, node, label }) {
           {label}
           <tspan className="fill-text-muted"> {Math.round(node.share)}%</tspan>
         </text>
-        <text x={x} y={y + 2} textAnchor={anchor} className={`${tone} font-mono text-[20px]`}>
+        <text x={x} y={y + 2} textAnchor={anchor} className={`${tone} font-garage text-[20px]`}>
           {formatMoney(node.value)}
         </text>
       </g>
@@ -198,7 +198,7 @@ function FlowLabel({ x, y, anchor, node, label }) {
   return (
     <text x={x} y={y} textAnchor={anchor} className="fill-text-secondary text-[11px]">
       {label}
-      <tspan className="fill-text-primary font-mono"> {formatMoney(node.value)}</tspan>
+      <tspan className="fill-text-primary font-garage"> {formatMoney(node.value)}</tspan>
       <tspan className="fill-text-muted"> {Math.round(node.share)}%</tspan>
     </text>
   );

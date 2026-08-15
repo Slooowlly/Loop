@@ -1,8 +1,8 @@
 import { useTranslation } from "react-i18next";
 
 import BreakdownRiskButton from "./BreakdownRiskButton";
-import EventInterestCard from "./EventInterestCard";
 import WeatherButton from "./WeatherButton";
+import WeatherForecastStrip from "./WeatherForecastStrip";
 import WeekendReadingPanel from "./WeekendReadingPanel";
 import { getReadableTeamColor } from "./raceGridContext";
 
@@ -29,7 +29,7 @@ function EngineerBriefingPanel({
   const { t } = useTranslation();
 
   return (
-    <div className="xl:col-span-4 flex flex-col gap-5 xl:h-[calc(100vh-17rem)] xl:min-h-[650px]">
+    <div className="xl:col-span-4 flex flex-col gap-5 xl:h-[calc(100vh-19rem)] xl:min-h-[650px]">
       {/* Condições Compactas — o CARD INTEIRO abre a previsão do tempo. */}
       <WeatherButton
         careerId={careerId}
@@ -52,20 +52,17 @@ function EngineerBriefingPanel({
             </p>
           </div>
         </div>
+
+        {/* A metade direita do card era vazia, e o `justify-between` empurrava o
+            clima para a borda esquerda de um botão que ninguém sabia o que abria.
+            A prévia da previsão ocupa esse espaço com o assunto do próprio card. */}
+        <WeatherForecastStrip careerId={careerId} raceId={raceId} />
       </WeatherButton>
 
-      {/* Interesse do evento (F-07). O público SAIU do canto direito do card de
-          clima e virou card próprio: pendurado ali ele era um número sem tier, sem
-          escala e sem relação com o jogador, dentro de um botão que abre a previsão
-          do tempo — dois assuntos disputando a mesma caixa. Repetir o número nos
-          dois lugares diria a mesma coisa duas vezes, então o clima ficou só com o
-          clima. */}
-      <EventInterestCard
-        interestLabel={briefing.interestLabel}
-        audienceEstimate={briefing.audienceEstimate}
-        audienceRankLabel={briefing.audienceRankLabel}
-        fameSharePct={briefing.fameSharePct}
-      />
+      {/* O interesse do evento morava aqui como card e subiu para o cabeçalho em
+          14/08/2026 (`EventInterestBanner`): ele é identificação da etapa, e nesta
+          coluna gastava uma caixa inteira que empurrava risco de quebra e narrativa
+          para baixo da dobra. O clima ficou só com o clima, como já estava. */}
 
       {/* Risco de quebra (aviso pré-corrida) — card compacto pulsante que abre o
           detalhamento; o glow cala depois de aberto nesta corrida. */}

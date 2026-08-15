@@ -24,7 +24,14 @@ mora fora do JSX:
   corrida, agrupada por temporada, com a escala do eixo comum aos grupos.
 - `MarketSection.jsx` — a aba Mercado inteira: termômetro de troca, situação
   contratual, régua de vigência, valor de mercado e custo anual. Recebe o
-  `detail` e não conversa com o resto da ficha.
+  `detail` e o `careerId`, e não conversa com o resto da ficha.
+- `MercadoDoJogador.jsx` — os dois blocos do fim da aba Mercado que só montam
+  quando `detail.is_jogador`: quem está de olho no jogador e as vagas abertas do
+  mundo com o veredito de elegibilidade. Vieram da seção Mercado da aba Carreira,
+  apagada em 14/08/2026, e são a única parte da ficha que busca dado do MUNDO
+  (`get_season_market_board`, `get_inbox_messages`) em vez de ler o `detail`. As
+  duas buscas são `bestEffort`: falhar cai no estado vazio e deixa rastro no
+  `loop.log`, sem derrubar o resto da aba.
 - `primitivosDaFicha.jsx` — os tijolos que as seções dividem (`BlockLabel`,
   `Block`, `HeroBadge`, `DataRow`, `RankMarks`, `MotivationBar`, `MedalKey`,
   `MetricIcon`). Não são genéricos: cada um carrega uma decisão de composição
@@ -36,10 +43,13 @@ Os testes seguem o mesmo corte: `DriverDetailModalV2.test.jsx` guarda cabeçalho
 temporada e perfil, e as fatias `*.historico`, `*.curvaDeCampeonato`, `*.rivais` e
 `*.mercado` guardam as suas seções — todas entrando pela ficha. Os módulos
 extraídos têm ainda um teste próprio (`RecentFormStrip.test.jsx`,
-`MarketSection.test.jsx`, `primitivosDaFicha.test.jsx`) que os monta **sozinhos**,
-sem store, sem `invoke` e sem o estado de abas: é o que prova que a fronteira do
-corte é real. Por isso eles não importam o `driverDetailV2TestKit.jsx`, que traz o
-modal inteiro junto — os dados que precisam são locais.
+`MarketSection.test.jsx`, `MercadoDoJogador.test.jsx`, `primitivosDaFicha.test.jsx`)
+que os monta **sozinhos**, sem store e sem o estado de abas: é o que prova que a
+fronteira do corte é real. Por isso eles não importam o `driverDetailV2TestKit.jsx`,
+que traz o modal inteiro junto — os dados que precisam são locais. O
+`MercadoDoJogador.test.jsx` é o único que mocka o `invoke`, porque é o único módulo
+daqui que busca dado; o `MarketSection.test.jsx` não precisa, já que sem
+`is_jogador` os blocos dele não montam.
 
 Os dados e atalhos das fatias que entram pela ficha estão em
 `driverDetailV2TestKit.jsx` — os `vi.mock`, não: eles valem por arquivo.

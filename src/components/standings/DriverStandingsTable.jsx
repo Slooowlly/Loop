@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import { useTranslation } from "react-i18next";
 
+import goldTrophy from "../../assets/utilities/trophies/ouro.png";
 import i18n from "../../i18n/index.js";
 import RivalMarker from "../driver/RivalMarker";
 import TeamLogoMarkShared from "../team/TeamLogoMark";
@@ -282,7 +283,11 @@ function DriverStandingsTable({
                         <DriverStatusMarkers driver={driver} />
                         {driver.id === previousChampionId ? (
                           <Tooltip texto={t("standings.badge.prevChampion")}>
-                            <span className="shrink-0 text-sm">🏆</span>
+                            <img
+                              src={goldTrophy}
+                              alt={t("standings.badge.prevChampion")}
+                              className="h-4 w-4 shrink-0 object-contain drop-shadow-[0_0_10px_rgba(255,255,255,0.16)]"
+                            />
                           </Tooltip>
                         ) : null}
                       </div>

@@ -66,6 +66,11 @@ src-tauri/__codex_tmp_*
 /__*.html
 /fita-mock.html
 /.tabela-equipes.txt
+# As `bancada-*` de 14/08/2026 (calendário e faixa de interesse do evento) são o mesmo
+# caso, e vinham em par: a casca HTML na raiz e o ponto de entrada em `src/`. Os dois
+# lados entram aqui, senão o `.jsx` sozinho aparece no status de todo mundo.
+/bancada-*.html
+/src/bancada-*.jsx
 
 # O `preview-curva-campeonato.html` é a EXCEÇÃO da vizinhança acima, e por isso não há um
 # `/preview-*.html` aqui: ele não é bancada solta, é a casca de um ponto de entrada que está

@@ -131,9 +131,12 @@ function MyTeamTabV2({ onOpenTeamRecords = null }) {
   const currentPosition = report?.current_position ?? 0;
   const hasProjection = currentPosition > 0 && expectedPrize > 0;
   const projectedAnnual = seasonNetToDate + expectedPrize;
+  // A cor da equipe é o realce da aba ativa. Sem equipe carregada ainda, cai no azul
+  // do tema em vez de sumir — `inset 0 -2px 0 undefined` não desenha nada.
+  const sectionAccent = team?.cor_primaria || "#58a6ff";
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <CommandHeaderV2
         team={team}
         teams={gridTeams}
@@ -147,12 +150,20 @@ function MyTeamTabV2({ onOpenTeamRecords = null }) {
       />
 
       {error ? (
-        <div className="rounded-2xl border border-status-red/30 bg-status-red/10 px-4 py-3 text-sm text-status-red">
+        <div className="rounded-lg border border-status-red/30 bg-status-red/10 px-4 py-3 text-sm text-status-red">
           {error}
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2" role="tablist" data-testid="my-team-v2-sections">
+      {/* As seções são abas de filete, não pílulas soltas. A pílula flutuava sobre o
+          fundo e não dizia a que ela pertence; a aba encosta na folha seguinte e a
+          linha de base costura as três ao conteúdo. O realce da ativa é a cor da
+          equipe, o mesmo traço da borda esquerda da faixa de comando. */}
+      <div
+        className="flex flex-wrap items-stretch border-b border-white/[0.08]"
+        role="tablist"
+        data-testid="my-team-v2-sections"
+      >
         {SECTIONS.map((id) => (
           <button
             key={id}
@@ -160,10 +171,9 @@ function MyTeamTabV2({ onOpenTeamRecords = null }) {
             role="tab"
             aria-selected={section === id}
             onClick={() => setSection(id)}
-            className={`rounded-2xl border px-4 py-2 text-xs font-semibold uppercase tracking-[0.13em] transition-glass ${
-              section === id
-                ? "border-accent-primary/40 bg-accent-primary/15 text-accent-primary"
-                : "border-white/[0.08] bg-black/10 text-text-muted hover:text-text-primary"
+            style={section === id ? { boxShadow: `inset 0 -2px 0 ${sectionAccent}` } : undefined}
+            className={`border-r border-white/[0.08] px-5 py-2 text-[10px] font-semibold uppercase tracking-[0.2em] transition-glass ${
+              section === id ? "bg-white/[0.04] text-text-primary" : "text-text-muted hover:text-text-secondary"
             }`}
           >
             {t(`myTeamTabV2.sections.${id}`)}
@@ -189,7 +199,7 @@ function MyTeamTabV2({ onOpenTeamRecords = null }) {
 
       {section === "team" ? (
         <>
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid gap-3 lg:grid-cols-2">
             {dossier.drivers.map((driver, index) => (
               <DriverCard
                 key={driver.role}

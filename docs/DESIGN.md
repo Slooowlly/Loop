@@ -145,7 +145,7 @@ pilotagem).
 | Pasta | Conteúdo |
 |---|---|
 | `pages/` | `MainMenu`, `NewCareer`, `LoadSave`, `Settings`, `Dashboard` |
-| `pages/tabs/` | Abas do Dashboard: `NextRaceTab`, `StandingsTab`, `CalendarTabRedesign`, `NewsMagazineTab`, `GlobalDriversTab`, `TeamRecordsTab`, mais `CarreiraTab` em `tabs/carreira/`. Equipe e atlas existem **só** na V2, em `tabs/myteam/MyTeamTabV2` e `tabs/atlas/GlobalTeamsTabV2` (o `index.js` de cada pasta é o que o `Dashboard` importa como `MyTeamTab` e `GlobalTeamsTab`) |
+| `pages/tabs/` | Abas do Dashboard: `NextRaceTab`, `StandingsTab`, `CalendarTabRedesign`, `NewsMagazineTab`, `GlobalDriversTab`, `TeamRecordsTab`. Equipe e atlas existem **só** na V2, em `tabs/myteam/MyTeamTabV2` e `tabs/atlas/GlobalTeamsTabV2` (o `index.js` de cada pasta é o que o `Dashboard` importa como `MyTeamTab` e `GlobalTeamsTab`) |
 | `components/calendar/` | Calendário: célula do dia, mini mês, linha de evento, tooltip de bilhete |
 | `components/driver/` | Ficha e dossiê de piloto em `v2/` (o v1 saiu em 11/08/2026; `index.js` é só o reexport que mantém o nome `DriverDetailModal`), mais `detalhes/`, mini card, ranking global, marcador de rival |
 | `components/team/` | Equipe: histórico e atlas em `v2/` (o v1 saiu em 11/08/2026; `history/index.js` é só o reexport de `TeamHistoryDrawer`), logo, mini card, grade mundial, finanças, `myteam/` |
@@ -800,10 +800,13 @@ Ciclo fechado no backend:
 
 A UI dos dois lados do ciclo, fechada em 11/08/2026 (F-07):
 
-- **antes da largada** — `components/race/EventInterestCard.jsx`, na Sala de Estratégia: tier
-  (`tier_label`, já traduzido pelo backend), público (`display_value`), porte da ocasião e a cota de
-  plateia que a estrela do jogador puxa (`public_fame_share`). Antes disso o público era um número
-  solto no canto do card de clima, sem tier e sem escala.
+- **antes da largada** — `components/race/EventInterestBanner.jsx`, no cabeçalho da Sala de
+  Estratégia: tier (`tier_label`, já traduzido pelo backend), público (`display_value`), porte da
+  ocasião e a cota de plateia que a estrela do jogador puxa (`public_fame_share`). Antes disso o
+  público era um número solto no canto do card de clima, sem tier e sem escala. Nasceu como card na
+  coluna de condições e virou faixa sem moldura no vão central do cabeçalho em 14/08/2026: ele é
+  identificação da etapa, pelo mesmo critério que o nome da pista e a data, e como card empurrava
+  risco de quebra e narrativa para baixo da dobra.
 - **depois da bandeirada** — `RepercussionSegment` e `RepercussionCard` no `RaceResultViewV2`, sobre
   o `EventRepercussionSummary` que viaja em `event_repercussion` nos dois caminhos de resultado
   (simulação e importação do iRacing): esperado contra entregue, o delta e o `headline_strength`.
@@ -1193,28 +1196,33 @@ Em paralelo, as janelas `overlay` e `engineer` sobem sobre o iRacing.
 ### 25.2 Abas do Dashboard (`pages/tabs/`)
 
 `NextRaceTab` (briefing, exportação para o iRacing, simular fim de semana), `StandingsTab`,
-`CalendarTabRedesign`, `NewsMagazineTab`, `CarreiraTab` (em `tabs/carreira/`), `GlobalDriversTab`,
+`CalendarTabRedesign`, `NewsMagazineTab`, `GlobalDriversTab`,
 `GlobalTeamsTab` (com a V2 em `tabs/atlas/`), `MyTeamTab` (com a V2 em `tabs/myteam/`) e
 `TeamRecordsTab`.
 
-Cinco delas estão na barra (`standings`, `news`, `carreira`, `my-team`, `calendar`, em
+Quatro delas estão na barra (`standings`, `news`, `my-team`, `calendar`, em
 `layout/TabNavigation.jsx`); as outras são alcançadas por navegação interna.
 
-**A aba Carreira é a lente do protagonista**, e existe porque o jogador se enxergava pelo mesmo
-`DriverDetailModal` que serve para olhar qualquer piloto de IA. Cinco seções sobre UM payload —
-`get_driver_detail` do piloto do jogador, buscado uma vez pelo hook `useCarreiraData`:
+**A aba Carreira existiu entre 11/08 e 14/08/2026** e foi apagada com a pasta
+`pages/tabs/carreira/` inteira (commit 4892aa8, para quem precisar do código). Ela nasceu como
+a lente do protagonista, porque o jogador se enxergava pelo mesmo `DriverDetailModal` que serve
+para olhar qualquer piloto de IA, e reunia cinco seções sobre UM payload: `get_driver_detail`
+do piloto do jogador.
 
-| seção | responde | item fechado |
-|---|---|---|
-| Meu piloto | como eu estou e do que sou feito (abre pela habilidade medida, `get_player_dossier`) | F-02 |
-| História | de onde eu vim: escada de categorias, curva de campeonato, temporada por temporada | F-03 |
-| Troféus | o que eu levei: títulos, acervo, primeiras vezes, auge | F-04 |
-| Rivais | contra quem, desde quando, qual o placar | F-05 |
-| Mercado | para onde: contrato, valor, quem está de olho, vagas abertas (`get_season_market_board`) | F-01 |
+A ficha do piloto é que respondeu esse buraco. Ela lê o MESMO payload e cresceu até cobrir
+quatro das cinco seções: a aba Habilidade é o dossiê medido (F-02), a aba Histórico serve a
+trajetória e a curva de campeonato (F-03) mais os primeiros marcos, o auge, a confiabilidade e
+os eventos especiais que a sala de troféus listava (F-04), e Rivais (F-05) e Mercado são as
+mesmas seções. Duas portas para a mesma resposta é o que a aba cobrava. A porta que ficou é
+clicar no próprio nome na tabela da Home.
 
-O cabeçalho (nome, título, licença, lesão, momento, motivação, campeonato) fica FORA das pílulas,
-sempre visível: é ele, e não as seções, que responde ao buraco de identidade do F-02 — o modal
-resolvia "ver um piloto" e nunca foi um lugar onde voltar.
+A quinta seção era o F-01, e dela sobraram duas coisas sem equivalente na ficha: as vagas
+abertas do mundo com o veredito de elegibilidade (`get_season_market_board`) e o "quem está de
+olho em você" (`get_inbox_messages().team_interest`, que na Home passa como mensagem e aqui
+fica como estado). As duas mudaram de casa no mesmo dia, para
+`components/driver/v2/MercadoDoJogador.jsx`, montado no fim da aba Mercado da ficha quando
+`detail.is_jogador` — são os únicos blocos dela que buscam dado do MUNDO em vez de ler o
+`get_driver_detail`, e por isso são também os únicos que uma ficha de piloto de IA não mostra.
 
 ### 25.3 Estado (Zustand)
 
@@ -1332,8 +1340,8 @@ Cada passo persiste no SQLite, com autosave e backup por temporada protegendo o 
 com assédio, promoção, finanças e economia nova, notícia determinística e por IA, interesse de
 evento de ponta a ponta (backend e UI), arquivo histórico, integração completa com o iRacing,
 engenheiro de pista com voz e PTT, spotter, overlays e VR, telemetria de produto, backup e
-restauração, e a **aba Carreira** — a lente do protagonista, com ficha do piloto, temporadas
-passadas, sala de troféus, rivais e mercado em temporada (§25.2).
+restauração, e a **ficha do piloto** — a lente do protagonista, com dossiê de habilidade,
+temporadas passadas, títulos e marcos, rivais e situação de contrato (§25.2).
 
 **Pendências conhecidas**, com o raciocínio em [roadmap.md](roadmap.md) e a lista com id em
 [backlog.md](backlog.md):

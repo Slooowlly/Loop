@@ -490,7 +490,9 @@ export function DriverDetailModalV2({
                 {effectiveSection === "rivais" ? (
                   <RivalsSection detail={detail} onSelectDriver={onSelectDriver} />
                 ) : null}
-                {effectiveSection === "mercado" ? <MarketSection detail={detail} /> : null}
+                {effectiveSection === "mercado" ? (
+                  <MarketSection detail={detail} careerId={careerId} />
+                ) : null}
                 {effectiveSection === "habilidade" ? (
                   <PlayerSkillSection SectionComponent={Block} careerId={careerId} />
                 ) : null}

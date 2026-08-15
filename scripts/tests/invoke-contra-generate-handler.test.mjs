@@ -256,9 +256,17 @@ test("todo invoke do frontend existe no generate_handler do Rust", () => {
 //
 //   • SAIU DA LISTA em 11/08/2026: advance_transfer_window. Era o item mais antigo daqui,
 //     classificado como "feature futura, esperando o F-01". O F-01 foi feito — a tela do
-//     mercado em temporada é a `MercadoSection.jsx` — e quem a escreveu recusou ligá-lo,
-//     porque o comando era um no-op: corpo idêntico ao de `get_transfer_window_state` e o
-//     `accepted_seat_id` ignorado. Comando removido, não religado.
+//     mercado em temporada era a `MercadoSection.jsx` da aba Carreira — e quem a escreveu
+//     recusou ligá-lo, porque o comando era um no-op: corpo idêntico ao de
+//     `get_transfer_window_state` e o `accepted_seat_id` ignorado. Comando removido, não
+//     religado.
+//
+//   • NÃO ENTROU NA LISTA em 14/08/2026, e vale registrar por que quase entrou:
+//     get_season_market_board nasceu para o F-01 e teve um consumidor só, a
+//     `MercadoSection.jsx` da aba Carreira, apagada naquele dia. Ele ficou órfão por meia
+//     hora e voltou a ter tela no mesmo commit: o quadro de vagas mudou de casa para
+//     `components/driver/v2/MercadoDoJogador.jsx`, montado no fim da aba Mercado da ficha
+//     quando `detail.is_jogador`. Órfão temporário não vira entrada congelada.
 //
 //   • SAÍRAM DA LISTA em 11/08/2026 (A13.4): iracing_desfazer_pinturas,
 //     iracing_modo_janela_status e iracing_modo_janela_restaurar. Eram o item "desfazer sem

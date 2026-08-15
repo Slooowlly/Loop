@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import GlassCard from "../../../ui/GlassCard";
+import GarageSheet from "./GarageSheet";
 import Tooltip from "../../../ui/Tooltip";
 import TeamLogoMark, { getTeamLogoSrc } from "../../TeamLogoMark";
 import CarPartsRadar from "./CarPartsRadar";
@@ -37,17 +37,24 @@ function GridComparative({ teams, cars, playerTeam, historyTeamId, onTeamHistory
   const [hoveredTeamId, setHoveredTeamId] = useState(null);
 
   return (
-    <GlassCard hover={false} className="rounded-[28px]" data-testid="my-team-v2-comparative">
-      <p className="text-[10px] uppercase tracking-[0.22em] text-accent-primary">{t("myTeamTabV2.comparative.eyebrow")}</p>
-      <h3 className="mt-2 text-xl font-semibold text-text-primary">{t("myTeamTabV2.comparative.title")}</h3>
+    <GarageSheet testId="my-team-v2-comparative">
+      {/* O título vira cabeçalho de folha, com filete embaixo: era um par
+          sobrescrito e manchete solto sobre o conteúdo, com 20px de respiro fazendo
+          o papel que o filete faz aqui. */}
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-white/[0.08] px-4 py-2.5">
+        <p className="text-[10px] uppercase tracking-[0.22em] text-accent-primary">{t("myTeamTabV2.comparative.eyebrow")}</p>
+        <h3 className="text-sm font-semibold text-text-primary">{t("myTeamTabV2.comparative.title")}</h3>
+      </div>
 
-      <div className="mt-5 grid gap-6 lg:grid-cols-[0.6fr_1.4fr]">
-        <div>
+      {/* Filete vertical entre o radar e a tabela, no lugar do respiro de 24px: são
+          duas leituras do mesmo dado e precisam ler como duas colunas da folha. */}
+      <div className="grid lg:grid-cols-[0.6fr_1.4fr] lg:divide-x lg:divide-white/[0.08]">
+        <div className="px-4 py-3">
           <p className="mb-3 text-[10px] uppercase tracking-[0.22em] text-text-muted">{t("myTeamTabV2.parts.title")}</p>
           <CarPartsRadar cars={cars} playerTeamId={playerTeam?.id} hoveredTeamId={hoveredTeamId} />
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto px-4 py-3">
           <table className="min-w-full text-left text-sm" aria-label={t("myTeamTabV2.comparative.title")}>
             <thead>
               <tr className="border-b border-white/[0.08] text-[10px] uppercase tracking-[0.18em] text-text-muted">
@@ -103,7 +110,7 @@ function GridComparative({ teams, cars, playerTeam, historyTeamId, onTeamHistory
                     }
                     data-testid={isPlayer ? "comparative-player-row" : undefined}
                   >
-                    <td className="py-2.5 pr-3 font-mono text-xs text-text-muted">
+                    <td className="py-2.5 pr-3 font-garage text-xs tabular-nums text-text-muted">
                       {String(team.posicao ?? index + 1).padStart(2, "0")}
                     </td>
                     <td className="w-px whitespace-nowrap py-2.5 pr-8">
@@ -127,7 +134,7 @@ function GridComparative({ teams, cars, playerTeam, historyTeamId, onTeamHistory
                         </Tooltip>
                       </div>
                     </td>
-                    <td className="w-px whitespace-nowrap py-2.5 pr-8 text-right font-mono text-xs">
+                    <td className="w-px whitespace-nowrap py-2.5 pr-8 text-right font-garage text-xs tabular-nums">
                       {/* A sua linha em valor cheio, as outras compactas: é a sua que
                           se lê ao centavo, e seis valores longos em coluna viram
                           parede de dígitos. Vermelho SÓ no saldo negativo. */}
@@ -149,7 +156,7 @@ function GridComparative({ teams, cars, playerTeam, historyTeamId, onTeamHistory
                       tier={qualityTierIndex(team.pit_crew_quality)}
                       label={t(`myTeamTab.ranking.tiers.pitCrew.${qualityTierIndex(team.pit_crew_quality)}`)}
                     />
-                    <td className="py-2.5 text-right font-mono text-sm text-text-primary">{team.pontos ?? 0}</td>
+                    <td className="py-2.5 text-right font-garage text-sm tabular-nums text-text-primary">{team.pontos ?? 0}</td>
                   </tr>
                 );
               })}
@@ -158,10 +165,10 @@ function GridComparative({ teams, cars, playerTeam, historyTeamId, onTeamHistory
         </div>
       </div>
 
-      <div className="mt-6 border-t border-white/[0.08] pt-5">
+      <div className="border-t border-white/[0.08] px-4 py-3">
         <EfficiencyScatter teams={teams} playerTeamId={playerTeam?.id} />
       </div>
-    </GlassCard>
+    </GarageSheet>
   );
 }
 
@@ -195,7 +202,7 @@ function TeamMark({ team }) {
   return (
     <span
       data-testid="comparative-team-logo"
-      className="grid h-7 w-[42px] shrink-0 place-items-center rounded-lg border border-white/10 font-mono text-[11px] font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+      className="grid h-7 w-[42px] shrink-0 place-items-center rounded border border-white/10 font-garage text-[11px] font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
       style={{ backgroundColor: color, color: readableOn(color) }}
     >
       {initials}

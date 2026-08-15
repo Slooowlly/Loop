@@ -16,6 +16,14 @@ vi.mock("../../components/calendar/useCalendarData.js", () => ({
   default: (...args) => dadosDoCalendario(...args),
 }));
 
+// O cartão da próxima etapa avança o calendário pelo store, com o mesmo `startCalendarAdvance`
+// do botão "Avançar" do cabeçalho.
+const avancarCalendario = vi.fn(() => Promise.resolve());
+const estadoDaCarreira = { startCalendarAdvance: avancarCalendario, isCalendarAdvancing: false, isAdvancing: false };
+vi.mock("../../stores/useCareerStore", () => ({
+  default: (seletor) => seletor(estadoDaCarreira),
+}));
+
 // A grade e as miniaturas são desenho puro; aqui interessa QUE mês elas recebem.
 vi.mock("../../components/calendar/DayCellV2.jsx", () => ({
   default: ({ day, outside }) => (
@@ -86,6 +94,9 @@ const mesEmFoco = () =>
 
 beforeEach(() => {
   dadosDoCalendario.mockReset();
+  avancarCalendario.mockClear();
+  estadoDaCarreira.isCalendarAdvancing = false;
+  estadoDaCarreira.isAdvancing = false;
   comDados();
 });
 
@@ -161,10 +172,20 @@ describe("CalendarTabRedesign — mês em foco", () => {
 });
 
 describe("CalendarTabRedesign — próximas etapas", () => {
-  it("mostra só cinco etapas até alguém pedir o resto", () => {
+  // A primeira etapa à frente sai da FILA e vira o cartão do topo. A fila é sempre o
+  // resto: se as duas desenharem a mesma corrida, o painel repete a próxima etapa duas
+  // vezes e a contagem de "ver mais" passa a mentir.
+  const fila = (container) => container.querySelector(".flex.flex-col.gap-2\\.5");
+
+  it("a primeira etapa vira o cartão do topo e sai da fila", () => {
     const { container } = render(<CalendarTabRedesign activeTab="calendar" />);
-    const lista = container.querySelector(".flex.flex-col.gap-2\\.5");
-    expect(within(lista).getAllByText(/Pista R/)).toHaveLength(5);
+    expect(screen.getByRole("heading", { level: 4, name: "Pista R1" })).toBeInTheDocument();
+    expect(within(fila(container)).queryByText("Pista R1")).not.toBeInTheDocument();
+  });
+
+  it("mostra só quatro etapas na fila até alguém pedir o resto", () => {
+    const { container } = render(<CalendarTabRedesign activeTab="calendar" />);
+    expect(within(fila(container)).getAllByText(/Pista R/)).toHaveLength(4);
   });
 
   it("'Ver todos' EXPANDE a lista — não é o botão 'Hoje' disfarçado", () => {
@@ -173,28 +194,36 @@ describe("CalendarTabRedesign — próximas etapas", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Ver todos" }));
 
-    const lista = container.querySelector(".flex.flex-col.gap-2\\.5");
-    expect(within(lista).getAllByText(/Pista R/)).toHaveLength(PROXIMAS.length);
+    expect(within(fila(container)).getAllByText(/Pista R/)).toHaveLength(PROXIMAS.length - 1);
     // A regressão de origem: o clique mexia no mês da grade e deixava a lista igual.
     expect(mesEmFoco()).toBe(mesAntes);
   });
 
   it("'Ver mais' e 'Ver menos' são o mesmo interruptor", () => {
     const { container } = render(<CalendarTabRedesign activeTab="calendar" />);
-    const lista = () => container.querySelector(".flex.flex-col.gap-2\\.5");
 
     fireEvent.click(screen.getByRole("button", { name: /Ver mais/ }));
-    expect(within(lista()).getAllByText(/Pista R/)).toHaveLength(PROXIMAS.length);
+    expect(within(fila(container)).getAllByText(/Pista R/)).toHaveLength(PROXIMAS.length - 1);
 
     fireEvent.click(screen.getByRole("button", { name: /Ver menos/ }));
-    expect(within(lista()).getAllByText(/Pista R/)).toHaveLength(5);
+    expect(within(fila(container)).getAllByText(/Pista R/)).toHaveLength(4);
   });
 
-  it("com cinco etapas ou menos, não oferece expandir", () => {
-    comDados({ upcoming: PROXIMAS.slice(0, 4) });
+  it("com o cartão e mais quatro na fila, não oferece expandir", () => {
+    comDados({ upcoming: PROXIMAS.slice(0, 5) });
     render(<CalendarTabRedesign activeTab="calendar" />);
     expect(screen.queryByRole("button", { name: "Ver todos" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Ver mais/ })).not.toBeInTheDocument();
+  });
+
+  it("com uma etapa só, o cartão fica sozinho e a fila some", () => {
+    const { container } = render(<CalendarTabRedesign activeTab="calendar" />);
+    expect(fila(container)).not.toBeNull();
+
+    comDados({ upcoming: PROXIMAS.slice(0, 1) });
+    const segunda = render(<CalendarTabRedesign activeTab="calendar" />);
+    expect(fila(segunda.container)).toBeNull();
+    expect(within(segunda.container).getByRole("heading", { level: 4, name: "Pista R1" })).toBeInTheDocument();
   });
 
   it("sem etapas à frente, avisa em vez de mostrar uma lista vazia", () => {
@@ -208,6 +237,50 @@ describe("CalendarTabRedesign — próximas etapas", () => {
     // R3 corre em abril; a grade está em fevereiro.
     fireEvent.click(screen.getByText("Pista R3"));
     expect(mesEmFoco()).toBe(`Abril ${ANO}`);
+  });
+
+  it("clicar no cartão leva a grade até o mês da próxima etapa", () => {
+    comDados({ currentDateParts: { year: ANO, month: 5, day: 1 }, upcoming: PROXIMAS.slice(5) });
+    render(<CalendarTabRedesign activeTab="calendar" />);
+    fireEvent.click(screen.getByRole("heading", { level: 4, name: "Pista R6" }));
+    // R6 corre em setembro.
+    expect(mesEmFoco()).toBe(`Setembro ${ANO}`);
+  });
+});
+
+describe("CalendarTabRedesign — o cartão da próxima etapa", () => {
+  it("o botão avança o calendário, o mesmo do 'Avançar' do cabeçalho", () => {
+    render(<CalendarTabRedesign activeTab="calendar" />);
+    fireEvent.click(screen.getByRole("button", { name: "Ir para a corrida" }));
+    expect(avancarCalendario).toHaveBeenCalledTimes(1);
+  });
+
+  it("com o avanço em curso, o botão trava em vez de disparar de novo", () => {
+    estadoDaCarreira.isCalendarAdvancing = true;
+    render(<CalendarTabRedesign activeTab="calendar" />);
+    const botao = screen.getByRole("button", { name: "Avançando..." });
+    expect(botao).toBeDisabled();
+    fireEvent.click(botao);
+    expect(avancarCalendario).not.toHaveBeenCalled();
+  });
+
+  it("etapa que não é a próxima do jogador não ganha botão de correr", () => {
+    // Bloco especial de outra categoria encabeçando a lista: informação, não ação.
+    comDados({ nextRace: PROXIMAS[3] });
+    render(<CalendarTabRedesign activeTab="calendar" />);
+    expect(screen.queryByRole("button", { name: "Ir para a corrida" })).not.toBeInTheDocument();
+  });
+
+  it("a contagem regressiva fica no cartão, colada no evento", () => {
+    comDados({ temporalSummary: { days_until_next_event: 6 } });
+    render(<CalendarTabRedesign activeTab="calendar" />);
+    expect(screen.getByText("Em 6 dias")).toBeInTheDocument();
+  });
+
+  it("a contagem some quando o cartão não é a próxima corrida do jogador", () => {
+    comDados({ nextRace: PROXIMAS[3] });
+    render(<CalendarTabRedesign activeTab="calendar" />);
+    expect(screen.queryByText("Em 6 dias")).not.toBeInTheDocument();
   });
 });
 

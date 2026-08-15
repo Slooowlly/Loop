@@ -1,22 +1,13 @@
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
 
 import Tooltip from "../ui/Tooltip";
-
-// Tipo de tempo (event_type do backend) → cor, ícone e rótulo. Tons da esquerda
-// (encoberto/parcial) propositalmente FRIOS (azulados) p/ não "vazar" amarelo no começo.
-const COND = {
-  0: { c: "#f5b425", icon: "☀️", labelKey: "sol" },
-  1: { c: "#fcd34d", icon: "🌤️", labelKey: "quaseLimpo" },
-  2: { c: "#9fb1cb", icon: "⛅", labelKey: "parcial" },
-  3: { c: "#74859e", icon: "☁️", labelKey: "encoberto" },
-  6: { c: "#7dd3fc", icon: "🌦️", labelKey: "garoa" },
-  7: { c: "#38bdf8", icon: "🌧️", labelKey: "chuva" },
-  8: { c: "#0284c7", icon: "⛈️", labelKey: "chuvaForte" },
-};
-const condOf = (et) => COND[et] ?? COND[0];
-const clampPct = (v) => Math.max(3, Math.min(97, v));
+import {
+  clampPct,
+  condOf,
+  mudancasDeCondicao,
+  pontosOrdenados,
+  useWeatherTimeline,
+} from "./weatherTimelineData";
 
 /**
  * Faixa do clima da corrida (Largada → Bandeira): um gradiente que transita pelas
@@ -30,33 +21,7 @@ const clampPct = (v) => Math.max(3, Math.min(97, v));
  */
 export default function WeatherTimelineChart({ careerId, raceId, markers = [], forecast = false, mockData = null }) {
   const { t } = useTranslation();
-  const [data, setData] = useState(mockData);
-  const [state, setState] = useState(mockData ? "ok" : "loading"); // loading | ok | error
-
-  useEffect(() => {
-    let alive = true;
-    // Dev: dados fake injetados → pula o backend.
-    if (mockData) {
-      setData(mockData);
-      setState("ok");
-      return undefined;
-    }
-    if (!careerId || !raceId) {
-      setState("error");
-      return;
-    }
-    setState("loading");
-    invoke("get_race_weather_timeline", { careerId, raceId })
-      .then((res) => {
-        if (!alive) return;
-        setData(res);
-        setState("ok");
-      })
-      .catch(() => alive && setState("error"));
-    return () => {
-      alive = false;
-    };
-  }, [careerId, raceId, mockData]);
+  const { data, state } = useWeatherTimeline(careerId, raceId, mockData);
 
   if (state === "error") {
     return (
@@ -69,14 +34,13 @@ export default function WeatherTimelineChart({ careerId, raceId, markers = [], f
     return <div className="rounded-2xl border border-white/10 bg-white/[0.02] h-[140px] animate-pulse" />;
   }
 
-  const pts = (data.points ?? []).slice().sort((a, b) => a.frac - b.frac);
+  const pts = pontosOrdenados(data);
   if (!pts.length) return null;
 
   // Gradiente da faixa via SVG (preciso, sem o artefato de canto do linear-gradient CSS).
   const gid = `wbar-${raceId}`;
 
-  // Ícones só nas MUDANÇAS de condição (1º sempre) — evita repetir o mesmo tempo.
-  const icons = pts.filter((p, i) => i === 0 || p.event_type !== pts[i - 1].event_type);
+  const icons = mudancasDeCondicao(pts);
 
   return (
     <div>

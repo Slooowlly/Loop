@@ -92,13 +92,17 @@ export function AtlasChampionsPanel({ careerId, band, onClose }) {
         >
           <span
             aria-hidden="true"
-            className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border text-[22px] shadow-[inset_0_1px_0_rgba(255,255,255,0.09)]"
+            className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border shadow-[inset_0_1px_0_rgba(255,255,255,0.09)]"
             style={{
               borderColor: `color-mix(in srgb, ${accent} 45%, transparent)`,
               background: `linear-gradient(180deg, color-mix(in srgb, ${accent} 26%, transparent) 0%, color-mix(in srgb, ${accent} 7%, transparent) 100%)`,
             }}
           >
-            🏆
+            <img
+              src={goldTrophy}
+              alt=""
+              className="h-7 w-7 object-contain drop-shadow-[0_0_10px_rgba(255,255,255,0.16)]"
+            />
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-[21px] font-bold uppercase leading-tight tracking-[0.06em]" style={{ color: accent }}>

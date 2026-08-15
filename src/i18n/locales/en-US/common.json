@@ -295,8 +295,7 @@
       "standings": "Home",
       "news": "News",
       "myTeam": "My Team",
-      "calendar": "Calendar",
-      "carreira": "Career"
+      "calendar": "Calendar"
     },
     "date": "Date",
     "back": "Back",
@@ -333,9 +332,19 @@
   },
   "seasonBanner": {
     "finished": "Season Ended",
+    "finishedYear": "{{year}} Season Ended",
+    "championWord": "Champion",
     "championTbd": "Champion decided",
+    "playerResult": "You finished P{{position}}, on {{points}} points",
+    "clinch": "Title sealed {{margin}} points clear of {{runnerUp}}",
+    "clinchSolo": "Title sealed on {{points}} points",
+    "stats": {
+      "points": "Points",
+      "wins": "Wins",
+      "podiums": "Podiums",
+      "margin": "Margin"
+    },
     "seasonEnd": "Season's end",
-    "summary": "{{season}} ended with {{champion}} atop the {{championship}}.",
     "noTeam": "- No team this season",
     "noPendingRace": "- No pending race"
   },
@@ -393,7 +402,14 @@
       "next": "Next",
       "race": "Race",
       "special": "Special",
-      "nextRaceLabel": "Next race"
+      "nextRaceLabel": "Next race",
+      "heroRound": "Round {{n}} of {{total}}",
+      "heroInDays_one": "In {{count}} day",
+      "heroInDays_other": "In {{count}} days",
+      "heroStart": "Start",
+      "heroCategory": "Category",
+      "heroGoToRace": "Go to the race",
+      "thenComes": "Next up"
     },
     "phase": {
       "mercado": "Market",
@@ -1371,8 +1387,6 @@
       "goalPersonal": "Personal Goal",
       "goalTitle": "Title Goal",
       "contractExpiring": "Contract expiring",
-      "contractWarningPrefix": "Your contract with",
-      "contractWarningSuffix": "ends at the end of this season.",
       "podiumFavorites": "The 6 Podium Favorites",
       "buildingAnalysis": "Building analysis...",
       "championshipTable": "Overall Championship Table",
@@ -1383,6 +1397,13 @@
       "colDriver": "Driver",
       "colTeam": "Team",
       "colPts": "Pts"
+    },
+    "contractAlert": {
+      "eyebrow": "Board notice",
+      "headline": "Your contract with the team ends at the end of this season.",
+      "body": "This is the last round under the current deal. What you do here is the last reading the team takes to the negotiating table.",
+      "seasonNote": "Deal valid through {{year}}",
+      "action": "Got it"
     },
     "paint": {
       "toastPainted": "🎨 Your car was painted in the team's {{color}} in your iRacing garage. You can turn this off in Settings.",
@@ -2412,149 +2433,6 @@
       }
     }
   },
-  "carreiraTab": {
-    "loading": "Loading your career...",
-    "errors": {
-      "load": "Could not load your career.",
-      "retry": "Try again",
-      "noPlayer": "No player driver in this career."
-    },
-    "sections": {
-      "piloto": "My driver",
-      "historia": "History",
-      "trofeus": "Trophies",
-      "rivais": "Rivals",
-      "mercado": "Market"
-    },
-    "header": {
-      "championship": "Championship",
-      "motivation": "Motivation",
-      "injuredFor_one": "Injured for {{count}} race",
-      "injuredFor_other": "Injured for {{count}} races"
-    },
-    "piloto": {
-      "now": "How you stand",
-      "points": "Points",
-      "recentAverage": "Recent average",
-      "license": "License",
-      "injuryFallback": "Injury in recovery",
-      "injuryDetail": "{{remaining}} of {{total}} races left to recover.",
-      "injuryWhere": "Happened at {{track}}",
-      "arc": "Career arc",
-      "experience": "Experience",
-      "development": "Development",
-      "headroom": "Room to your ceiling",
-      "arcEmpty": "No career arc measured yet.",
-      "personality": "Personality",
-      "stardom": "Stardom",
-      "charisma": "Charisma",
-      "technicalRead": "Technical read",
-      "gridReference": "Grid {{value}}"
-    },
-    "historia": {
-      "summary": "The career in numbers",
-      "seasons": "Seasons",
-      "races": "Races",
-      "categories": "Categories",
-      "teams": "Teams",
-      "promotions": "Promotions",
-      "demotions": "Demotions",
-      "idleYears": "Without a seat",
-      "ladder": "The ladder you climbed",
-      "curve": "Where you finished each season",
-      "seasonTable": "Season by season",
-      "debut": "Debut in {{year}} with {{team}}",
-      "unknownTeam": "Unknown team",
-      "colYear": "Year",
-      "colCategory": "Category",
-      "colTeam": "Team",
-      "colPosition": "Position",
-      "colRaces": "Races",
-      "colWins": "Wins",
-      "colPodiums": "Podiums",
-      "colPoints": "Points",
-      "inProgress": "In progress",
-      "empty": "No season on record yet."
-    },
-    "trofeus": {
-      "shelf": "Titles",
-      "titlesWithoutDetail_one": "{{count}} title, with no year on record.",
-      "titlesWithoutDetail_other": "{{count}} titles, with no years on record.",
-      "noTitles": "No title yet. The shelf is waiting.",
-      "career": "The career haul",
-      "starts": "Starts",
-      "wins": "Wins",
-      "podiums": "Podiums",
-      "poles": "Poles",
-      "polesConverted_one": "{{count}} became a win",
-      "polesConverted_other": "{{count}} became wins",
-      "fastestLaps": "Fastest laps",
-      "points": "Points",
-      "bestFinish": "Best finish: P{{position}}",
-      "reliability": "{{dnfs}} retirements ({{rate}}% of starts). Longest finishing run: {{streak}}.",
-      "firsts": "The first times",
-      "firstPodium": "First podium",
-      "firstWin": "First win",
-      "firstTitle": "First title",
-      "firstDnf": "First retirement",
-      "peak": "The peak",
-      "bestSeason": "Best season",
-      "winStreak": "Longest win streak",
-      "podiumStreak": "Longest podium streak",
-      "top3Seasons": "Seasons on the championship podium",
-      "special": "Special events",
-      "specialEntries": "Entries",
-      "specialCallups": "Call-ups",
-      "milestones": "Milestones"
-    },
-    "rivais": {
-      "title": "Who races against you",
-      "count_one": "{{count}} rivalry",
-      "count_other": "{{count}} rivalries",
-      "empty": "Nobody yet. A rivalry is born from contact on track, a title fight or sharing the same garage.",
-      "nemesis": "Nemesis",
-      "rival": "Rival",
-      "noTeam": "No team",
-      "otherGrid": "No longer on the same grid",
-      "raceScore": "Race head to head",
-      "meetings": "Meetings",
-      "meetingsValue_one": "{{count}} race on the same grid",
-      "meetingsValue_other": "{{count}} races on the same grid",
-      "qualiScore": "Saturday head to head",
-      "intensity": "Intensity",
-      "origin": "How it started",
-      "averageGap": "Average gap",
-      "gapBehind": "{{value}}s behind him",
-      "gapAhead": "{{value}}s ahead of him",
-      "teammate": "Same garage",
-      "teammateValue": "{{team}}, {{years}} — {{wins}} to {{losses}}"
-    },
-    "mercado": {
-      "contract": "My contract",
-      "lastYear": "Final contract year. This is when poaching pays off.",
-      "yearsLeft_one": "{{count}} season left on the contract.",
-      "yearsLeft_other": "{{count}} seasons left on the contract.",
-      "freeAgent": "You have no contract.",
-      "value": "What you are worth",
-      "marketValue": "Market value",
-      "valueRank": "{{position}} of {{total}} on the grid",
-      "estimatedSalary": "Market salary",
-      "underpaid": "{{value}} above what you earn",
-      "overpaid": "{{value}} below what you earn",
-      "transferChance": "Transfer chance",
-      "noValue": "No market valuation right now.",
-      "watching": "Who is watching you",
-      "watchingIntro_one": "{{count}} team wants your name for its commercial appeal.",
-      "watchingIntro_other": "{{count}} teams want your name for its commercial appeal.",
-      "noWatchers": "Nobody watching for now. Active interest comes from fame.",
-      "openSeats": "Open seats in the world",
-      "seatsCount": "{{eligible}} for you, of {{total}}",
-      "car": "Car {{value}}",
-      "outOfTier": "Outside your tier",
-      "noLicense": "License missing",
-      "noSeats": "No open seat in the world right now."
-    }
-  },
   "endOfSeason": {
     "header": {
       "title": "The Paddock Turns the Page",
@@ -2898,7 +2776,10 @@
     },
     "world": {
       "heading": "FROM THE GRID WORLD",
-      "ariaLabel": "World news"
+      "ariaLabel": "World news",
+      "subheading": "Paddock Notes",
+      "count_one": "{{count}} Note",
+      "count_other": "{{count}} Notes"
     },
     "cover": {
       "seasonYear": "Season {{year}}",
@@ -3322,7 +3203,19 @@
       "noEstimate": "No market valuation to compare against the salary.",
       "freeAgentCost": "No contract: there is no salary to compare with the valuation.",
       "remainingYears_one": "{{count}} year left",
-      "remainingYears_other": "{{count}} years left"
+      "remainingYears_other": "{{count}} years left",
+      "player": {
+        "watching": "Who is watching you",
+        "watchingIntro_one": "{{count}} team wants your name for its commercial appeal.",
+        "watchingIntro_other": "{{count}} teams want your name for its commercial appeal.",
+        "noWatchers": "Nobody watching for now. Active interest comes from fame.",
+        "openSeats": "Open seats in the world",
+        "seatsCount": "{{eligible}} for you, of {{total}}",
+        "car": "Car {{value}}",
+        "outOfTier": "Outside your tier",
+        "noLicense": "License missing",
+        "noSeats": "No open seat in the world right now."
+      }
     },
     "playerSkill": {
       "title": "Skill Dossier",
@@ -4298,6 +4191,10 @@
     "gap": "Gap",
     "lap": "Lap",
     "noGapData": "No gap data for this driver.",
+    "gapTargetTeammate": "Your teammate",
+    "gapTargetRival": "Your rival",
+    "tagTeammate": "Teammate",
+    "tagRival": "Rival",
     "legendDry": "Dry",
     "legendWet": "Wet",
     "legendFuelOnly": "Fuel only",

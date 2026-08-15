@@ -186,32 +186,75 @@
 .newsmag .mbtn.ghost{color:var(--nm-text2);border-color:rgba(255,255,255,0.16)}
 .newsmag .mbtn.ghost:hover{color:#fff;border-color:rgba(255,255,255,0.32)}
 
-/* ── RODAPÉ: NOTÍCIAS DO MUNDO (ex-equipes / ex-companheiros do jogador) ── */
-.newsmag .world-notes{position:relative;z-index:1;margin-top:20px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.10);transition:opacity .2s ease}
+/* ── RODAPÉ: NOTÍCIAS DO MUNDO (ex-equipes / ex-companheiros do jogador) ──
+   Coluna de breves impressa: fio horizontal separando as notas, numeração na
+   canaleta e tarja de editoria puxando um filete no tom da nota. As caixas
+   arredondadas que existiam aqui até 14/08/2026 liam como painel de sistema
+   dentro de uma página que é tipografia. */
+.newsmag .world-notes{position:relative;z-index:1;margin-top:22px;transition:opacity .2s ease}
 .newsmag .mag.flipping .world-notes{opacity:0}
-.newsmag .wn-head{font-family:'OswaldNM';font-weight:700;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--nm-accent2);margin-bottom:10px}
+
+/* Cabeçalho de editoria: fio grosso + capilar, título no mesmo Anton inclinado
+   das manchetes, e a contagem fechando a linha à direita.
+   O fio é de cada folha, e não do vão: são duas peças com o mesmo desenho,
+   separadas pelo vão da dobra. Um fio único atravessando o meio cola as duas
+   páginas numa só e mata a ilusão de papel. */
+.newsmag .wn-head{display:grid;grid-template-columns:1fr 1fr;column-gap:62px;margin-bottom:2px}
+.newsmag .wn-head-pg{position:relative;display:flex;align-items:flex-end;gap:16px;
+  border-top:2px solid rgba(255,255,255,0.55);padding-top:10px}
+.newsmag .wn-head-pg::before{content:"";position:absolute;top:4px;left:0;right:0;height:1px;background:rgba(255,255,255,0.16)}
+.newsmag .wn-head-title{font-family:'Anton';font-weight:400;font-size:27px;line-height:1;text-transform:uppercase;
+  transform:skewX(-6deg);transform-origin:left;color:#fff;letter-spacing:.5px;white-space:nowrap}
+.newsmag .wn-head-sub{font-family:'OswaldNM';font-weight:600;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--nm-muted);padding-bottom:3px;white-space:nowrap}
+.newsmag .wn-head-rule{flex:1;height:1px;background:rgba(255,255,255,0.14);margin-bottom:8px}
+.newsmag .wn-head-count{font-family:'OswaldNM';font-weight:700;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--nm-accent2);padding-bottom:3px;white-space:nowrap}
+
 /* Duas colunas — notinhas divididas entre as duas páginas, com o vão da dobra
-   (62px, igual ao do .spread) separando os lados. `align-items:start` evita que
-   um item de 2 linhas estique o vizinho de 1 linha. */
-.newsmag .wn-list{display:grid;grid-template-columns:1fr 1fr;column-gap:62px;row-gap:8px;align-items:start}
-.newsmag .wn-item{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:baseline;padding:9px 12px;border-radius:9px;
-  background:rgba(255,255,255,0.022);border:1px solid rgba(255,255,255,0.07);border-left:3px solid var(--nm-muted)}
-.newsmag .wn-tag{font-family:'OswaldNM';font-weight:700;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--nm-muted);white-space:nowrap;padding-top:1px}
-.newsmag .wn-text{font-size:12.5px;line-height:1.55;color:#c1cad4}
-.newsmag .wn-crise{border-left-color:#e5484d;background:rgba(229,72,77,0.06)}
-.newsmag .wn-crise .wn-tag{color:#f2777a}
-.newsmag .wn-alerta{border-left-color:var(--nm-yellow,#e8b339);background:rgba(232,179,57,0.05)}
-.newsmag .wn-alerta .wn-tag{color:var(--nm-yellow,#e8b339)}
-.newsmag .wn-reforma{border-left-color:var(--nm-green,#3fb950);background:rgba(63,185,80,0.05)}
-.newsmag .wn-reforma .wn-tag{color:var(--nm-green,#3fb950)}
-.newsmag .wn-recorde{border-left-color:#e8c24a;background:rgba(232,194,74,0.06)}
-.newsmag .wn-recorde .wn-tag{color:#e8c24a}
-.newsmag .wn-neutro{border-left-color:var(--nm-accent)}
-.newsmag .wn-neutro .wn-tag{color:var(--nm-accent)}
+   (62px, igual ao do .spread) separando os lados. A divisão vem do JSX, então
+   cada coluna é uma pilha e a primeira nota de cada página abre sem fio em cima. */
+.newsmag .wn-list{display:grid;grid-template-columns:1fr 1fr;column-gap:62px;align-items:start;margin-top:14px}
+.newsmag .wn-col{display:flex;flex-direction:column;min-width:0}
+.newsmag .wn-item{display:grid;grid-template-columns:26px 1fr;column-gap:12px;padding:11px 0 12px;
+  border-top:1px solid rgba(255,255,255,0.09);--wn-tom:var(--nm-accent)}
+.newsmag .wn-col .wn-item:first-child{border-top:0;padding-top:2px}
+.newsmag .wn-num{font-family:'Anton';font-weight:400;font-size:18px;line-height:1;color:rgba(255,255,255,0.18);padding-top:2px}
+.newsmag .wn-body{min-width:0}
+.newsmag .wn-kick{display:flex;align-items:center;gap:9px;margin-bottom:5px}
+.newsmag .wn-tag{font-family:'OswaldNM';font-weight:700;font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--wn-tom);white-space:nowrap}
+.newsmag .wn-fio{flex:1;height:1px;background:linear-gradient(90deg,var(--wn-tom),transparent);opacity:.45}
+.newsmag .wn-text{display:block;font-size:13px;line-height:1.6;color:#cbd5e0}
+/* Nota única: a folha direita não recebe peça nenhuma, nem fio nem contagem, e
+   a grade das duas põe a única coluna que existe na folha esquerda. Espalhar a
+   nota pelas duas páginas foi tentado e é pior: com o texto em duas colunas a
+   frase parte na dobra e a sobra fica órfã na direita. */
+.newsmag .wn-crise{--wn-tom:#f2777a}
+/* O amarelo do alerta é o #e8b339 mesmo, e não o --nm-yellow (#d29922) do resto
+   da revista: na tarja de 10px com espacejamento largo o tom da variável fica
+   escuro demais contra o papel. O fallback antigo `var(--nm-yellow,#e8b339)`
+   nunca chegava a valer, porque a variável está declarada em .newsmag. */
+.newsmag .wn-alerta{--wn-tom:#e8b339}
+.newsmag .wn-reforma{--wn-tom:var(--nm-green,#3fb950)}
+.newsmag .wn-recorde{--wn-tom:#e8c24a}
+.newsmag .wn-neutro{--wn-tom:var(--nm-accent)}
 
 @media(max-width:1100px){
   .newsmag .spread{grid-template-columns:1fr;column-gap:0}
   .newsmag .wn-list{grid-template-columns:1fr;column-gap:0}
+  /* Empilhado, as duas colunas viram uma pilha só: a nota que abria a página
+     direita volta a ter fio em cima, senão sobra um vão no meio da sequência. */
+  .newsmag .wn-col+.wn-col .wn-item:first-child{border-top:1px solid rgba(255,255,255,0.09);padding-top:11px}
+  /* Empilhado não há duas folhas, então as duas peças do cabeçalho voltam a ser
+     uma linha só: `display:contents` dissolve os invólucros e devolve título,
+     fios e contagem como filhos diretos do flex. O fio passa a ser do bloco. */
+  .newsmag .wn-head{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px;position:relative;
+    border-top:2px solid rgba(255,255,255,0.55);padding-top:10px}
+  .newsmag .wn-head::before{content:"";position:absolute;top:4px;left:0;right:0;height:1px;background:rgba(255,255,255,0.16)}
+  .newsmag .wn-head-pg{display:contents}
+  .newsmag .wn-head-pg--dir .wn-head-rule{display:none}
+  .newsmag .wn-head-title{font-size:23px}
   .newsmag .prose-cols{columns:1}
   .newsmag .r-grid{grid-template-columns:1fr}
   .newsmag .res-list--split{columns:1}

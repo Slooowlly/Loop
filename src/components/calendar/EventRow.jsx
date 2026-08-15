@@ -4,12 +4,57 @@ import { getTrackImageSrc, parseDisplayDate } from "../../utils/calendarShared.j
 import { trackCountryLabel } from "../../utils/trackCountry.js";
 import FlagIcon from "../ui/FlagIcon";
 
-function EventRow({ race, monthShort, isNext, onSelect, t }) {
+// A linha da FILA, atrás do cartão da próxima etapa (`NextRaceHero`).
+//
+// `compact` tira a miniatura da pista e encolhe a linha: com o herói no topo do painel
+// carregando a arte, repetir uma segunda arte de 52 px em cada linha abaixo divide a
+// atenção sem informar nada. A variante larga continua valendo para quem desenhar a
+// lista sem herói.
+function EventRow({ race, monthShort, isNext, onSelect, t, compact = false }) {
   const parsed = parseDisplayDate(race.display_date);
-  const image = getTrackImageSrc(race);
+  const image = compact ? null : getTrackImageSrc(race);
   const color = getCategoryColor(race.categoria);
   const country = trackCountryLabel(race.track_name);
   const isSpecial = Boolean(race._isSpecialRace) || race.season_phase === "BlocoEspecial";
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={() => onSelect?.(race)}
+        title={race.track_name}
+        className="flex w-full items-center gap-3 rounded-2xl bg-white/[0.04] px-3 py-2 text-left transition-glass hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/70"
+      >
+        <div className="w-[34px] shrink-0 text-center">
+          <div className="kcal text-[15px] font-bold italic leading-none tabular-nums text-text-primary">
+            {parsed ? String(parsed.day).padStart(2, "0") : "--"}
+          </div>
+          <div className="mt-1 text-[8px] font-bold uppercase tracking-[0.12em] text-text-muted">
+            {parsed ? monthShort[parsed.month] : ""}
+          </div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12.5px] font-semibold text-text-primary">{race.track_name}</div>
+          {country && (
+            <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] font-medium text-text-muted">
+              <FlagIcon nacionalidade={country} className="shrink-0" />
+              <span className="truncate">{extractNationalityLabel(country)}</span>
+            </div>
+          )}
+        </div>
+        <div className="shrink-0 text-right">
+          {race.horario && (
+            <div className="text-[11.5px] font-semibold tabular-nums text-text-secondary">{race.horario}</div>
+          )}
+          {isSpecial && (
+            <div className="mt-0.5 text-[8px] font-extrabold uppercase tracking-[0.08em] text-status-purple">
+              {t("calendar.v2.special")}
+            </div>
+          )}
+        </div>
+      </button>
+    );
+  }
 
   return (
     <button

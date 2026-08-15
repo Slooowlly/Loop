@@ -49,6 +49,11 @@ function compoundOf(c) {
   return COMPOUND[c] || COMPOUND.Unknown;
 }
 
+// Papéis do seletor de gap. Companheiro em verde, rival em vermelho: são os dois
+// pilotos que o jogador reconhece sem ler o nome, e a cor os separa na lista.
+const COR_COMPANHEIRO = "#7ee787";
+const COR_RIVAL = "#ff7b72";
+
 function SectionTitle({ children, right }) {
   return (
     <div className="flex items-center justify-between mb-2.5">
@@ -194,20 +199,34 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
     () => cars.filter((c) => !c.is_player).slice().sort((a, b) => a.name.localeCompare(b.name)),
     [cars],
   );
-  const defaultGapIdx = useMemo(() => {
+  const teammateIdx = useMemo(() => {
     const mate = telemetry?.__mockTeammateName || teammateName;
-    if (mate) {
-      const c = cars.find((x) => x.name === mate && !x.is_player);
-      if (c) return c.idx;
-    }
-    if (charts?.rival_name) {
-      const r = cars.find((x) => x.name === charts.rival_name && !x.is_player);
-      if (r) return r.idx;
-    }
-    return otherCars[0]?.idx ?? null;
-  }, [cars, otherCars, charts, teammateName, telemetry]);
+    if (!mate) return null;
+    return cars.find((x) => x.name === mate && !x.is_player)?.idx ?? null;
+  }, [cars, teammateName, telemetry]);
+  const rivalIdx = useMemo(() => {
+    if (!charts?.rival_name) return null;
+    return cars.find((x) => x.name === charts.rival_name && !x.is_player)?.idx ?? null;
+  }, [cars, charts]);
+  const defaultGapIdx = useMemo(
+    () => teammateIdx ?? rivalIdx ?? otherCars[0]?.idx ?? null,
+    [teammateIdx, rivalIdx, otherCars],
+  );
   const activeGapIdx = gapTargetIdx ?? defaultGapIdx;
+
+  // Papel do piloto no seletor de gap. Companheiro e rival aparecem pelo papel, que
+  // é o que o jogador procura; o resto do grid continua pelo nome.
+  const papelDoGap = (idx) => {
+    if (idx == null) return null;
+    if (idx === teammateIdx)
+      return { titulo: t("telemetryCockpit.gapTargetTeammate"), etiqueta: t("telemetryCockpit.tagTeammate"), cor: COR_COMPANHEIRO };
+    if (idx === rivalIdx)
+      return { titulo: t("telemetryCockpit.gapTargetRival"), etiqueta: t("telemetryCockpit.tagRival"), cor: COR_RIVAL };
+    return null;
+  };
+  const activeGapPapel = papelDoGap(activeGapIdx);
   const activeGapName = cars.find((c) => c.idx === activeGapIdx)?.name ?? "—";
+  const activeGapLabel = activeGapPapel?.titulo ?? activeGapName;
 
   // Gap (s) volta a volta entre você e o piloto escolhido: gap-ao-líder seu menos o
   // dele. >0 = ele à frente (você caçando); <0 = você à frente.
@@ -342,32 +361,45 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
                   <button
                     type="button"
                     onClick={() => setGapMenuOpen((o) => !o)}
-                    style={{ background: "rgba(255,255,255,0.06)", color: "#fff" }}
+                    style={{ background: "rgba(255,255,255,0.06)", color: activeGapPapel?.cor ?? "#fff" }}
                     className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-semibold"
                   >
-                    {activeGapName}
+                    {activeGapLabel}
                     <span style={{ color: "#8b949e" }}>▾</span>
                   </button>
                   {gapMenuOpen && (
                     <div
                       style={{ background: "#0d131c", border: "1px solid rgba(255,255,255,0.1)" }}
-                      className="absolute right-0 top-full z-30 mt-1 max-h-56 w-48 overflow-y-auto rounded-xl p-1 shadow-xl"
+                      className="absolute right-0 top-full z-30 mt-1 max-h-56 w-56 overflow-y-auto rounded-xl p-1 shadow-xl"
                     >
-                      {otherCars.map((c) => (
-                        <button
-                          key={c.idx}
-                          type="button"
-                          onClick={() => {
-                            setGapTargetIdx(c.idx);
-                            setGapMenuOpen(false);
-                          }}
-                          style={{ color: c.idx === activeGapIdx ? "#58a6ff" : "#c9d1d9" }}
-                          className="flex w-full items-center justify-between rounded-lg px-3 py-1.5 text-left text-[12px] hover:bg-white/10"
-                        >
-                          <span className="truncate">{c.name}</span>
-                          {c.idx === activeGapIdx && <span className="text-[#58a6ff]">✓</span>}
-                        </button>
-                      ))}
+                      {otherCars.map((c) => {
+                        const papel = papelDoGap(c.idx);
+                        return (
+                          <button
+                            key={c.idx}
+                            type="button"
+                            onClick={() => {
+                              setGapTargetIdx(c.idx);
+                              setGapMenuOpen(false);
+                            }}
+                            style={{ color: papel?.cor ?? (c.idx === activeGapIdx ? "#58a6ff" : "#c9d1d9") }}
+                            className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-left text-[12px] hover:bg-white/10"
+                          >
+                            <span className="truncate">{c.name}</span>
+                            <span className="flex shrink-0 items-center gap-1.5">
+                              {papel && (
+                                <span
+                                  style={{ background: `${papel.cor}1f`, color: papel.cor }}
+                                  className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
+                                >
+                                  {papel.etiqueta}
+                                </span>
+                              )}
+                              {c.idx === activeGapIdx && <span style={{ color: papel?.cor ?? "#58a6ff" }}>✓</span>}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -386,7 +418,7 @@ function RaceTelemetryCockpit({ telemetry, teammateName = null, breakdowns = [] 
                     label={{ value: t("telemetryCockpit.lap"), position: "insideBottom", offset: -6, fill: AXIS_TICK, fontSize: 10 }} />
                   <YAxis tick={{ fill: AXIS_TICK, fontSize: 10 }} stroke={GRID} width={40}
                     tickFormatter={(v) => `${Math.abs(v).toFixed(1)}s`} />
-                  <ChartTooltip content={<RivalTooltip rivalName={activeGapName} />} />
+                  <ChartTooltip content={<RivalTooltip rivalName={activeGapLabel} />} />
                   <ReferenceLine y={0} stroke={PLAYER_COLOR} strokeOpacity={0.7} />
                   <Line type="monotone" dataKey="gap_s" stroke="#f59e0b" strokeWidth={2} dot={{ r: 2 }}
                     connectNulls isAnimationActive={false} />

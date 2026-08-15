@@ -72,8 +72,14 @@ export default function useFluxoDeAvanco({ activeTab, onTabChange }) {
   // do banner cinematográfico — então o duplicado da barra superior some. O banner só
   // "dona" o botão quando é a próxima corrida DO JOGADOR; vendo outra categoria ele é
   // informativo e o botão global volta à barra.
+  // O pôster de fim de ano segue a mesma regra: quando ele entra no lugar do banner de
+  // corrida, o botão vai com ele. A condição espelha a que o Header usa para desenhar o
+  // pôster — se divergir, o botão some da tela inteira.
   const bannerOwnsAdvance =
-    activeTab === "standings" && !showRaceBriefing && Boolean(nextRace) && viewingOwnCategory;
+    activeTab === "standings" &&
+    !showRaceBriefing &&
+    viewingOwnCategory &&
+    (Boolean(nextRace) || (hasNoPendingRace && Boolean(playerTeam?.categoria)));
 
   const avancoEmCurso = isCalendarAdvancing || isAdvancing || isConvocating;
 

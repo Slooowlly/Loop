@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { CreditCard, Fuel, TrendingDown, TrendingUp, Users } from "lucide-react";
 
-import GlassCard from "../../../ui/GlassCard";
+import GarageSheet from "./GarageSheet";
 import TeamLogoMark from "../../TeamLogoMark";
 import { formatMoney, formatSignedMoney } from "../../../../utils/formatters";
 import { formatOrdinal, formatPercent, moneyTone, operationalRunway } from "../teamMetrics";
@@ -20,6 +20,11 @@ import { rankInGrid } from "./gridMetrics";
 // caixa — e o chip fica reservado à exceção: dívida que existe, folha que aperta,
 // fôlego em risco. Quando nada está fora do lugar o centro da faixa fica vazio de
 // propósito; é o alarme aparecendo onde antes havia buraco.
+//
+// A moldura é a folha: os três setores são separados por filete vertical, não por
+// respiro, e a cor da equipe entra só na barra da borda esquerda. Sem os filetes a
+// faixa vira três coisas soltas numa tela de 1900px, que era o que o cartão de
+// vidro fazia.
 function CommandHeaderV2({ team, teams, standing, gridSize, roundNet, projectedAnnual, hasProjection, payroll, salaryCeiling }) {
   const { t } = useTranslation();
   const cash = team?.cash_balance ?? 0;
@@ -49,13 +54,16 @@ function CommandHeaderV2({ team, teams, standing, gridSize, roundNet, projectedA
     : { text: t("myTeamTabV2.command.runwayLine", { value: runway.value }), tone: runway.tone };
 
   return (
-    <GlassCard hover={false} className="rounded-[28px] px-6 py-4" data-testid="my-team-v2-command-header">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
-        <div className="flex min-w-0 items-center gap-3.5">
+    <GarageSheet accentColor={team?.cor_primaria ?? undefined} testId="my-team-v2-command-header">
+      <div className="flex flex-wrap items-stretch">
+        <div className="flex min-w-0 flex-1 items-center gap-3.5 border-white/[0.08] px-5 py-3.5 lg:border-r">
           <TeamLogoMark teamName={team?.nome} color={team?.cor_primaria} size="lg" testId="my-team-v2-logo" />
           <div className="min-w-0">
             <h2 className="truncate text-xl font-semibold text-text-primary">{team?.nome ?? t("myTeamTabV2.team.fallbackName")}</h2>
-            <p className="mt-1 text-xs text-text-secondary" data-testid="my-team-v2-identity-line">
+            <p
+              className="mt-1 font-garage text-[11px] uppercase tracking-[0.08em] text-text-muted"
+              data-testid="my-team-v2-identity-line"
+            >
               {identity.join(" · ")}
             </p>
           </div>
@@ -64,7 +72,7 @@ function CommandHeaderV2({ team, teams, standing, gridSize, roundNet, projectedA
         {/* Os alertas ocupam o centro da faixa: é o único lugar da linha que fica
             vazio quando a equipe está em ordem, então qualquer chip aqui já é
             sinal de que algo mudou. */}
-        <div className="flex flex-1 flex-wrap items-center justify-center gap-2" data-testid="my-team-v2-alerts">
+        <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-2" data-testid="my-team-v2-alerts">
           {debt > 0 ? (
             <Alert Icon={CreditCard} label={t("myTeamTabV2.command.debtChip", { value: formatMoney(debt) })} tone="red" />
           ) : null}
@@ -86,10 +94,15 @@ function CommandHeaderV2({ team, teams, standing, gridSize, roundNet, projectedA
           ) : null}
         </div>
 
-        <div className="text-right" data-testid="my-team-v2-cash">
-          <p className={`font-mono text-4xl font-semibold leading-none ${moneyTone(cash)}`}>{formatMoney(cash)}</p>
-          <p className="mt-2 flex flex-wrap items-center justify-end gap-x-1.5 text-xs" data-testid="my-team-v2-cash-line">
-            <RoundIcon size={14} strokeWidth={1.8} aria-hidden="true" className={roundNet >= 0 ? "text-status-green" : "text-status-red"} />
+        <div className="ml-auto border-white/[0.08] px-5 py-3.5 text-right lg:border-l" data-testid="my-team-v2-cash">
+          <p className={`font-garage text-[32px] font-semibold leading-none tabular-nums ${moneyTone(cash)}`}>
+            {formatMoney(cash)}
+          </p>
+          <p
+            className="mt-2 flex flex-wrap items-center justify-end gap-x-1.5 font-garage text-[11px]"
+            data-testid="my-team-v2-cash-line"
+          >
+            <RoundIcon size={13} strokeWidth={1.8} aria-hidden="true" className={roundNet >= 0 ? "text-status-green" : "text-status-red"} />
             <span className={roundNet >= 0 ? "text-status-green" : "text-status-red"}>
               {t("myTeamTabV2.command.lastRound", { value: formatSignedMoney(roundNet) })}
             </span>
@@ -98,10 +111,13 @@ function CommandHeaderV2({ team, teams, standing, gridSize, roundNet, projectedA
           </p>
         </div>
       </div>
-    </GlassCard>
+    </GarageSheet>
   );
 }
 
+// O chip do alarme continua sendo o único objeto de canto redondo da folha. É
+// deliberado: ele precisa se destacar de tudo que é filete e coluna ao redor, e a
+// forma diferente é o que o faz saltar antes da cor.
 const ALERT_TONES = {
   red: "border-status-red/40 bg-status-red/10 text-status-red",
   yellow: "border-status-yellow/40 bg-status-yellow/10 text-status-yellow",

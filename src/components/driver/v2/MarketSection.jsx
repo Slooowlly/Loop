@@ -8,6 +8,7 @@ import { formatSalary, formatSalaryAnnual } from "../../../utils/formatters";
 import { formatCategoryLabel, formatContractRole } from "../detalhes/formatadores.js";
 import { CURVA_MERCADO, CURVA_PAGO, MarketCurve } from "./CurvaDeMercado.jsx";
 import { TONE_HEX, tendenciaDeValor } from "./driverDetailV2Logic";
+import { MercadoDoJogador } from "./MercadoDoJogador.jsx";
 
 // ─────────────────────────────── Mercado ───────────────────────────────
 
@@ -16,7 +17,18 @@ import { TONE_HEX, tendenciaDeValor } from "./driverDetailV2Logic";
 // estimado caía no contratado quando havia contrato. Agora o topo é a chance de
 // troca decomposta — a única pergunta viva da aba — e embaixo um card só, com o
 // que ele vale e o que custa lado a lado.
-export function MarketSection({ detail }) {
+//
+// Na ficha do JOGADOR entram mais dois blocos no fim, o `MercadoDoJogador`: quem
+// está de olho nele e as cadeiras abertas do mundo. Eles herdaram a seção Mercado
+// da aba Carreira, apagada em 14/08/2026, e são a única parte dela que esta aba
+// ainda não dizia — tudo o mais era o mesmo `contrato_mercado` já desenhado acima.
+//
+// Eles ficam no FIM e não no topo porque a ordem da aba é a do zoom: a chance de
+// troca é o agora, a curva e a situação são o meu preço, e as vagas são para onde.
+// `careerId` é a única coisa que esta aba pede de fora do `detail`, e ela chega
+// como prop em vez de o módulo ir buscar no store: a fronteira do corte — seção que
+// não conversa com o resto da ficha — vale para o `MarketSection` também.
+export function MarketSection({ detail, careerId = null }) {
   const { t } = useTranslation();
   const contract = detail.contrato_mercado?.contrato;
   const market = detail.contrato_mercado?.mercado;
@@ -38,6 +50,8 @@ export function MarketSection({ detail }) {
           {t("driverDetail.market.noMarketSignals")}
         </div>
       )}
+
+      {detail.is_jogador && careerId ? <MercadoDoJogador careerId={careerId} /> : null}
     </section>
   );
 }

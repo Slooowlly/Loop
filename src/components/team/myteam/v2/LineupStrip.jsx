@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { Flame, Megaphone, TriangleAlert } from "lucide-react";
 
-import GlassCard from "../../../ui/GlassCard";
+import GarageSheet from "./GarageSheet";
+import GarageRow, { GarageRule } from "./GarageRow";
 import MeterBar from "./MeterBar";
 import { formatMoney } from "../../../../utils/formatters";
 
@@ -34,8 +35,11 @@ function LineupStrip({ presence, climate, sponsorshipIncome = 0, gateIncome = 0 
     : null;
 
   return (
-    <GlassCard hover={false} className="rounded-[24px] p-6" data-testid="my-team-v2-bond">
-      <div className="grid gap-6 lg:grid-cols-2">
+    <GarageSheet testId="my-team-v2-bond">
+      {/* Filete vertical no lugar do respiro de 24px: as duas leituras são irmãs e
+          precisam ler como duas colunas da mesma folha, não como dois blocos que
+          por acaso caíram lado a lado. */}
+      <div className="grid gap-x-6 px-4 py-2 lg:grid-cols-2 lg:divide-x lg:divide-white/[0.08]">
         {presence > 0 ? (
           <MeterBar
             testId="bond-presence-meter"
@@ -47,43 +51,47 @@ function LineupStrip({ presence, climate, sponsorshipIncome = 0, gateIncome = 0 
           />
         ) : null}
 
-        <div className="flex items-start gap-3.5">
-          <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl border ${climate.hurtsMorale ? "border-status-red/25 bg-status-red/10 text-status-red" : climate.tension >= 20 ? "border-status-yellow/25 bg-status-yellow/10 text-status-yellow" : "border-status-green/25 bg-status-green/10 text-status-green"}`}>
-            <Flame size={24} strokeWidth={1.6} aria-hidden="true" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-text-secondary">{t("myTeamTabV2.lineup.climate")}</span>
-              <span className={`text-sm ${climate.tone}`} data-testid="bond-climate">
+        <div className="lg:pl-6">
+          <GarageRow
+            divided={false}
+            label={
+              <span className="inline-flex items-center gap-1.5">
+                <Flame size={13} strokeWidth={1.8} aria-hidden="true" className="shrink-0" />
+                {t("myTeamTabV2.lineup.climate")}
+              </span>
+            }
+            value={
+              <span data-testid="bond-climate">
                 {t("myTeamTabV2.lineup.climateValue", { label: climate.label, tension: Math.round(climate.tension) })}
               </span>
-            </div>
-            <div className="mt-2 h-2 rounded-full bg-white/10">
-              <div
-                className={`h-full rounded-full ${climate.barTone}`}
-                style={{ width: `${Math.max(2, Math.min(100, climate.tension))}%` }}
-              />
-            </div>
-            {climate.hurtsMorale ? (
-              <p className="mt-1.5 flex items-start gap-1.5 text-xs leading-5 text-status-red" data-testid="bond-morale-warning">
-                <TriangleAlert size={15} strokeWidth={1.8} aria-hidden="true" className="mt-0.5 shrink-0" />
-                {t("myTeamTab.garage.moraleWarning")}
-              </p>
-            ) : (
-              <p className="mt-1.5 text-xs leading-5 text-text-muted">{t("myTeamTabV2.bond.tensionCaption")}</p>
-            )}
-            {/* A inversão é o único evento da política interna que já ACONTECEU — a
-                tensão é estado, isto é histórico. Só aparece quando houve alguma:
-                "0 inversões" é ruído numa dupla que nunca trocou de ordem. */}
-            {climate.inversions > 0 ? (
-              <p className="mt-1.5 text-xs leading-5 text-status-yellow" data-testid="bond-inversions">
-                {t("myTeamTabV2.bond.inversions", { count: climate.inversions })}
-              </p>
-            ) : null}
-          </div>
+            }
+            valueTone={climate.tone}
+            caption={
+              <>
+                {climate.hurtsMorale ? (
+                  <p className="flex items-start gap-1.5 text-status-red" data-testid="bond-morale-warning">
+                    <TriangleAlert size={13} strokeWidth={1.8} aria-hidden="true" className="mt-0.5 shrink-0" />
+                    {t("myTeamTab.garage.moraleWarning")}
+                  </p>
+                ) : (
+                  <p>{t("myTeamTabV2.bond.tensionCaption")}</p>
+                )}
+                {/* A inversão é o único evento da política interna que já ACONTECEU — a
+                    tensão é estado, isto é histórico. Só aparece quando houve alguma:
+                    "0 inversões" é ruído numa dupla que nunca trocou de ordem. */}
+                {climate.inversions > 0 ? (
+                  <p className="text-status-yellow" data-testid="bond-inversions">
+                    {t("myTeamTabV2.bond.inversions", { count: climate.inversions })}
+                  </p>
+                ) : null}
+              </>
+            }
+          >
+            <GarageRule percent={climate.tension} barClass={climate.barTone} />
+          </GarageRow>
         </div>
       </div>
-    </GlassCard>
+    </GarageSheet>
   );
 }
 

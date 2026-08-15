@@ -24,7 +24,7 @@ function ChampionshipTablePanel({
   const [hoveredTeamId, setHoveredTeamId] = useState(null);
 
   return (
-    <div className="xl:col-span-4 h-[500px] xl:h-[calc(100vh-17rem)] xl:min-h-[650px]">
+    <div className="xl:col-span-4 h-[500px] xl:h-[calc(100vh-19rem)] xl:min-h-[650px]">
       <div className="bg-[#161b22]/40 backdrop-blur-[24px] border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.2)] rounded-3xl p-6 h-full flex flex-col relative overflow-hidden">
         <div className="mb-4 flex flex-shrink-0 items-center justify-between gap-3">
           <p className="min-w-0 truncate text-[11px] font-bold uppercase tracking-[0.2em] text-[#58a6ff]">{t("nextRaceTab.labels.championshipTable")}</p>

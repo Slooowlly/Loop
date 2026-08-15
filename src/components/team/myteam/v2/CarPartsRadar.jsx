@@ -43,7 +43,7 @@ function CarPartsRadar({ cars, playerTeamId, hoveredTeamId = null }) {
 
   if (!radar.hasData) {
     return (
-      <p className="rounded-2xl border border-white/[0.08] bg-black/10 px-4 py-8 text-center text-xs leading-5 text-text-secondary">
+      <p className="border-y border-white/[0.08] px-4 py-8 text-center text-[11px] leading-5 text-text-secondary">
         {t("myTeamTabV2.parts.empty")}
       </p>
     );
@@ -119,7 +119,7 @@ function CarPartsRadar({ cars, playerTeamId, hoveredTeamId = null }) {
               x={axis.label.x}
               y={axis.label.y + (axis.above ? 11 : 14)}
               textAnchor={axis.anchor}
-              className="fill-text-primary font-mono text-[12px]"
+              className="fill-text-primary font-garage text-[12px]"
             >
               {axisReading(t, axis, active, radar)}
             </text>

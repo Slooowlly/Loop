@@ -1324,4 +1324,24 @@ describe("DriverDetailModalV2 — mercado", () => {
     fireEvent.click(screen.getByRole("button", { name: "OK" }));
     expect(screen.queryByTestId("driver-detail-injury")).not.toBeInTheDocument();
   });
+
+  // Os dois blocos que vieram da aba Carreira em 14/08/2026. O conteúdo deles tem
+  // teste próprio em `MercadoDoJogador.test.jsx`; o que se guarda aqui é o portão:
+  // eles são do jogador, e numa ficha de IA "elegível" e "de olho em você" diriam a
+  // verdade sobre outra pessoa.
+  it("mostra vagas e interesse na ficha do jogador", async () => {
+    renderFicha({}, detail({ is_jogador: true, contrato_mercado: { contrato: contrato(), mercado: { chance_transferencia: 40 }, curva: curva() } }));
+    await abrirMercado();
+
+    expect(await screen.findByTestId("driver-detail-open-seats")).toBeInTheDocument();
+    expect(screen.getByTestId("driver-detail-watching")).toBeInTheDocument();
+  });
+
+  it("esconde os dois blocos na ficha de um piloto de IA", async () => {
+    renderFicha({}, detail({ contrato_mercado: { contrato: contrato(), mercado: { chance_transferencia: 40 }, curva: curva() } }));
+    await abrirMercado();
+
+    expect(screen.queryByTestId("driver-detail-open-seats")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("driver-detail-watching")).not.toBeInTheDocument();
+  });
 });
