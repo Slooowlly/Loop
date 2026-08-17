@@ -3,6 +3,7 @@
     "caso": "ritmo",
     "intencao": "Ritmo",
     "linhas": [
+      "Sessão: CORRIDA.",
       "Posição: 5º de 24",
       "Volta: 8 de 20",
       "Faltam: 12 voltas",
@@ -17,6 +18,7 @@
     "caso": "carro",
     "intencao": "Carro",
     "linhas": [
+      "Sessão: CORRIDA.",
       "Posição: 5º de 24",
       "Volta: 8 de 20",
       "Faltam: 12 voltas",
@@ -30,6 +32,7 @@
     "caso": "geral",
     "intencao": "Geral",
     "linhas": [
+      "Sessão: CORRIDA.",
       "Posição: 5º de 24",
       "Volta: 8 de 20",
       "Faltam: 12 voltas",
@@ -54,6 +57,7 @@
     "caso": "frente_trafego",
     "intencao": "Frente",
     "linhas": [
+      "Sessão: CORRIDA.",
       "Posição: 5º de 24",
       "Volta: 8 de 20",
       "Faltam: 12 voltas",
@@ -65,6 +69,7 @@
     "intencao": "Geral",
     "linhas": [
       "Saldo: FALTA combustível para 2 voltas — vai precisar parar",
+      "Sessão: CORRIDA.",
       "Posição: 5º de 24",
       "Volta: 8 de 20",
       "Faltam: por volta de 8 voltas (prova por TEMPO — o número é estimativa, diga-o como aproximação)",

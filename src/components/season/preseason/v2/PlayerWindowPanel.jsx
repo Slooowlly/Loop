@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import ProposalCard from "../ProposalCard";
-import OfferCategoryRow from "../OfferCategoryRow";
+import OffersSummaryCard from "../OffersSummaryCard";
 import WeeklyClosingMovement from "../WeeklyClosingMovement";
 import TeamLogoMark from "../../../team/TeamLogoMark";
-import { CLASS_LABELS, subcatLabel, subcatColor } from "../../preSeasonFormatters.js";
+import { subcatLabel, subcatColor } from "../../preSeasonFormatters.js";
 
 // Coluna direita do v2 — "Sua Janela".
 //
@@ -137,64 +136,14 @@ function ForecastCard({ forecast, totalOffers, isOpeningWeek, playerSignedThisWi
             : t("preSeason.forecast.seatCount", { count: totalOffers })}
         </span>
       </div>
-    </div>
-  );
-}
-
-function ReachableSeatsCard({ seats }) {
-  const { t } = useTranslation();
-  if (!seats.length) return null;
-  return (
-    <div className="mb-2.5 rounded-xl border border-white/[0.08] bg-black/15 p-3">
-      <div className="mb-1.5 flex items-center gap-1.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--status-green)]" />
-        <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[color:var(--text-muted)]">
-          {t("preSeason.v2.window.reachTitle")}
-        </span>
-      </div>
-      <p className="mb-2 text-[10px] leading-[1.35] text-[color:var(--text-muted)]">
-        {t("preSeason.v2.window.reachCaption")}
-      </p>
-      <div className="flex flex-col gap-1.5">
-        {seats.map(({ team, isPromotion, open }) => (
-          <div
-            key={team.id}
-            className="flex items-center gap-2 rounded-lg border px-2 py-1.5"
-            style={{
-              borderColor: isPromotion ? "rgba(63,185,80,0.22)" : "rgba(255,255,255,0.08)",
-              background: isPromotion ? "rgba(63,185,80,0.09)" : "rgba(255,255,255,0.03)",
-            }}
-          >
-            <TeamLogoMark
-              teamName={team.nome}
-              color={team.cor_primaria}
-              size="xs"
-              testId="preseason-reach-team-logo"
-            />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[11.5px] font-bold">{team.nome}</p>
-              <p className="truncate text-[9px] text-[color:var(--text-muted)]">
-                {subcatLabel(team._categoria)}
-                {" · "}
-                {isPromotion
-                  ? t("preSeason.v2.window.reachPromotion")
-                  : t("preSeason.v2.window.reachLateral")}
-              </p>
-            </div>
-            <span
-              className="shrink-0 rounded px-1.5 py-px text-[8.5px] font-black uppercase tracking-[0.08em]"
-              style={{
-                color: open > 0 ? "var(--status-green)" : "var(--text-muted)",
-                background: open > 0 ? "rgba(63,185,80,0.16)" : "rgba(255,255,255,0.06)",
-              }}
-            >
-              {open > 0
-                ? t("preSeason.v2.window.reachOpen")
-                : t("preSeason.v2.window.reachLikely")}
-            </span>
-          </div>
-        ))}
-      </div>
+      {/* Nas semanas de assinatura a expectativa continua viva: são as equipes que
+          colocariam o jogador na shortlist AGORA, mas ainda têm gente na frente.
+          Sem esta linha, "zero proposta" e "zero interesse" seriam indistinguíveis. */}
+      {!isOpeningWeek && forecast && (
+        <p className="mt-2 border-t border-white/[0.06] pt-2 text-[10.5px] leading-[1.3] text-[color:var(--text-secondary)]">
+          {t("preSeason.forecast.exact", { count: forecast.max })}
+        </p>
+      )}
     </div>
   );
 }
@@ -311,26 +260,26 @@ export default function PlayerWindowPanel({
   playerProposals,
   playerOffers,
   playerSignedThisWindow,
-  playerBrand,
   isComplete,
   isAdvancingWeek,
   isOpeningWeek,
   interestForecast,
   totalOffers,
-  promoOfferGroups,
-  brandOfferGroups,
-  otherOfferGroups,
+  offersByCategory,
   weeklyClosingGroups,
-  reachableSeats,
   currentWeek,
   totalWeeks,
   signingsStartWeek,
-  handleRespondProposal,
   openOffersFor,
   setTransferDetail,
 }) {
   const { t } = useTranslation();
   const diary = useWindowDiary();
+
+  // Nas semanas de abertura o mercado ainda não contrata, então mesmo com oferta
+  // na lista o lugar é da expectativa.
+  const temDecisaoNaMesa =
+    !isOpeningWeek && (playerOffers.length > 0 || playerProposals.length > 0);
 
   return (
     <aside className="glass animate-drawer-in flex min-h-0 flex-col rounded-2xl">
@@ -364,110 +313,27 @@ export default function PlayerWindowPanel({
           playerSignedThisWindow={playerSignedThisWindow}
         />
 
-        {/* Propostas formais: equipes que cortejam o jogador por mérito (com prazo). */}
-        {playerProposals.length > 0 && (
-          <div className="mb-2.5">
-            <div className="mb-2 flex items-center gap-2">
-              <span className="relative inline-flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400/80" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400" />
-              </span>
-              <p className="text-body-sm font-bold uppercase tracking-[0.22em] text-amber-300">
-                {t("preSeason.proposals.title")}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-body-sm text-[color:var(--text-secondary)]">
-                {t("preSeason.proposals.subtitle")}
-              </p>
-              {playerProposals.map((p) => (
-                <ProposalCard
-                  key={p.proposal_id}
-                  proposal={p}
-                  isAdvancingWeek={isAdvancingWeek}
-                  onRespond={handleRespondProposal}
-                />
-              ))}
-            </div>
-          </div>
+        {/* Ofertas e propostas: UM bloco só, e ele não decide nada. O número grande
+            é a âncora, os trilhos coloridos dizem de onde vêm, e o clique leva ao
+            modal — a única tela onde aceitar, recusar e assinar existem. Sem nada
+            na mesa (ou nas semanas de abertura) o lugar volta a ser da expectativa. */}
+        {temDecisaoNaMesa ? (
+          <OffersSummaryCard
+            groups={offersByCategory}
+            totalOffers={totalOffers}
+            proposals={playerProposals}
+            onSelect={openOffersFor}
+          />
+        ) : (
+          <ForecastCard
+            forecast={interestForecast}
+            totalOffers={totalOffers}
+            isOpeningWeek={isOpeningWeek}
+            playerSignedThisWindow={playerSignedThisWindow}
+          />
         )}
 
-        <ForecastCard
-          forecast={interestForecast}
-          totalOffers={totalOffers}
-          isOpeningWeek={isOpeningWeek}
-          playerSignedThisWindow={playerSignedThisWindow}
-        />
-
-        {/* Fichas de oferta: idênticas ao v1, inclusive nas chaves. O que muda é o
-            entorno — elas passam a conviver com o status e o diário em vez de
-            serem a única coisa na coluna. */}
-        {!isOpeningWeek && playerOffers.length > 0 && (
-          <div className="mb-2.5 space-y-3">
-            {promoOfferGroups.length > 0 && (
-              <div className="space-y-2">
-                {promoOfferGroups.map((group) => {
-                  const n = group.n1.length + group.n2.length;
-                  return (
-                    <button
-                      key={group.cat}
-                      type="button"
-                      onClick={() => openOffersFor(group.cat)}
-                      data-testid={`offer-category-row-${group.cat}`}
-                      className="transition-glass glow-green group flex w-full items-center gap-3 rounded-xl border border-[color:var(--status-green)]/45 bg-[color:var(--status-green)]/10 px-3.5 py-3 text-left hover:bg-[color:var(--status-green)]/16"
-                    >
-                      <span className="text-[18px] leading-none">⭐</span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--status-green)]">
-                          {t("preSeason.offers.promotion")}
-                        </span>
-                        <span className="mt-0.5 block truncate text-title-md font-black">
-                          {group.label}
-                        </span>
-                        <span className="block text-[10px] uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
-                          {t("preSeason.offers.promotionVacancies", { count: n })}
-                        </span>
-                      </span>
-                      <span className="text-title-md text-[color:var(--status-green)] transition-transform group-hover:translate-x-0.5">›</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {brandOfferGroups.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="px-0.5 text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--text-muted)]">
-                  {t("preSeason.offers.continueIn", { brand: CLASS_LABELS[playerBrand] ?? playerBrand })}
-                </p>
-                {brandOfferGroups.map((g) => (
-                  <OfferCategoryRow key={g.cat} group={g} onSelect={openOffersFor} />
-                ))}
-              </div>
-            )}
-
-            {otherOfferGroups.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="px-0.5 text-[9px] font-black uppercase tracking-[0.22em] text-[color:var(--text-muted)]">
-                  {t("preSeason.offers.otherOpportunities")}
-                </p>
-                {otherOfferGroups.map((g) => (
-                  <OfferCategoryRow key={g.cat} group={g} onSelect={openOffersFor} />
-                ))}
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => openOffersFor(null)}
-              className="transition-glass glow-blue w-full rounded-xl border border-[#58a6ff66] bg-[#58a6ff22] px-3 py-2 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff44]"
-            >
-              {t("preSeason.offers.viewAll", { count: totalOffers })}
-            </button>
-          </div>
-        )}
-
-        {!isOpeningWeek && playerOffers.length === 0 && (
+        {!isOpeningWeek && !temDecisaoNaMesa && (
           <div className="mb-2.5 rounded-xl border border-dashed border-white/[0.12] bg-black/15 p-4 text-center text-body text-[color:var(--text-secondary)]">
             {playerSignedThisWindow
               ? t("preSeason.offers.emptySigned")
@@ -476,9 +342,6 @@ export default function PlayerWindowPanel({
                 : t("preSeason.offers.emptyNone")}
           </div>
         )}
-
-        {/* Alvos: só faz sentido enquanto ele ainda pode assinar. */}
-        {!playerSignedThisWindow && <ReachableSeatsCard seats={reachableSeats} />}
 
         {/* Movimentações da semana que acabou de fechar (bloco do v1, sem mudança). */}
         {weeklyClosingGroups.length > 0 && (

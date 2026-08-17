@@ -23,6 +23,17 @@ vi.mock("../../stores/useCareerStore", () => ({
   default: (seletor) => seletor({ careerId: "C1" }),
 }));
 
+// O race trace é o único gráfico cujo EIXO é montado aqui dentro, a partir do par
+// `lap`/`progress` do DTO. Trocamos o componente por um espião das props para poder afirmar
+// sobre o eixo sem depender do recharts, que não mede nada em jsdom.
+const { propsDoTrace } = vi.hoisted(() => ({ propsDoTrace: [] }));
+vi.mock("../race/RaceTraceChart", () => ({
+  default: (props) => {
+    propsDoTrace.push(props);
+    return <div data-testid="trace" />;
+  },
+}));
+
 // O `ResponsiveContainer` do recharts mede o container com `ResizeObserver`, que o jsdom não
 // tem. Sem este calço o overlay derruba o render inteiro no efeito de montagem. Medir zero é
 // esperado e não atrapalha: o que se afere aqui é o estado "tem dado / não tem", que é decidido
@@ -94,6 +105,7 @@ function cartoesVazios() {
 
 beforeEach(() => {
   invoke.mockReset();
+  propsDoTrace.length = 0;
   // O overlay abre com foco/visibilidade; o jsdom começa visível.
   Object.defineProperty(document, "hidden", { value: false, configurable: true });
   Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
@@ -207,5 +219,39 @@ describe("portão do documento oculto", () => {
     const depois = invoke.mock.calls.filter(([c]) => c === "iracing_get_race_feedback").length;
     vi.useRealTimers();
     expect(depois).toBe(antes);
+  });
+});
+
+describe("eixo do race trace", () => {
+  it("o X carrega o progresso do líder, e não só a volta inteira", async () => {
+    // O backend grava VÁRIOS pontos dentro da mesma volta do líder: um na virada e um a
+    // cada troca de posição. O que separa um do outro é o `progress` (0..1). Lendo só o
+    // `lap`, todos caíam no mesmo X: o gráfico apagava a volta inteira de ultrapassagens e
+    // desenhava um degrau vertical na virada — o sintoma relatado na volta 1.
+    responder({
+      feedback: historico({
+        laps: [
+          { lap: 1, progress: 0, cars: [{ idx: 0, position: 2, gap: 4 }] },
+          { lap: 1, progress: 0.5, cars: [{ idx: 0, position: 1, gap: 2 }] },
+          { lap: 2, progress: 0, cars: [{ idx: 0, position: 1, gap: 1 }] },
+        ],
+      }),
+    });
+    await abrir();
+
+    await waitFor(() => expect(propsDoTrace.length).toBeGreaterThan(0));
+    const rows = propsDoTrace[propsDoTrace.length - 1].rows;
+    expect(rows.map((r) => r.lap)).toEqual([1, 1.5, 2]);
+  });
+
+  it("a faixa de amarela cobre a volta que estava em curso", async () => {
+    // `yellow_laps` guarda as voltas COMPLETAS do líder no instante da bandeira, então a
+    // volta pintada ocupa [L, L+1] no eixo fracionário. O gráfico desenha a faixa centrada
+    // em ±0,5 volta: sem o deslocamento, ela pintava a volta anterior pela metade.
+    responder({ feedback: historico({ yellow_laps: [3] }) });
+    await abrir();
+
+    await waitFor(() => expect(propsDoTrace.length).toBeGreaterThan(0));
+    expect(propsDoTrace[propsDoTrace.length - 1].yellowLaps).toEqual([3.5]);
   });
 });

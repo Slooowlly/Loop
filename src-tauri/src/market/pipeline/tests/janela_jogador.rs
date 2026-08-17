@@ -584,7 +584,7 @@ fn test_generate_player_window_proposals_courts_free_agent_by_merit() {
     .expect("license");
     insert_standing(&conn, &s1.id, &player.id, &team.id, "gt3", 1, 400.0, 10, 8);
 
-    let held = generate_player_window_proposals(&conn, 2, 1, &mut rng).expect("gen");
+    let held = generate_player_window_proposals(&conn, 2, 5, &mut rng).expect("gen");
     assert!(
         !held.is_empty(),
         "jogador forte livre deve receber ao menos uma proposta formal: held={held:?}"
@@ -599,7 +599,7 @@ fn test_generate_player_window_proposals_courts_free_agent_by_merit() {
     );
 
     // Idempotência: rodar de novo não duplica (mesmo ID) e segue segurando o assento.
-    let held2 = generate_player_window_proposals(&conn, 2, 1, &mut rng).expect("gen2");
+    let held2 = generate_player_window_proposals(&conn, 2, 5, &mut rng).expect("gen2");
     let pending2 = crate::db::queries::market_proposals::get_pending_player_proposals(
         &conn, &s2.id, &player.id,
     )
@@ -629,10 +629,357 @@ fn test_generate_player_window_proposals_courts_free_agent_by_merit() {
     );
     contract_queries::insert_contract(&conn, &contract).expect("contract");
     team_queries::update_team_pilots(&conn, &team.id, Some(&player.id), None).expect("seat");
-    let held3 = generate_player_window_proposals(&conn, 2, 1, &mut rng).expect("gen3");
+    let held3 = generate_player_window_proposals(&conn, 2, 5, &mut rng).expect("gen3");
     assert!(
         held3.is_empty(),
         "jogador com contrato ativo nao recebe proposta formal na Fase A"
+    );
+}
+
+#[test]
+fn a_proposta_so_nasce_quando_o_jogador_e_a_primeira_escolha_da_vaga() {
+    // A regra da escassez: com um agente livre MELHOR disputando o mesmo assento, a
+    // equipe prefere o outro e o jogador não recebe proposta — ele é interesse, não
+    // escolha. Quando o rival sai do mercado, o jogador vira a primeira escolha ainda
+    // livre e a proposta nasce. É assim que o momento da proposta passa a vir do mundo.
+    let conn = Connection::open_in_memory().expect("db");
+    migrations::run_all(&conn).expect("schema");
+    conn.execute(
+        "UPDATE meta SET value = '40' WHERE key = 'next_contract_id'",
+        [],
+    )
+    .expect("contract counter");
+
+    let s1 = Season::new("S001".to_string(), 1, 2024);
+    let s2 = Season::new("S002".to_string(), 2, 2025);
+    season_queries::insert_season(&conn, &s1).expect("s1");
+    season_queries::finalize_season(&conn, &s1.id).expect("finalize s1");
+    season_queries::insert_season(&conn, &s2).expect("s2");
+
+    let mut rng = StdRng::seed_from_u64(4411);
+    let team = sample_team("gt3", "T001", &mut rng);
+    team_queries::insert_team(&conn, &team).expect("team");
+
+    // Titular ocupa a N1 → sobra UMA vaga, para a disputa ser de um assento só.
+    let teammate = sample_driver("P002", "Titular", Some("gt3"), 70.0, DriverStatus::Ativo);
+    driver_queries::insert_driver(&conn, &teammate).expect("teammate");
+    team_queries::update_team_pilots(&conn, &team.id, Some(&teammate.id), None).expect("lineup");
+    let tc = Contract::new(
+        "C001".to_string(),
+        teammate.id.clone(),
+        teammate.nome.clone(),
+        team.id.clone(),
+        team.nome.clone(),
+        1,
+        3,
+        90_000.0,
+        TeamRole::Numero1,
+        "gt3".to_string(),
+    );
+    contract_queries::insert_contract(&conn, &tc).expect("teammate contract");
+
+    // Jogador competente (80) e um agente livre claramente melhor (98), ambos livres,
+    // licenciados e com currículo na gt3.
+    let mut player = sample_driver("P001", "Jogador", Some("gt3"), 80.0, DriverStatus::Ativo);
+    player.is_jogador = true;
+    driver_queries::insert_driver(&conn, &player).expect("player");
+    let rival = sample_driver("P003", "Rival", Some("gt3"), 98.0, DriverStatus::Ativo);
+    driver_queries::insert_driver(&conn, &rival).expect("rival");
+    for id in ["P001", "P003"] {
+        conn.execute(
+            "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
+             VALUES (?1, '3', 'gt3', '2024-12-31T00:00:00', 3)",
+            params![id],
+        )
+        .expect("license");
+    }
+    insert_standing(&conn, &s1.id, &rival.id, &team.id, "gt3", 1, 400.0, 10, 8);
+    insert_standing(&conn, &s1.id, &player.id, &team.id, "gt3", 2, 300.0, 3, 2);
+
+    let com_rival = generate_player_window_proposals(&conn, 2, 5, &mut rng).expect("com rival");
+    let pendentes = crate::db::queries::market_proposals::get_pending_player_proposals(
+        &conn, &s2.id, &player.id,
+    )
+    .expect("pendentes");
+    assert!(
+        pendentes.is_empty() && com_rival.is_empty(),
+        "com um agente livre melhor na praça a equipe não propõe ao jogador: held={com_rival:?}"
+    );
+
+    // O rival assina em outro lugar (sai do pool de livres) → a vaga desce até o jogador.
+    conn.execute(
+        "UPDATE drivers SET status = ?1 WHERE id = 'P003'",
+        params![DriverStatus::Aposentado.as_str()],
+    )
+    .expect("rival sai do mercado");
+
+    let sem_rival = generate_player_window_proposals(&conn, 2, 6, &mut rng).expect("sem rival");
+    let pendentes = crate::db::queries::market_proposals::get_pending_player_proposals(
+        &conn, &s2.id, &player.id,
+    )
+    .expect("pendentes 2");
+    assert_eq!(
+        pendentes.len(),
+        1,
+        "sem ninguém melhor livre, a proposta nasce: held={sem_rival:?}"
+    );
+    assert!(!sem_rival.is_empty(), "e o assento passa a ser segurado");
+}
+
+#[test]
+fn a_onda_segura_a_proposta_da_equipe_do_fundo_ate_a_liberacao() {
+    // MERCADO EM ONDAS pelo lado do jogador: a única equipe da categoria é fundo por
+    // definição (corte = len/2 = 0), então a liberação dela é a semana 5 (gt3, tier
+    // alto). Mesmo com o jogador sendo a PRIMEIRA escolha da vaga, a proposta não
+    // nasce na semana 4 — nasce na 5, quando a equipe entra no mercado. É o mecanismo
+    // que faz a proposta do fundo chegar tarde.
+    if std::env::var("IRACER_MERCADO_EM_ONDAS").is_ok() {
+        return; // o harness pode estar rodando o braço "antes"
+    }
+    let conn = Connection::open_in_memory().expect("db");
+    migrations::run_all(&conn).expect("schema");
+    conn.execute(
+        "UPDATE meta SET value = '70' WHERE key = 'next_contract_id'",
+        [],
+    )
+    .expect("contract counter");
+
+    let s1 = Season::new("S001".to_string(), 1, 2024);
+    let s2 = Season::new("S002".to_string(), 2, 2025);
+    season_queries::insert_season(&conn, &s1).expect("s1");
+    season_queries::finalize_season(&conn, &s1.id).expect("finalize s1");
+    season_queries::insert_season(&conn, &s2).expect("s2");
+
+    let mut rng = StdRng::seed_from_u64(8181);
+    let team = sample_team("gt3", "T001", &mut rng);
+    team_queries::insert_team(&conn, &team).expect("team");
+
+    let mut player = sample_driver("P001", "Jogador", Some("gt3"), 95.0, DriverStatus::Ativo);
+    player.is_jogador = true;
+    driver_queries::insert_driver(&conn, &player).expect("player");
+    conn.execute(
+        "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
+         VALUES ('P001', '3', 'gt3', '2024-12-31T00:00:00', 3)",
+        [],
+    )
+    .expect("license");
+    insert_standing(&conn, &s1.id, &player.id, &team.id, "gt3", 1, 400.0, 10, 8);
+
+    let semana_4 = generate_player_window_proposals(&conn, 2, 4, &mut rng).expect("semana 4");
+    let pendentes = crate::db::queries::market_proposals::get_pending_player_proposals(
+        &conn, &s2.id, &player.id,
+    )
+    .expect("pendentes");
+    assert!(
+        pendentes.is_empty() && semana_4.is_empty(),
+        "antes da liberação a equipe do fundo não propõe, mesmo ao primeiro da lista"
+    );
+
+    let semana_5 = generate_player_window_proposals(&conn, 2, 5, &mut rng).expect("semana 5");
+    let pendentes = crate::db::queries::market_proposals::get_pending_player_proposals(
+        &conn, &s2.id, &player.id,
+    )
+    .expect("pendentes 2");
+    assert!(
+        !pendentes.is_empty() && !semana_5.is_empty(),
+        "na semana de liberação a proposta nasce"
+    );
+}
+
+#[test]
+fn o_criterio_da_proposta_e_a_primeira_escolha_e_nao_o_top_3() {
+    // O gate puro, sem banco: com a flag no padrão, só a posição 0 vira proposta. As
+    // posições 1 e 2 continuam existindo — elas são o INTERESSE que a tela mostra antes
+    // de o mercado contratar, e é isso que separa "tem equipe de olho" de "te querem".
+    assert!(jogador_e_a_escolha_da_vaga(0));
+    if std::env::var("IRACER_PROPOSTA_PRIMEIRA_ESCOLHA").is_err() {
+        assert!(!jogador_e_a_escolha_da_vaga(1));
+        assert!(!jogador_e_a_escolha_da_vaga(2));
+    }
+}
+
+#[test]
+fn o_lesionado_sem_contrato_ainda_ganha_assento_na_virada() {
+    // A garantia de porta saía cedo em `status != Ativo`, e o jogador LESIONADO e sem
+    // contrato atravessava a virada sem equipe — 5% dos fechos de janela, medido.
+    // Lesão é temporária: o contrato da temporada seguinte não pode depender dela.
+    let conn = Connection::open_in_memory().expect("db");
+    migrations::run_all(&conn).expect("schema");
+    conn.execute(
+        "UPDATE meta SET value = '50' WHERE key = 'next_contract_id'",
+        [],
+    )
+    .expect("contract counter");
+
+    let s2 = Season::new("S002".to_string(), 2, 2025);
+    season_queries::insert_season(&conn, &s2).expect("s2");
+
+    let mut rng = StdRng::seed_from_u64(5151);
+    let team = sample_team("mazda_rookie", "T001", &mut rng); // estreia: sempre acessível
+    team_queries::insert_team(&conn, &team).expect("team");
+
+    let mut player = sample_driver(
+        "P001",
+        "Jogador",
+        Some("mazda_rookie"),
+        70.0,
+        DriverStatus::Lesionado,
+    );
+    player.is_jogador = true;
+    driver_queries::insert_driver(&conn, &player).expect("player");
+
+    ensure_player_seated(&conn, 2).expect("garantia de porta");
+
+    let contrato = contract_queries::get_active_regular_contract_for_pilot(&conn, &player.id)
+        .expect("consulta")
+        .expect("o lesionado livre tem que sair da virada com equipe");
+    assert_eq!(contrato.equipe_id, team.id);
+
+    // O aposentado continua fora: nenhuma porta para quem encerrou a carreira.
+    let mut retired = sample_driver(
+        "P002",
+        "Aposentado",
+        Some("mazda_rookie"),
+        70.0,
+        DriverStatus::Aposentado,
+    );
+    retired.is_jogador = true;
+    conn.execute("UPDATE drivers SET is_jogador = 0 WHERE id = 'P001'", [])
+        .expect("troca o jogador");
+    driver_queries::insert_driver(&conn, &retired).expect("retired");
+    ensure_player_seated(&conn, 2).expect("garantia de porta 2");
+    assert!(
+        contract_queries::get_active_regular_contract_for_pilot(&conn, &retired.id)
+            .expect("consulta 2")
+            .is_none(),
+        "aposentado não ganha assento"
+    );
+}
+
+#[test]
+fn o_passe_zero_da_porta_prefere_a_categoria_de_origem_do_agente_livre() {
+    // `sync.rs` zera o categoria_atual de quem está sem contrato, então o passe 0
+    // ("própria categoria") comparava com string vazia e nunca casava — 0 de 492
+    // fechos medidos; a vaga vinha sempre do passe 1, que escolhe o pior carro do
+    // tier. Com o resgate pela categoria do último contrato, o jogador volta para a
+    // categoria de ORIGEM mesmo quando o outro lado do tier tem carro pior.
+    let conn = Connection::open_in_memory().expect("db");
+    migrations::run_all(&conn).expect("schema");
+    conn.execute(
+        "UPDATE meta SET value = '60' WHERE key = 'next_contract_id'",
+        [],
+    )
+    .expect("contract counter");
+
+    let s2 = Season::new("S002".to_string(), 2, 2025);
+    season_queries::insert_season(&conn, &s2).expect("s2");
+
+    let mut rng = StdRng::seed_from_u64(6161);
+    // Origem (toyota_rookie) com carro FORTE; o outro lado do tier 0 com carro fraco.
+    // Sem o passe 0, o pior carro do tier venceria e o jogador cairia na mazda_rookie.
+    let mut origem = sample_team("toyota_rookie", "T001", &mut rng);
+    origem.car = None;
+    origem.car_performance = 12.0;
+    let mut outra = sample_team("mazda_rookie", "T002", &mut rng);
+    outra.car = None;
+    outra.car_performance = -3.0;
+    team_queries::insert_team(&conn, &origem).expect("origem");
+    team_queries::insert_team(&conn, &outra).expect("outra");
+
+    // Agente livre com categoria_atual já limpa e o último contrato na origem.
+    let mut player = sample_driver("P001", "Jogador", None, 70.0, DriverStatus::Ativo);
+    player.is_jogador = true;
+    driver_queries::insert_driver(&conn, &player).expect("player");
+    let antigo = Contract::new(
+        "C001".to_string(),
+        player.id.clone(),
+        player.nome.clone(),
+        origem.id.clone(),
+        origem.nome.clone(),
+        1,
+        1,
+        20_000.0,
+        TeamRole::Numero1,
+        "toyota_rookie".to_string(),
+    );
+    contract_queries::insert_contract(&conn, &antigo).expect("contrato antigo");
+    conn.execute(
+        "UPDATE contracts SET status = 'Encerrado' WHERE id = 'C001'",
+        [],
+    )
+    .expect("encerra o antigo");
+
+    ensure_player_seated(&conn, 2).expect("garantia de porta");
+
+    let contrato = contract_queries::get_active_regular_contract_for_pilot(&conn, &player.id)
+        .expect("consulta")
+        .expect("o agente livre tem que sair com equipe");
+    assert_eq!(
+        contrato.categoria, "toyota_rookie",
+        "o passe 0 tem que devolver o jogador à categoria de origem, não ao pior carro do tier"
+    );
+}
+
+#[test]
+fn o_papel_do_ultimo_contrato_vale_no_contexto_de_mercado() {
+    // Os caminhos de shortlist passavam um mapa vazio de contratos a vencer e TODO
+    // candidato caía no default Numero2 (-2.0 de visibilidade) — medido como o corte
+    // dominante do gate de 4.0. O papel de verdade está no banco; a conta usa ele.
+    let conn = Connection::open_in_memory().expect("db");
+    migrations::run_all(&conn).expect("schema");
+
+    let s1 = Season::new("S001".to_string(), 1, 2024);
+    season_queries::insert_season(&conn, &s1).expect("s1");
+    season_queries::finalize_season(&conn, &s1.id).expect("finalize");
+
+    let mut rng = StdRng::seed_from_u64(7171);
+    let team = sample_team("gt3", "T001", &mut rng);
+    team_queries::insert_team(&conn, &team).expect("team");
+
+    let n1 = sample_driver("P001", "Titular", Some("gt3"), 80.0, DriverStatus::Ativo);
+    let sem_historia = sample_driver("P002", "Novato", Some("gt3"), 60.0, DriverStatus::Ativo);
+    driver_queries::insert_driver(&conn, &n1).expect("n1");
+    driver_queries::insert_driver(&conn, &sem_historia).expect("novato");
+    insert_standing(&conn, &s1.id, &n1.id, &team.id, "gt3", 1, 400.0, 10, 8);
+    insert_standing(&conn, &s1.id, &sem_historia.id, &team.id, "gt3", 8, 100.0, 0, 0);
+
+    let encerrado = Contract::new(
+        "C001".to_string(),
+        n1.id.clone(),
+        n1.nome.clone(),
+        team.id.clone(),
+        team.nome.clone(),
+        1,
+        1,
+        90_000.0,
+        TeamRole::Numero1,
+        "gt3".to_string(),
+    );
+    contract_queries::insert_contract(&conn, &encerrado).expect("contrato");
+    conn.execute(
+        "UPDATE contracts SET status = 'Encerrado' WHERE id = 'C001'",
+        [],
+    )
+    .expect("encerra");
+
+    let drivers_by_id: HashMap<String, Driver> = [(n1.id.clone(), n1.clone()), (
+        sem_historia.id.clone(),
+        sem_historia.clone(),
+    )]
+    .into_iter()
+    .collect();
+    let contexts = load_market_contexts(&conn, Some("S001"), &drivers_by_id, &HashMap::new())
+        .expect("contextos");
+
+    assert_eq!(
+        contexts.get("P001").map(|c| c.papel.clone()),
+        Some(TeamRole::Numero1),
+        "quem foi N1 no último contrato não pode ser avaliado como N2"
+    );
+    assert_eq!(
+        contexts.get("P002").map(|c| c.papel.clone()),
+        Some(TeamRole::Numero2),
+        "quem nunca teve contrato continua no default"
     );
 }
 
@@ -687,16 +1034,16 @@ fn test_player_window_proposals_expire_after_ttl() {
     .expect("license");
     insert_standing(&conn, &s1.id, &player.id, &team.id, "gt3", 1, 400.0, 10, 8);
 
-    let held_w1 = generate_player_window_proposals(&conn, 2, 1, &mut rng).expect("w1");
+    let held_w1 = generate_player_window_proposals(&conn, 2, 5, &mut rng).expect("w1");
     let pending_w1 = crate::db::queries::market_proposals::get_pending_player_proposals(
         &conn, &s2.id, &player.id,
     )
     .expect("p1");
-    assert_eq!(pending_w1.len(), 1, "semana 1 cria a proposta");
-    assert!(!held_w1.is_empty(), "semana 1 segura o assento da proposta");
+    assert_eq!(pending_w1.len(), 1, "semana 5 cria a proposta");
+    assert!(!held_w1.is_empty(), "semana 5 segura o assento da proposta");
 
-    // Semana 4 = criada(1) + TTL(3): expira e não reoferece.
-    let held_w4 = generate_player_window_proposals(&conn, 2, 4, &mut rng).expect("w4");
+    // Semana 8 = criada(5) + TTL(3): expira e não reoferece.
+    let held_w4 = generate_player_window_proposals(&conn, 2, 8, &mut rng).expect("w4");
     let pending_w4 = crate::db::queries::market_proposals::get_pending_player_proposals(
         &conn, &s2.id, &player.id,
     )

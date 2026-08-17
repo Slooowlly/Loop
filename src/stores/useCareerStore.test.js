@@ -763,6 +763,32 @@ describe("useCareerStore advanceMarketWeek", () => {
 
     expect(useCareerStore.getState().lastMarketWeekResult).toEqual(weekResult);
   });
+
+  it("reloads the window when the backend refuses the accepted seat", async () => {
+    const janelaAtual = { player_offers: [{ seat_id: "T007#Numero1", team_id: "T007" }] };
+    useCareerStore.setState({
+      transferWindow: { player_offers: [{ seat_id: "T007#Numero2", team_id: "T007" }] },
+    });
+
+    invoke.mockImplementation((command) => {
+      if (command === "advance_market_week") {
+        return Promise.reject("Vaga 'T007#Numero2' nao encontrada.");
+      }
+      if (command === "get_preseason_state") {
+        return Promise.resolve({ season_number: 2, current_week: 3, total_weeks: 4 });
+      }
+      if (command === "get_transfer_window_state") return Promise.resolve(janelaAtual);
+      return Promise.resolve(null);
+    });
+
+    await expect(
+      useCareerStore.getState().advanceMarketWeek("T007#Numero2"),
+    ).rejects.toBeTruthy();
+
+    expect(useCareerStore.getState().transferWindow).toEqual(janelaAtual);
+    expect(useCareerStore.getState().preseasonState.current_week).toBe(3);
+    expect(useCareerStore.getState().error).toBeTruthy();
+  });
 });
 
 describe("useCareerStore specialWindow", () => {

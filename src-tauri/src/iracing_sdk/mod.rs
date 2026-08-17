@@ -44,6 +44,7 @@ mod spotter_base;
 pub mod spotter_boxe;
 pub mod spotter_clima;
 pub mod spotter_control;
+mod spotter_diario;
 pub mod spotter_frente;
 pub mod spotter_lento;
 pub mod spotter_tras;

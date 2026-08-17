@@ -253,6 +253,29 @@ fn os_ids_do_radio_nao_voltam_atras_depois_de_um_reinicio() {
     );
 }
 
+/// O irmão do teste acima, no outro sentido: a época avança contando os QUATRO logs, e todos
+/// têm de esvaziar junto. O `classificacao_log` era o único que ficava — as falas da quali
+/// renasciam com ids novos e o front as tocava de novo NO MEIO DA CORRIDA, uma vez por
+/// reinício. Medido em 17/08/2026 em Oschersleben: três reinícios, três vezes o jogador ouviu
+/// "Perdeu essa" + "Vamos lá..." + "Essa foi embora" com a corrida em andamento.
+#[test]
+fn o_reinicio_nao_ressuscita_as_falas_da_classificacao() {
+    let mut m = RaceMonitor::new();
+    m.classificacao_log.push(crate::engenheiro::classificacao::Fala {
+        pecas: vec!["cl_perdeu_0".to_string()],
+        texto: "Perdeu essa.".to_string(),
+    });
+    let epoca_antes = m.radio_epoch;
+
+    m.start_attempt(0.0);
+
+    assert!(
+        m.classificacao_log.is_empty(),
+        "a época conta o log da classificação, então o reinício tem de esvaziá-lo também"
+    );
+    assert!(m.radio_epoch > epoca_antes, "e a época segue avançando por cima dele");
+}
+
 /// O limiar é alto de propósito: batida que o box conserta não trava a quali nem custa a
 /// etapa — o jogador pode resetar e tentar de novo.
 #[test]

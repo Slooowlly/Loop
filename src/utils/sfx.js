@@ -169,6 +169,29 @@ export function exportSuccess() {
   });
 }
 
+// Mundo novo: duas notas subindo, curtas e baixas. Toca uma vez só, quando um
+// campeonato passa a existir durante a geração do histórico — é um aviso lateral, e
+// não uma comemoração, então fica bem abaixo do chime de confirmação.
+export function novaCategoria() {
+  const c = ensure();
+  if (!c) return;
+  const t = c.currentTime;
+  [587.33, 880].forEach((f, i) => {
+    const o = c.createOscillator();
+    o.type = "sine";
+    o.frequency.value = f; // D5 e A5
+    const g = c.createGain();
+    const s = t + i * 0.11;
+    g.gain.setValueAtTime(0.0001, s);
+    g.gain.linearRampToValueAtTime(0.16, s + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, s + 0.42);
+    o.connect(g);
+    g.connect(master);
+    o.start(s);
+    o.stop(s + 0.45);
+  });
+}
+
 // Leilão: tom que DESLIZA subindo enquanto a torre cresce. `fromProg`/`toProg` em
 // 0..1 (posição do valor na escala do leilão) mapeiam a altura → o pitch acompanha a
 // coluna. `durMs` = duração do glide (casa com o tween visual).
@@ -259,12 +282,14 @@ export function startAmbient() {
     o.start();
     return o;
   });
-  // One-shot: entra, segura alguns segundos e sai (não vira loop chato).
+  // One-shot: entra, segura pouco e vai sumindo (não vira loop chato). A saída é
+  // exponencial: cai rápido logo que começa e depois só se dissolve, em vez do
+  // corte reto que a rampa linear fazia no fim.
   const now = c.currentTime;
   g.gain.setValueAtTime(0.0001, now);
-  g.gain.linearRampToValueAtTime(0.09, now + 2.5);
-  g.gain.setValueAtTime(0.09, now + 6);
-  g.gain.linearRampToValueAtTime(0.0001, now + 9.5);
+  g.gain.linearRampToValueAtTime(0.09, now + 2.2);
+  g.gain.setValueAtTime(0.09, now + 3.2);
+  g.gain.exponentialRampToValueAtTime(0.0001, now + 8);
   const lfo = c.createOscillator();
   lfo.frequency.value = 0.06;
   const lfoG = c.createGain();
@@ -272,7 +297,7 @@ export function startAmbient() {
   lfo.connect(lfoG);
   lfoG.connect(lp.frequency);
   lfo.start();
-  const stopAt = now + 9.7;
+  const stopAt = now + 8.2;
   oscs.forEach((o) => o.stop(stopAt));
   lfo.stop(stopAt);
   const inst = { g, oscs, lfo };

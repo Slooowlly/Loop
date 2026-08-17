@@ -223,12 +223,6 @@
   "iracingSemDados": {
     "aviso": "O Loop não conseguiu ler o iRacing nenhuma vez desde que o app abriu — esta tela pode estar vazia por causa disso, e não pelo que aconteceu na corrida. Verifique em Configurações › Diagnóstico do iRacing."
   },
-  "difficulty": {
-    "facil": "Fácil",
-    "medio": "Médio",
-    "dificil": "Difícil",
-    "lendario": "Lendário"
-  },
   "license": {
     "0": "Amadora",
     "1": "Pro",
@@ -1547,8 +1541,7 @@
       "years_other": "{{count}} anos",
       "teammate": "Companheiro",
       "car": "Carro",
-      "accept": "Aceitar",
-      "decline": "Recusar"
+      "accept": "Aceitar"
     },
     "offers": {
       "title": "Suas ofertas",
@@ -1558,6 +1551,16 @@
       "summary_one": "{{count}} vaga te querendo esta semana. Toque numa categoria para ver as fichas das equipes.",
       "summary_other": "{{count}} vagas te querendo esta semana. Toque numa categoria para ver as fichas das equipes.",
       "promotion": "Promoção",
+      "summaryCategories_one": "{{count}} categoria",
+      "summaryCategories_other": "{{count}} categorias",
+      "summaryProposals_one": "{{count}} proposta te esperando",
+      "summaryProposals_other": "{{count}} propostas te esperando",
+      "summaryProposalsLastWeek_one": "{{count}} proposta na última semana",
+      "summaryProposalsLastWeek_other": "{{count}} propostas, {{urgentes}} na última semana",
+      "summaryMore_one": "Mais {{count}} categoria",
+      "summaryMore_other": "Mais {{count}} categorias",
+      "promotionSeats_one": "{{count}} vaga sobe de categoria",
+      "promotionSeats_other": "{{count}} vagas sobem de categoria",
       "promotionVacancies_one": "{{count}} vaga · subir de categoria",
       "promotionVacancies_other": "{{count}} vagas · subir de categoria",
       "continueIn": "Continuar na {{brand}}",
@@ -1702,8 +1705,6 @@
     },
     "transferDetail": {
       "stayed": "Permaneceu",
-      "from": "De",
-      "to": "Para",
       "careerDebut": "Estreia na carreira",
       "noTeam": "Sem equipe",
       "renewed": "Renovou contrato",
@@ -1804,12 +1805,6 @@
         "formerTeam": "Ex-{{team}}",
         "forecastTitle": "Expectativa de Procura",
         "forecastCaption": "Convites prováveis quando o mercado abrir",
-        "reachTitle": "Assentos No Seu Alcance",
-        "reachCaption": "Vagas do grid ao lado cujo nível bate com o seu. As fichas abrem quando o mercado abre.",
-        "reachPromotion": "Promoção",
-        "reachLateral": "Lateral",
-        "reachOpen": "Vaga",
-        "reachLikely": "Pode Abrir",
         "diaryTitle": "Diário Da Janela",
         "diaryWeek": "Semana {{week}}",
         "diaryWeekRange": "Semanas {{from}}–{{to}}",
@@ -3388,7 +3383,6 @@
       "progress": "Step {{current}} de {{total}}"
     },
     "wizardSteps": {
-      "difficulty": "Dificuldade",
       "driver": "Piloto",
       "history": "Histórico",
       "category": "Categoria",
@@ -3396,23 +3390,20 @@
       "confirm": "Confirmação"
     },
     "stepTitles": {
-      "1": "Escolha a dificuldade",
-      "2": "Dados do piloto",
-      "3": "Gerar passado histórico",
-      "4": "Escolha sua categoria",
-      "5": "Escolha sua equipe",
-      "6": "Confirmar dados"
+      "1": "Dados do piloto",
+      "2": "Gerar passado histórico",
+      "3": "Escolha sua categoria",
+      "4": "Escolha sua equipe",
+      "5": "Confirmar dados"
     },
     "stepDescriptions": {
-      "1": "Defina o teto da IA antes de entrar no paddock.",
-      "2": "Monte a identidade do seu piloto para o save inicial.",
-      "3": "Deixe o mundo correr sozinho de 2000 a 2025 e escolha onde estrear no grid de 2026.",
-      "4": "A sua jornada começa em uma das categorias rookies geradas pelo histórico.",
-      "5": "Selecione a equipe onde você vai estrear como segundo piloto.",
-      "6": "Confira tudo antes de transformar o rascunho histórico em save jogável."
+      "1": "Monte a identidade do seu piloto para o save inicial.",
+      "2": "Deixe o mundo correr sozinho de 2000 a 2025 e escolha onde estrear no grid de 2026.",
+      "3": "A sua jornada começa em uma das categorias rookies geradas pelo histórico.",
+      "4": "Selecione a equipe onde você vai estrear como segundo piloto.",
+      "5": "Confira tudo antes de transformar o rascunho histórico em save jogável."
     },
     "labels": {
-      "difficulty": "Dificuldade",
       "nationality": "Nacionalidade",
       "team": "Equipe"
     },
@@ -3443,7 +3434,8 @@
     "loading": {
       "generatingTitle": "Gerando histórico",
       "finalizingTitle": "Finalizando carreira",
-      "simulatingSeason": "Simulando temporada {{year}}"
+      "simulatingSeason": "Simulando temporada {{year}}",
+      "atlasTitle": "Mundo em construção"
     },
     "errors": {
       "nameLength": "O nome do piloto precisa ter entre 2 e 50 caracteres.",
@@ -3455,14 +3447,14 @@
       "generateBeforeFinalize": "Gere o histórico antes de finalizar a carreira.",
       "finalizeFailed": "Não foi possível finalizar a carreira. Tente novamente."
     },
-    "step2": {
+    "step1": {
       "nameLabel": "Nome do piloto",
       "namePlaceholder": "João Silva",
       "ageLabel": "Idade",
       "previewLabel": "Preview do piloto",
       "attributesNote": "Todos os atributos iniciais começam equilibrados em 50."
     },
-    "step3": {
+    "step2": {
       "draftLabel": "Rascunho histórico",
       "title": "26 temporadas antes da sua estreia",
       "description": "Um grid com 26 temporadas de estrada: títulos decididos, rivalidades formadas, equipes que brilharam e outras que sumiram. É nele que você entra.",
@@ -3476,10 +3468,10 @@
       "yearValue": "Ano {{year}}",
       "notStarted": "Não iniciado"
     },
-    "step4": {
+    "step3": {
       "categoryCardLabel": "Categoria inicial"
     },
-    "step6": {
+    "step5": {
       "driverLabel": "Piloto",
       "carLabel": "Carro",
       "worldTitle": "O mundo que você herda",
@@ -3488,24 +3480,6 @@
     },
     "teamCard": {
       "performance": "Performance"
-    },
-    "difficulty": {
-      "facil": {
-        "name": "Facil",
-        "desc": "IA skill 20-60"
-      },
-      "medio": {
-        "name": "Medio",
-        "desc": "IA skill 30-80"
-      },
-      "dificil": {
-        "name": "Dificil",
-        "desc": "IA skill 50-90"
-      },
-      "lendario": {
-        "name": "Lendario",
-        "desc": "IA skill 70-100"
-      }
     },
     "nationality": {
       "br": "🇧🇷 Brasileiro",
@@ -4355,7 +4329,6 @@
   },
   "saveCard": {
     "season": "Temporada",
-    "difficulty": "Dificuldade",
     "lastPlayed": "Último jogo: {{when}}",
     "created": "Criado: {{when}}",
     "racesInCalendar": "{{count}} corridas no calendário"

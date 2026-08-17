@@ -24,6 +24,8 @@ impl RaceMonitor {
         self.last_pit_cluster_alert = None;
         self.last_collective_alert = None;
         self.race_green_time = None;
+        // Tentativa nova recomeça em formação: o verde que ela viu ainda não aconteceu.
+        self.verde_da_tentativa = false;
         // Nova tentativa = grade resetada; zera o rastreamento de movimento da IA.
         self.car_monitors = [CarMonitor::DEFAULT; 64];
         // Grid recapturado na próxima largada (verde).
@@ -31,6 +33,13 @@ impl RaceMonitor {
         // Restart = corrida fresca → descarta o log de quebras da tentativa anterior (Peça 3).
         self.avancar_radio_epoch();
         self.breakdown_log.clear();
+        // O log da CLASSIFICAÇÃO zera junto, e a razão é o contrato da época logo acima: ela
+        // avança somando o tamanho dos QUATRO logs, prometendo que todos esvaziam. Este era o
+        // único que ficava — e as falas velhas da quali renasciam com ids novos a cada
+        // reinício de corrida. Medido em 17/08/2026 em Oschersleben: três reinícios, e três
+        // vezes o front tocou "Perdeu essa" + "Vamos lá..." + "Essa foi embora" no meio da
+        // CORRIDA, com o texto decidido meia hora antes, na classificatória.
+        self.classificacao_log.clear();
         self.player_risk_warned = [false; 11];
         self.player_warning_log.clear();
         self.poupar_avisado = false;

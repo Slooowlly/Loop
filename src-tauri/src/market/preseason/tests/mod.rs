@@ -1058,6 +1058,39 @@ fn test_escolha_do_jogador_na_primeira_semana_de_contratacao_vira_contrato() {
     );
 }
 
+/// A expectativa não morre na abertura do mercado. A proposta formal só nasce quando o
+/// jogador é a PRIMEIRA escolha da vaga, então "tem equipe de olho, mas há gente na
+/// frente" é o estado comum das semanas de assinatura — mais da metade das janelas fecha
+/// sem proposta, medido. Se a faixa sumisse na semana 3 (como sumia até 17/08/2026),
+/// essas semanas seriam uma tela muda com interesse real acontecendo por trás.
+#[test]
+fn a_expectativa_continua_no_ar_durante_as_semanas_de_assinatura() {
+    let conn = setup_market_fixture();
+    let mut rng = StdRng::seed_from_u64(5067);
+    let mut plan = initialize_preseason(&conn, 2, &mut rng).expect("plan should be created");
+
+    // Atravessa a abertura e entra nas semanas de assinatura SEM o jogador escolher nada.
+    while plan.state.current_week < plan.state.signings_start_week {
+        advance_week(&conn, &mut plan, None).expect("opening week should advance");
+    }
+    advance_week(&conn, &mut plan, None).expect("primeira semana de assinatura");
+
+    assert!(
+        !plan.state.player_has_team,
+        "fixture: o jogador segue agente livre para a expectativa fazer sentido"
+    );
+    let forecast = plan
+        .state
+        .player_interest_forecast
+        .as_ref()
+        .expect("agente livre nas semanas de assinatura tem que ver a expectativa");
+    assert_eq!(
+        forecast.min, forecast.max,
+        "da abertura em diante a conta é exata, sem margem"
+    );
+    assert!(forecast.max >= 0);
+}
+
 /// Nas semanas de abertura ninguém assina — nem o jogador. Se a tela deixar ele escolher
 /// assim mesmo, o avanço tem que RECLAMAR: engolir a escolha em silêncio faz a tela dizer
 /// "assinado" enquanto o banco segue sem contrato, e o assento é preenchido por outro.

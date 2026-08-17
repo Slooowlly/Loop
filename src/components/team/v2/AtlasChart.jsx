@@ -102,6 +102,11 @@ export function AtlasChart({
   onFocus,
   onTeamClick,
   onTeamDoubleClick,
+  // O chip com escudo e nome no ponto de estreia. Na aba cheia ele é a única forma de
+  // saber de quem é cada linha antes de passar o mouse. Onde o gráfico já vem colado a
+  // uma coluna de cards que nomeia todo mundo, ele repete o que está do lado e ainda
+  // disputa espaço com o título do campeonato, que mora no topo da mesma faixa.
+  mostrarEtiquetasDeEstreia = true,
 }) {
   const { t } = useTranslation();
   const [plotRef, plotSize] = useElementSize();
@@ -111,8 +116,8 @@ export function AtlasChart({
     [payload, years, plotSize, vertical],
   );
   const labels = useMemo(
-    () => buildEntryLabels(tracks, geometry, years, payload),
-    [tracks, geometry, years, payload],
+    () => (mostrarEtiquetasDeEstreia ? buildEntryLabels(tracks, geometry, years, payload) : []),
+    [mostrarEtiquetasDeEstreia, tracks, geometry, years, payload],
   );
   const bandByKey = useMemo(
     () => new Map((payload?.bands ?? []).map((band) => [band.key, band])),

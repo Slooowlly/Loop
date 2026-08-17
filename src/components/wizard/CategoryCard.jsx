@@ -14,7 +14,7 @@ function CategoryCard({ category, selected, onSelect }) {
       <div className="flex items-center justify-between gap-6">
         <div className="min-w-0 flex-1">
           <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-            {t("newCareer.step4.categoryCardLabel")}
+            {t("newCareer.step3.categoryCardLabel")}
           </p>
           <h3 className="mt-3 text-2xl font-semibold text-text-primary">
             {category.name}

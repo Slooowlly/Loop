@@ -113,6 +113,23 @@ describe("PreSeasonView — layout v2", () => {
     expect(within(card).queryByText("200 vitórias")).not.toBeInTheDocument();
   });
 
+  it("abre a ficha da equipe no clique do nome, e não só no logo", async () => {
+    invoke.mockImplementation((cmd, args) => {
+      if (cmd !== "get_teams_standings") return Promise.resolve([]);
+      return Promise.resolve(args.category === "gt3" ? [equipe()] : []);
+    });
+
+    render(<PreSeasonView />);
+
+    const card = await screen.findByTestId("preseason-team-card-v2");
+    fireEvent.click(within(card).getByText("Belgian Racing Team"));
+
+    const ficha = await screen.findByTestId("team-mini-card");
+    // A ficha rápida completa: identidade, temporada e estrutura.
+    expect(ficha.textContent).toContain("Belgian Racing Team");
+    expect(ficha.textContent).toContain("Desde 1998");
+  });
+
   it("não mostra carro, confiabilidade, pit nem faixa de orçamento", async () => {
     invoke.mockImplementation((cmd, args) => {
       if (cmd !== "get_teams_standings") return Promise.resolve([]);

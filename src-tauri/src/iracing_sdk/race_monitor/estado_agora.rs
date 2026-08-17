@@ -107,11 +107,30 @@ pub struct Vizinho {
 pub struct EstadoAgora {
     pub conectado: bool,
     /// A sessão está em corrida (não treino, quali, formação ou pós-bandeirada).
+    ///
+    /// Até 17/08/2026 isto era só `session_state == Racing`, e esse estado vale **também em
+    /// treino e classificação** — o próprio [`crate::radio_registro`] já registrava a
+    /// armadilha. O efeito estava no rádio: no fim de uma classificatória o engenheiro abria
+    /// com "Novato, que corrida", tendo o jogador nem marcado tempo. Hoje o estado é cruzado
+    /// com a sessão de corrida do YAML, que é o que [`tipo_sessao`](Self::tipo_sessao)
+    /// responde.
     pub em_corrida: bool,
+    /// Qual sessão do fim de semana: `corrida`, `classificacao` ou `treino`.
+    ///
+    /// Existe porque `em_corrida` responde sim ou não, e quem escreve a fala precisa saber
+    /// **qual** sessão é para não chamar a classificatória de treino. Chave estável.
+    pub tipo_sessao: &'static str,
     /// Bandeira verde ondulando agora (sem caution).
     pub verde: bool,
-    /// Está em volta de formação (`PaceMode` ativo) — nada do que se diga sobre disputa
-    /// vale ainda.
+    /// Sessão de corrida ANTES do primeiro verde da tentativa: grid, volta de apresentação,
+    /// pace car. Nada do que se diga sobre disputa vale ainda.
+    ///
+    /// Até 17/08/2026 isto era `PaceMode > 0`, e o `PaceMode` das sessões com IA mente dos
+    /// dois lados: vale 4 (NotPacing) a classificação inteira e fica preso em 1 a 3 a corrida
+    /// inteira — medido em Okayama e Oschersleben. O efeito era `em_formacao` verdadeiro
+    /// QUASE SEMPRE, e ele é o portão de `em_corrida_de_verdade`: ~820 peças gravadas do
+    /// acervo de resposta nunca tocavam, o briefing de "antes da largada" saía dentro da
+    /// classificação, e o dossiê dizia "volta de formação" no meio da prova.
     pub em_formacao: bool,
 
     // ── Posição ──
@@ -595,9 +614,10 @@ impl RaceMonitor {
 
         EstadoAgora {
             conectado: self.connected,
-            em_corrida: t.session_state == STATE_RACING,
+            em_corrida: t.session_state == STATE_RACING && self.in_race_session(t),
+            tipo_sessao: self.tipo_da_sessao(t),
             verde: self.live_is_green,
-            em_formacao: t.pace_mode > 0,
+            em_formacao: self.in_race_session(t) && !self.verde_da_tentativa,
 
             posicao: t.position,
             posicao_classe: eu.map(|c| c.class_position).unwrap_or(0),
@@ -719,6 +739,9 @@ impl EstadoAgora {
         Self {
             conectado,
             em_corrida: false,
+            // Sem telemetria não se sabe que sessão é. `treino` é o resto por definição, e é
+            // o valor que menos autoriza a fala: nada de "que corrida" sobre o desconhecido.
+            tipo_sessao: "treino",
             verde: false,
             em_formacao: false,
             posicao: 0,

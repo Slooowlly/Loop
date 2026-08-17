@@ -7,9 +7,9 @@ import { invoke } from "@tauri-apps/api/core";
 //
 // Ficam num hook por dois motivos. O primeiro é o padrão do projeto (invoke nos slices ou
 // em hooks `use*`). O segundo é específico deste fluxo: um `create` custa 26 temporadas de
-// simulação, e o wizard tem quatro caminhos que podem descartar o rascunho — trocar a
-// dificuldade, resetar, finalizar, sair. Com as chamadas espalhadas pelo componente, qual
-// delas engole o erro e qual o mostra virava decisão de cada call site.
+// simulação, e o wizard tem três caminhos que podem descartar o rascunho — resetar,
+// finalizar, sair. Com as chamadas espalhadas pelo componente, qual delas engole o erro e
+// qual o mostra virava decisão de cada call site.
 //
 // O estado do FORMULÁRIO continua no componente: o que mora aqui é o rascunho gravado no
 // disco, que é o que o backend conhece.
@@ -113,9 +113,9 @@ export default function useCareerDraft() {
   /// Joga o rascunho fora. Nunca sobe erro: o descarte é limpeza, e o `create`/`finalize`
   /// seguinte é quem reporta uma sujeira persistente.
   const descartar = useCallback(async () => {
-    // Zera ANTES de esperar o backend: quem descarta já mudou algo que invalida o mundo
-    // (a dificuldade, por exemplo), e deixar o rascunho velho de pé durante a ida ao
-    // backend faria a tela oferecer, por um instante, equipes de um mundo que morreu.
+    // Zera ANTES de esperar o backend: quem descarta já decidiu que aquele mundo morreu, e
+    // deixar o rascunho velho de pé durante a ida ao backend faria a tela oferecer, por um
+    // instante, equipes de um mundo que não existe mais.
     setDraftState(null);
     try {
       await invoke("discard_career_draft");

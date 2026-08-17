@@ -228,6 +228,7 @@ fn test_non_rookie_vacancy_is_filled_by_promoting_from_feeder_then_rookie_at_bas
         &mut rng,
         None,
         &HashSet::new(),
+        None,
     )
     .expect("cascata deve preencher a vaga sem erro");
 
@@ -561,6 +562,7 @@ fn test_pool_fallback_for_non_rookie_vacancy_uses_experienced_lower_license_befo
         &mut rng,
         None,
         &HashSet::new(),
+        None,
     )
     .expect("fill vacancy");
 
@@ -587,7 +589,14 @@ fn test_pool_fallback_for_rookie_vacancy_keeps_retrying_rookie_before_veteran() 
     season_queries::insert_season(&conn, &next).expect("next season");
 
     let mut team_rng = StdRng::seed_from_u64(613);
-    let team = sample_team("mazda_rookie", "T920", &mut team_rng);
+    // O time único da categoria é FUNDO por definição (corte = len/2 = 0); o id é
+    // escolhido SEM a tendência ao novato, para o teste medir a regra do pool em si
+    // (o comportamento com a tendência tem teste próprio).
+    let id_sem_tendencia = (1..99)
+        .map(|n| format!("TP{n:02}"))
+        .find(|id| !tende_ao_novato(id, 2))
+        .expect("algum id sem a tendência");
+    let team = sample_team("mazda_rookie", &id_sem_tendencia, &mut team_rng);
     team_queries::insert_team(&conn, &team).expect("insert rookie team");
 
     let mut existing = sample_driver(
@@ -672,6 +681,7 @@ fn test_pool_fallback_for_rookie_vacancy_keeps_retrying_rookie_before_veteran() 
         &mut rng,
         None,
         &HashSet::new(),
+        None,
     )
     .expect("fill vacancy");
 
@@ -767,6 +777,7 @@ fn test_pool_fallback_for_rookie_vacancy_generates_new_rookie_before_veteran() {
         &mut rng,
         None,
         &HashSet::new(),
+        None,
     )
     .expect("fill vacancy");
 
@@ -856,6 +867,7 @@ fn test_final_vacancy_fill_leaves_non_debut_vacancy_open_when_no_candidate() {
         &mut rng,
         None,
         &HashSet::new(),
+        None,
     )
     .expect("fill deve concluir sem abortar mesmo sem candidato");
 
@@ -865,5 +877,260 @@ fn test_final_vacancy_fill_leaves_non_debut_vacancy_open_when_no_candidate() {
             .into_iter()
             .any(|vacancy| is_regular_vacancy(&vacancy)),
         "o grid deve terminar completo (sem vaga regular aberta)"
+    );
+}
+
+/// MERCADO EM ONDAS na cascata: a única equipe da categoria é fundo por definição
+/// (corte = len/2 = 0), então a liberação dela é a semana 5 (gt3, tier alto). Na
+/// semana 4 a passada paginada PULA a vaga mesmo com candidato no pool e cota
+/// sobrando; na semana 5 ela preenche. O fechamento (`semana = None`) nunca é
+/// segurado — é a rede de segurança, coberta pelos testes acima.
+#[test]
+fn a_onda_da_cascata_segura_a_vaga_do_fundo_ate_a_liberacao() {
+    if std::env::var("IRACER_MERCADO_EM_ONDAS").is_ok() {
+        return; // o harness pode estar rodando o braço "antes"
+    }
+    let conn = Connection::open_in_memory().expect("in-memory db");
+    migrations::run_all(&conn).expect("schema");
+    let s1 = Season::new("S001".to_string(), 1, 2024);
+    season_queries::insert_season(&conn, &s1).expect("s1");
+    season_queries::finalize_season(&conn, &s1.id).expect("finalize s1");
+    season_queries::insert_season(&conn, &Season::new("S002".to_string(), 2, 2025))
+        .expect("season");
+
+    let mut team_rng = StdRng::seed_from_u64(951);
+    let team = sample_team("gt3", "T950", &mut team_rng);
+    team_queries::insert_team(&conn, &team).expect("gt3 team");
+
+    // Titular ocupa a N1 → sobra a N2, e há um agente livre licenciado no pool.
+    let existing = sample_driver("P950", "Titular", Some("gt3"), 72.0, DriverStatus::Ativo);
+    driver_queries::insert_driver(&conn, &existing).expect("titular");
+    let contract = Contract::new(
+        "C950".to_string(),
+        existing.id.clone(),
+        existing.nome.clone(),
+        team.id.clone(),
+        team.nome.clone(),
+        1,
+        2,
+        120_000.0,
+        TeamRole::Numero1,
+        "gt3".to_string(),
+    );
+    contract_queries::insert_contract(&conn, &contract).expect("contract");
+    team_queries::update_team_pilots(&conn, &team.id, Some(&existing.id), None).expect("lineup");
+
+    let livre = sample_driver("P951", "Livre", Some("gt3"), 78.0, DriverStatus::Ativo);
+    driver_queries::insert_driver(&conn, &livre).expect("livre");
+    insert_standing(&conn, &s1.id, &livre.id, &team.id, "gt3", 3, 200.0, 2, 1);
+    for id in ["P950", "P951"] {
+        conn.execute(
+            "INSERT INTO licenses (piloto_id, nivel, categoria_origem, data_obtencao, temporadas_na_categoria)
+             VALUES (?1, '3', 'gt3', '2024-12-31T00:00:00', 2)",
+            params![id],
+        )
+        .expect("license");
+    }
+    conn.execute(
+        "UPDATE meta SET value = '952' WHERE key = 'next_driver_id'",
+        [],
+    )
+    .expect("driver counter");
+    conn.execute(
+        "UPDATE meta SET value = '952' WHERE key = 'next_contract_id'",
+        [],
+    )
+    .expect("contract counter");
+
+    let teams = team_queries::get_all_teams(&conn).expect("teams");
+    let cotas: std::collections::HashMap<String, usize> =
+        [("gt3".to_string(), 5)].into_iter().collect();
+
+    // Semana 4, antes da liberação do fundo: a vaga espera, com cota e candidato à mão.
+    let mut report = MarketReport::default();
+    let mut rng = StdRng::seed_from_u64(952);
+    fill_remaining_vacancies_with_rookies(
+        &conn,
+        &teams,
+        2,
+        &mut report,
+        &mut rng,
+        Some(&cotas),
+        &HashSet::new(),
+        Some(4),
+    )
+    .expect("passada da semana 4");
+    assert!(
+        report.new_signings.is_empty(),
+        "antes da liberação o fundo não contrata: {:?}",
+        report.new_signings
+    );
+
+    // Semana 5, a liberação: a mesma passada preenche com o agente livre.
+    let mut report = MarketReport::default();
+    let mut rng = StdRng::seed_from_u64(953);
+    fill_remaining_vacancies_with_rookies(
+        &conn,
+        &teams,
+        2,
+        &mut report,
+        &mut rng,
+        Some(&cotas),
+        &HashSet::new(),
+        Some(5),
+    )
+    .expect("passada da semana 5");
+    assert!(
+        report
+            .new_signings
+            .iter()
+            .any(|s| s.driver_id == "P951" && s.team_id == "T950"),
+        "na semana de liberação o pool preenche a vaga: {:?}",
+        report.new_signings
+    );
+}
+
+/// O FUNDO da categoria de estreia tende ao novato: no fechamento, a equipe fraca com a
+/// tendência sorteada NASCE um estreante mesmo com repetente de sobra no pool — é a
+/// aposta dela no prodígio. A equipe de cima segue no pool e fica com quem já provou.
+#[test]
+fn o_fundo_da_estreia_tende_ao_novato_no_fechamento() {
+    if std::env::var("IRACER_FUNDO_ESTREIA_NOVATO").is_ok() {
+        return; // o harness pode estar rodando o braço "antes"
+    }
+    let conn = Connection::open_in_memory().expect("in-memory db");
+    migrations::run_all(&conn).expect("schema");
+    let s1 = Season::new("S001".to_string(), 1, 2024);
+    season_queries::insert_season(&conn, &s1).expect("s1");
+    season_queries::finalize_season(&conn, &s1.id).expect("finalize s1");
+    season_queries::insert_season(&conn, &Season::new("S002".to_string(), 2, 2025))
+        .expect("season");
+
+    // A tendência é determinística por (equipe, temporada): o teste ESCOLHE um id que
+    // tende ao novato para a equipe do fundo, em vez de torcer pelo sorteio.
+    let id_fundo = (1..99)
+        .map(|n| format!("TF{n:02}"))
+        .find(|id| tende_ao_novato(id, 2))
+        .expect("algum id tende ao novato");
+
+    let mut team_rng = StdRng::seed_from_u64(961);
+    // Topo com carro forte, fundo com carro fraco e reputação igual: o corte da metade
+    // de baixo (len/2 = 1) deixa exatamente a equipe fraca como fundo.
+    let mut topo = sample_team("mazda_rookie", "T960", &mut team_rng);
+    topo.car = None;
+    topo.car_performance = 12.0;
+    topo.reputacao = 50.0;
+    let mut fundo = sample_team("mazda_rookie", &id_fundo, &mut team_rng);
+    fundo.car = None;
+    fundo.car_performance = -3.0;
+    fundo.reputacao = 50.0;
+    team_queries::insert_team(&conn, &topo).expect("topo");
+    team_queries::insert_team(&conn, &fundo).expect("fundo");
+
+    // Pool com QUATRO repetentes do rookie — daria para encher as quatro vagas sem
+    // nascer ninguém. A tendência do fundo é o que muda o desfecho.
+    for (i, id) in ["P961", "P962", "P963", "P964"].iter().enumerate() {
+        let mut veterano = sample_driver(
+            id,
+            &format!("Veterano {i}"),
+            Some("mazda_rookie"),
+            60.0,
+            DriverStatus::Ativo,
+        );
+        // Elegível para assento de estreia: mesma categoria e até 2 temporadas de
+        // carreira (`is_rookie_market_candidate`) — um "repetente" do rookie, não um
+        // veterano de outra vida.
+        veterano.stats_carreira.corridas = 8;
+        veterano.stats_carreira.temporadas = 1;
+        veterano.stats_carreira.titulos = 0;
+        driver_queries::insert_driver(&conn, &veterano).expect("veterano");
+        insert_standing(
+            &conn,
+            &s1.id,
+            id,
+            "T960",
+            "mazda_rookie",
+            (i + 3) as i32,
+            80.0,
+            0,
+            0,
+        );
+    }
+    conn.execute(
+        "UPDATE meta SET value = '970' WHERE key = 'next_driver_id'",
+        [],
+    )
+    .expect("driver counter");
+    conn.execute(
+        "UPDATE meta SET value = '970' WHERE key = 'next_contract_id'",
+        [],
+    )
+    .expect("contract counter");
+
+    let teams = team_queries::get_all_teams(&conn).expect("teams");
+    let mut report = MarketReport::default();
+    let mut rng = StdRng::seed_from_u64(962);
+    // Fechamento: sem cotas e sem relógio — é onde o novato pode nascer.
+    fill_remaining_vacancies_with_rookies(
+        &conn,
+        &teams,
+        2,
+        &mut report,
+        &mut rng,
+        None,
+        &HashSet::new(),
+        None,
+    )
+    .expect("fechamento");
+
+    // O `tipo` da assinatura descreve o ASSENTO (estreia → "rookie"), não a origem do
+    // piloto — quem separa gerado de repetente do pool é o id: os quatro do pool são
+    // conhecidos, o novato gerado sai do contador de ids.
+    let pool_ids = ["P961", "P962", "P963", "P964"];
+    let do_fundo: Vec<_> = report
+        .new_signings
+        .iter()
+        .filter(|s| s.team_id == id_fundo)
+        .collect();
+    assert!(
+        !do_fundo.is_empty()
+            && do_fundo
+                .iter()
+                .all(|s| !pool_ids.contains(&s.driver_id.as_str())),
+        "o fundo da estreia com a tendência nasce novatos, não pega a sobra do pool: {do_fundo:?}"
+    );
+    assert!(
+        report
+            .new_signings
+            .iter()
+            .filter(|s| s.team_id == "T960")
+            .all(|s| pool_ids.contains(&s.driver_id.as_str())),
+        "o topo da estreia fica com os repetentes provados do pool: {:?}",
+        report.new_signings
+    );
+}
+
+/// A régua das ondas em si: metade de cima abre com o mercado, o fundo espera, e o
+/// fundo da base espera mais. E a tendência ao novato é estável por (equipe, temporada)
+/// numa taxa próxima do declarado.
+#[test]
+fn a_regua_das_ondas_e_a_tendencia_ao_novato_sao_estaveis() {
+    let abertura = i32::from(crate::constants::timeline::MARKET_SIGNINGS_START_WEEK);
+    assert_eq!(semana_de_liberacao(0, false), abertura);
+    assert_eq!(semana_de_liberacao(8, false), abertura);
+    assert_eq!(semana_de_liberacao(0, true), abertura + 4);
+    assert_eq!(semana_de_liberacao(1, true), abertura + 4);
+    assert_eq!(semana_de_liberacao(2, true), abertura + 2);
+    assert_eq!(semana_de_liberacao(8, true), abertura + 2);
+
+    // Determinística: a mesma equipe-temporada decide sempre igual…
+    assert_eq!(tende_ao_novato("T001", 5), tende_ao_novato("T001", 5));
+    // …e a taxa agregada fica na vizinhança dos 70% declarados.
+    let tendem = (0..1000)
+        .filter(|n| tende_ao_novato(&format!("T{n:03}"), 2))
+        .count();
+    assert!(
+        (550..=850).contains(&tendem),
+        "taxa fora da vizinhança de 70%: {tendem}/1000"
     );
 }

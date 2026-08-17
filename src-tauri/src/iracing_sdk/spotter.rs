@@ -594,6 +594,41 @@ pub fn observar(t: &IracingTelemetry) {
     // leitura da corrida para ter de que a mudança seja mudança.
     let clima = crate::iracing_sdk::spotter_clima::observar(t);
     let evento = lock().observar(amostra);
+    // QUEM TINHA O QUE DIZER NESTE TIQUE, antes de a arbitragem escolher. A ordem é a
+    // MESMA do `match` abaixo, e é o que permite saber quem perdeu: o vencedor é o
+    // primeiro `true` da lista, e todo `true` depois dele ficou para o tique seguinte.
+    //
+    // Sem este registro, uma família rara pode passar minutos inteiros perdendo para o
+    // lateral e o arquivo do rádio mostra a mesma coisa que ela mostraria se o detector
+    // estivesse morto: silêncio. "Nunca descarta, no máximo adia" é uma promessa boa, e ela
+    // não diz por quanto tempo adiou.
+    let candidatos: [(&'static str, bool); 7] = [
+        ("lateral", evento.is_some()),
+        ("voltar", voltar.is_some()),
+        ("frente", frente.is_some()),
+        ("boxe", boxe.is_some()),
+        ("tras", tras.is_some()),
+        ("bandeira", bandeira.is_some()),
+        ("clima", clima.is_some()),
+    ];
+    if let Some(v) = candidatos.iter().position(|(_, tem)| *tem) {
+        let vencedora = candidatos[v].0;
+        // A vencedora sai da memória do dedup: quando ela perder de novo, mais adiante na
+        // corrida, isso é notícia nova e tem de entrar no arquivo.
+        crate::iracing_sdk::spotter_diario::limpar(vencedora, crate::iracing_sdk::spotter_diario::SEM_ALVO);
+        for (familia, tem) in candidatos.iter().skip(v + 1) {
+            if *tem {
+                crate::iracing_sdk::spotter_diario::nota(
+                    t.session_time,
+                    familia,
+                    crate::iracing_sdk::spotter_diario::SEM_ALVO,
+                    "perdeu_o_tique",
+                    crate::iracing_sdk::spotter_diario::SEM_FOLGA,
+                    || serde_json::json!({ "ganhou": vencedora }),
+                );
+            }
+        }
+    }
     // QUEM GANHA O TICK. Nada aqui é descartado: cada detector só marca o aviso como dado
     // quando o anúncio realmente sai, então quem perde a vez volta 16 ms depois. A
     // arbitragem fina de quem interrompe quem é da camada de voz, que sabe o que ainda
@@ -664,6 +699,10 @@ pub fn observar(t: &IracingTelemetry) {
         // (ou deixe de chegar, com a janela coberta). Ver [`registrar_emissor`].
         empurrar(&e);
     }
+    // O DIÁRIO, por último e fora de todo lock: as recusas que os detectores anotaram
+    // durante este tique viram linha no arquivo aqui, num ponto só. Ver
+    // [`crate::iracing_sdk::spotter_diario`] para por que a escrita não mora lá dentro.
+    crate::iracing_sdk::spotter_diario::escoar(t.session_time);
 }
 
 /// Snapshot para a UI.

@@ -336,14 +336,66 @@ pub fn record_vars(vars: &[crate::iracing_sdk::VarDoSdk]) {
 ///
 /// O array `cars[]` sai a [`CARS_HZ`]: nos demais frames o campo é OMITIDO e quem lê carrega
 /// o último valor visto adiante.
+///
+/// ## O relógio que volta para trás
+///
+/// `session_time` reinicia quando o jogador REINICIA a sessão, e aí ele não é maior que o
+/// último visto — é muito menor. A guarda de tempo congelado, sozinha, lia isso como "o
+/// tempo não avançou" e devolvia sem gravar. Como `last_t` continuava no máximo antigo, ela
+/// devolvia em TODO quadro seguinte, até o relógio novo ultrapassar o velho.
+///
+/// Medido em 17/08/2026 numa corrida em Oschersleben: **594 segundos de sim sem um único
+/// quadro**, com o `session_tick` pulando de 29067 para 64713 enquanto o `session_time`
+/// gravado andava 16 ms. O arquivo resultante é o pior tipo de arquivo defeituoso, porque o
+/// filtro só admite valor crescente e o que sobra parece perfeitamente contínuo. O mesmo
+/// buraco estava em outras duas capturas do acervo, de 161 s e 614 s.
+///
+/// A borda já era conhecida logo abaixo, na janela dos `cars` ("volta atrás no tempo (troca
+/// de sessão)"), e essa linha nunca era alcançada porque a guarda de cima retornava antes.
+///
+/// O critério é o mesmo do resto do módulo: recuo maior que
+/// [`super::spotter_base::SALTO_MAX_S`] é mundo novo, e mundo novo zera o relógio em vez de
+/// ser descartado.
+/// O que fazer com um quadro, dado o relógio do último que foi gravado.
+#[derive(Debug, PartialEq, Eq)]
+enum Passo {
+    /// O tempo avançou: quadro normal.
+    Gravar,
+    /// O tempo não avançou (pausa, menu, replay parado): quadro duplicado.
+    Pular,
+    /// O tempo voltou muito: sessão nova. Zera o relógio e grava.
+    RelogioNovo,
+}
+
+/// A decisão, separada do estado do arquivo para poder ser provada sem tocar em disco.
+///
+/// `last_t` negativo é "ainda não gravei nada".
+fn decidir(last_t: f64, agora_s: f64) -> Passo {
+    if last_t < 0.0 {
+        return Passo::Gravar;
+    }
+    if agora_s < last_t - super::spotter_base::SALTO_MAX_S {
+        return Passo::RelogioNovo;
+    }
+    if agora_s <= last_t {
+        return Passo::Pular;
+    }
+    Passo::Gravar
+}
+
 pub fn record_frame(t: &IracingTelemetry) {
     if !ENABLED.load(Ordering::Relaxed) {
         return;
     }
     if let Ok(mut g) = state().lock() {
         if let Some(cap) = g.as_mut() {
-            if cap.last_t >= 0.0 && t.session_time <= cap.last_t {
-                return;
+            match decidir(cap.last_t, t.session_time) {
+                Passo::Pular => return,
+                Passo::RelogioNovo => {
+                    cap.last_t = -1.0;
+                    cap.last_cars_t = -1.0;
+                }
+                Passo::Gravar => {}
             }
             cap.last_t = t.session_time;
 
@@ -531,6 +583,56 @@ pub fn frame_count() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn o_primeiro_quadro_sempre_grava() {
+        assert_eq!(decidir(-1.0, 0.0), Passo::Gravar);
+        assert_eq!(decidir(-1.0, 481.45), Passo::Gravar);
+    }
+
+    #[test]
+    fn tempo_congelado_e_quadro_duplicado() {
+        // Pausa, menu, replay parado: o `session_time` não anda e o quadro repetiria o
+        // anterior. É o caso que a guarda sempre existiu para pegar.
+        assert_eq!(decidir(100.0, 100.0), Passo::Pular);
+        assert_eq!(decidir(100.0, 99.5), Passo::Pular);
+    }
+
+    #[test]
+    fn o_tempo_andando_grava() {
+        assert_eq!(decidir(100.0, 100.0167), Passo::Gravar);
+        assert_eq!(decidir(100.0, 160.0), Passo::Gravar);
+    }
+
+    /// A REGRESSÃO, com o número que ela custou.
+    ///
+    /// Em 17/08/2026 uma corrida em Oschersleben perdeu **594 segundos de sim sem um único
+    /// quadro**: o jogador reiniciou a sessão, o `session_time` voltou de 481 para perto de
+    /// zero, e a guarda de tempo congelado leu isso como quadro duplicado. Como `last_t`
+    /// continuava em 481, ela recusou TODO quadro seguinte até o relógio novo ultrapassar o
+    /// velho. O arquivo resultante parece contínuo, porque o filtro só admite valor
+    /// crescente, e o buraco só aparece cruzando com o `session_tick`.
+    ///
+    /// O mesmo estava em outras duas capturas do acervo, de 161 s e 614 s.
+    #[test]
+    fn a_sessao_reiniciada_zera_o_relogio_em_vez_de_engolir_a_corrida() {
+        assert_eq!(
+            decidir(481.45, 0.05),
+            Passo::RelogioNovo,
+            "o relógio voltou ao começo: é sessão nova, e não quadro repetido"
+        );
+        assert_eq!(decidir(481.45, 2.5), Passo::RelogioNovo);
+        // E o quadro seguinte do mundo novo grava normalmente, sem esperar passar os 481.
+        assert_eq!(decidir(-1.0, 0.067), Passo::Gravar);
+    }
+
+    /// A fronteira entre "voltou um pouco" e "é outro mundo" é a mesma do resto do módulo.
+    #[test]
+    fn o_recuo_pequeno_continua_sendo_quadro_repetido() {
+        let s = super::super::spotter_base::SALTO_MAX_S;
+        assert_eq!(decidir(100.0, 100.0 - s), Passo::Pular, "no limite ainda é congelamento");
+        assert_eq!(decidir(100.0, 100.0 - s - 0.1), Passo::RelogioNovo, "além dele, mundo novo");
+    }
 
     /// Cria um arquivo vazio com nome de captura, pra exercitar listagem e rotação sem
     /// depender do gravador (que carimba a hora e só tem resolução de segundo).

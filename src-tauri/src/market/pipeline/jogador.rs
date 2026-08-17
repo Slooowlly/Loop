@@ -17,7 +17,11 @@ pub(crate) fn ensure_player_seated(conn: &Connection, season: i32) -> Result<(),
     let Ok(player) = driver_queries::get_player_driver(conn) else {
         return Ok(());
     };
-    if player.status != DriverStatus::Ativo {
+    // Só o aposentado fica sem porta. Lesão e suspensão são temporárias, e o gate por
+    // `!= Ativo` fazia o jogador lesionado atravessar a virada SEM equipe (medido: 5%
+    // dos fechos de janela) — justamente quem não pode correr atrás de vaga. A IA nunca
+    // teve essa exclusão: o filtro dela barra só `Aposentado`.
+    if player.status == DriverStatus::Aposentado {
         return Ok(());
     }
     if contract_queries::get_active_regular_contract_for_pilot(conn, &player.id)
@@ -67,7 +71,15 @@ pub(super) fn place_player_in_natural_vacancy(
             .unwrap_or(0)
                 <= player_lic
     };
-    let player_cat = player.categoria_atual.clone().unwrap_or_default();
+    // `market/sync.rs` zera o `categoria_atual` de quem está sem contrato regular, então
+    // o agente livre chegava aqui com string vazia e o passe 0 ("própria categoria")
+    // nunca casava com vaga nenhuma — 0 acertos em 492 fechos medidos; quem resolvia era
+    // sempre o passe 1 (mesmo tier), que ignora a preferência pela categoria de origem.
+    // O resgate é o mesmo do `player_market_tier`: a categoria do último contrato.
+    let player_cat = match player.categoria_atual.clone().filter(|cat| !cat.is_empty()) {
+        Some(cat) => cat,
+        None => find_last_player_category(conn, &player.id)?,
+    };
     let vacancies = find_vacancies(conn)?;
     let mut pick: Option<&Vacancy> = None;
     // Sem fallback: só passes 0 (categoria) e 1 (mesmo tier). Com: + 2 (qualquer).
@@ -491,7 +503,11 @@ pub(super) fn build_player_market_scan(
     let Ok(player) = driver_queries::get_player_driver(conn) else {
         return Ok(None);
     };
-    if player.status != DriverStatus::Ativo {
+    // Mesmo critério do pool da IA (`find_available_drivers` barra só `Aposentado`):
+    // agente livre lesionado continua no mercado — a proposta é para a temporada que
+    // vem, não para a corrida de amanhã. O gate por `!= Ativo` o deixava invisível
+    // para o mercado inteiro enquanto ele mais precisava de contrato.
+    if player.status == DriverStatus::Aposentado {
         return Ok(None);
     }
     if contract_queries::get_active_regular_contract_for_pilot(conn, &player.id)
@@ -684,52 +700,114 @@ pub(crate) fn generate_player_window_proposals(
         .map_err(|e| format!("Falha ao contar propostas pendentes: {e}"))?;
     let mut new_slots = cap.saturating_sub(pending_count as usize);
 
+    // MERCADO EM ONDAS: a proposta ao jogador obedece o mesmo relógio da IA. A equipe
+    // que ainda não abriu contratação não propõe a ele — o que ela gera antes disso é
+    // INTERESSE (`count_interested_teams`, que não filtra por onda de propósito: "tem
+    // equipe de olho" aparece cedo, a proposta chega quando a equipe entra no mercado).
+    // É daqui que sai o "fraco recebe nas semanas finais": a equipe do fundo, a única
+    // onde ele é primeira escolha, só entra nas semanas finais.
+    let metade_de_baixo = {
+        let teams = team_queries::get_all_teams(conn)
+            .map_err(|e| format!("Falha ao carregar equipes para a onda do mercado: {e}"))?;
+        super::consolidacao::metade_de_baixo_por_categoria(&teams)
+    };
+    let equipe_liberada = |vacancy: &Vacancy| {
+        !super::consolidacao::mercado_em_ondas()
+            || week
+                >= super::consolidacao::semana_de_liberacao(
+                    vacancy.category_tier,
+                    metade_de_baixo.contains(&vacancy.team_id),
+                )
+    };
+
     let mut held = Vec::new();
     for vacancy in &vacancies {
+        // A shortlist roda para TODA vaga, sempre e na mesma ordem, mesmo quando o
+        // desfecho já está decidido: ela consome o `rng`, e pular a chamada deslocaria a
+        // sequência que a escada da semana usa em seguida.
         let shortlist = generate_team_proposals(vacancy, &pool, season, rng);
-        // A equipe escolheria o jogador? (ele entrou no top-3 da shortlist dela)
-        let Some(mut proposal) = shortlist.into_iter().find(|p| p.piloto_id == player.id) else {
-            continue;
-        };
+        let posicao = shortlist.iter().position(|p| p.piloto_id == player.id);
         let seat = format!("{}#{}", vacancy.team_id, vacancy.papel_necessario.as_str());
-        proposal.id = format!(
+        let proposal_id = format!(
             "MP-{}-{}-{}-{}",
             season,
             vacancy.team_id,
             player.id,
             vacancy.papel_necessario.as_str()
         );
-        // Dedup por status da proposta já existente com esse ID.
+        // Dedup por status da proposta já existente com esse ID. É consultado ANTES de
+        // olhar a posição: proposta pendente segura o assento mesmo que o jogador tenha
+        // caído da shortlist nesta semana. Sem isso, a IA tomaria a vaga por baixo de uma
+        // proposta que o jogador ainda pode aceitar — o que ficou provável quando o
+        // nascimento passou a depender da posição.
         let existing_status: Option<String> = conn
             .query_row(
                 "SELECT status FROM market_proposals WHERE id = ?1 LIMIT 1",
-                params![proposal.id],
+                params![proposal_id],
                 |row| row.get::<_, String>(0),
             )
             .optional()
             .map_err(|e| format!("Falha ao checar proposta existente: {e}"))?;
         match existing_status.as_deref() {
             Some(s) if s == crate::market::proposals::ProposalStatus::Pendente.as_str() => {
-                held.push(seat) // já pendente → segura
+                held.push(seat); // já pendente → segura
+                continue;
             }
-            Some(_) => {} // recusada/aceita/expirada → não reoferece nem segura
-            None => {
-                if new_slots == 0 {
-                    continue; // teto de prestígio atingido nesta janela
-                }
-                proposal.piloto_nome = player.nome.clone();
-                persist_player_proposal(
-                    conn,
-                    &season_row.id,
-                    &proposal,
-                    Some(week + PROPOSAL_TTL_WEEKS),
-                )?;
-                held.push(seat);
-                new_slots -= 1;
-            }
+            Some(_) => continue, // recusada/aceita/expirada → não reoferece nem segura
+            None => {}
         }
+
+        // A equipe escolheria o jogador AGORA? Ver `jogador_e_a_escolha_da_vaga`.
+        let Some(posicao) = posicao else { continue };
+        if !jogador_e_a_escolha_da_vaga(posicao) {
+            continue;
+        }
+        // ... e ela já pode contratar? A onda segura a proposta da equipe do fundo
+        // até a semana de liberação dela — mesmo com o jogador sendo a escolha.
+        if !equipe_liberada(vacancy) {
+            continue;
+        }
+        if new_slots == 0 {
+            continue; // teto de prestígio atingido nesta janela
+        }
+        let Some(mut proposal) = shortlist.into_iter().nth(posicao) else {
+            continue;
+        };
+        proposal.id = proposal_id;
+        proposal.piloto_nome = player.nome.clone();
+        persist_player_proposal(
+            conn,
+            &season_row.id,
+            &proposal,
+            Some(week + PROPOSAL_TTL_WEEKS),
+        )?;
+        held.push(seat);
+        new_slots -= 1;
     }
     Ok(held)
+}
+
+/// A vaga faz proposta formal ao jogador, dada a posição dele na shortlist da equipe?
+///
+/// A regra é **primeira escolha ainda livre**: a proposta só nasce quando não sobrou
+/// ninguém melhor disponível para aquele assento. Como a escada da IA consome os agentes
+/// livres semana a semana, quem estava na frente some do pool ao assinar em outro lugar e
+/// o jogador sobe sozinho — então a ESCASSEZ e o MOMENTO saem do mundo, sem constante de
+/// calendário. Piloto medíocre é segunda opção de todo mundo e só recebe proposta lá pelo
+/// fim da janela; piloto fora da curva recebe na primeira semana de assinaturas.
+///
+/// Isso separa os dois conceitos que a tela mostra: **interesse** é estar no top-3
+/// (`count_interested_teams`, "tem equipe de olho, mas há gente na frente") e **proposta**
+/// é ser a escolha. Antes os dois eram a mesma coisa, e por isso o rookie recebia a única
+/// proposta da carreira dele na primeira semana possível — o oposto da escassez pretendida.
+///
+/// Desligar `IRACER_PROPOSTA_PRIMEIRA_ESCOLHA` devolve o critério antigo (qualquer lugar
+/// do top-3), que é o braço "antes" do A/B — não é uma opção de jogo.
+pub(super) fn jogador_e_a_escolha_da_vaga(posicao_na_shortlist: usize) -> bool {
+    if !crate::constants::flags_experimentais::booleana("IRACER_PROPOSTA_PRIMEIRA_ESCOLHA") {
+        return true; // qualquer posição do top-3 servia
+    }
+    posicao_na_shortlist == 0
 }
 
 /// Tier de mercado do jogador para efeito de ofertas. Usa a `categoria_atual`; se ela

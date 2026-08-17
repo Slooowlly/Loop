@@ -73,7 +73,7 @@ function contratoEmUmaLinha(t, contrato) {
     : t("driverMiniCard.contractFinalYear", { salary });
 }
 
-function Corpo({ detail }) {
+function Corpo({ detail, ocultarNome = false }) {
   const { t } = useTranslation();
   const perfil = detail.perfil ?? {};
   const nacionalidade = nationalityForFlag(perfil, detail);
@@ -94,9 +94,14 @@ function Corpo({ detail }) {
       <div className="flex items-start gap-2.5 px-3 pb-2.5 pt-3">
         <FlagIcon nacionalidade={nacionalidade} className="mt-0.5 shrink-0 rounded-sm" />
         <div className="min-w-0 flex-1">
-          <p className="truncate pr-5 text-[15px] font-bold leading-[1.1] text-[color:var(--text-primary)]">
-            {detail.nome}
-          </p>
+          {/* O nome some quando a ficha entra numa tela que já o escreveu em
+              destaque (o detalhe da transferência): repetir o nome dois
+              centímetros abaixo gastaria a linha para não dizer nada. */}
+          {!ocultarNome && (
+            <p className="truncate pr-5 text-[15px] font-bold leading-[1.1] text-[color:var(--text-primary)]">
+              {detail.nome}
+            </p>
+          )}
           <p className="mt-0.5 flex items-center gap-1.5 truncate text-[10px] text-[color:var(--text-muted)]">
             {paisLabel && <span className="truncate">{paisLabel}</span>}
             {paisLabel && <span aria-hidden="true">·</span>}
@@ -245,7 +250,10 @@ function Corpo({ detail }) {
 // jogador avança: equipe, contrato, salário. Um cache que sobrevivesse ao avanço
 // mostraria o contrato da semana passada com a cara de dado atual — e a consulta
 // que ele economiza é uma leitura de SQLite local disparada por um clique.
-function CorpoBuscado({ driverId }) {
+// Exportado porque o detalhe da transferência (pré-temporada) embute o mesmo
+// dossiê: é a mesma pergunta — "quem é esse piloto?" — respondida pela mesma
+// consulta, só que dentro de um modal em vez do balão ancorado.
+export function DossieDoPiloto({ driverId, ocultarNome = false }) {
   const { t } = useTranslation();
   const careerId = useCareerStore((state) => state.careerId);
   const [detail, setDetail] = useState(null);
@@ -275,7 +283,7 @@ function CorpoBuscado({ driverId }) {
       </p>
     );
   }
-  return <Corpo detail={detail} />;
+  return <Corpo detail={detail} ocultarNome={ocultarNome} />;
 }
 
 /// Envolve o nome do piloto e abre a ficha rápida no clique.
@@ -288,7 +296,7 @@ export default function DriverMiniCard({ driverId, children }) {
       testId="driver-mini-card"
       rotuloFechar={t("driverMiniCard.close")}
       desabilitado={!driverId}
-      conteudo={<CorpoBuscado driverId={driverId} />}
+      conteudo={<DossieDoPiloto driverId={driverId} />}
     >
       {children}
     </AnchoredCard>

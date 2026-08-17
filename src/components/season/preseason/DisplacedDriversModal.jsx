@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import DriverMiniCard from "../../driver/DriverMiniCard";
 import TeamLogoMark from "../../team/TeamLogoMark";
 import Tooltip from "../../ui/Tooltip";
 import { formatLastChampionshipResult } from "../preSeasonFormatters.js";
@@ -58,6 +59,10 @@ function DisplacedRow({ driver, context, isPlayerTeam }) {
       )}
 
       <div className="min-w-0">
+        {/* O nome abre a ficha rápida — o mesmo balão do mercado. A tela é de
+            consequência, mas "quem é esse que sobrou?" é exatamente a pergunta
+            que a ficha responde sem tirar a lista de baixo. */}
+        <DriverMiniCard driverId={driver.driver_id}>
         <p className="flex items-center gap-1.5 truncate text-[14.5px] font-bold leading-[1.15] text-[color:var(--text-primary)]">
           {driver.driver_name}
           {rivalRole && (
@@ -72,6 +77,7 @@ function DisplacedRow({ driver, context, isPlayerTeam }) {
             </Tooltip>
           )}
         </p>
+        </DriverMiniCard>
         {driver.previous_team_name && (
           <p className="mt-0.5 truncate text-[11px] text-[color:var(--text-muted)]">
             <span className="font-semibold" style={{ color: teamColor }}>

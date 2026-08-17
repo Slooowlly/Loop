@@ -273,10 +273,33 @@ fn nucleo(e: &EstadoAgora) -> Vec<String> {
         linhas.push("Situação: sem telemetria do iRacing agora.".to_string());
         return linhas;
     }
+    // QUE SESSÃO É ESTA, sempre e como primeira linha do bloco.
+    //
+    // Antes daqui só saía uma negativa ("a sessão não está em corrida"), e ela nem chegava a
+    // sair na classificatória porque `em_corrida` vinha do `session_state`, que é `Racing`
+    // também no treino e na quali. O modelo recebia um punhado de fatos sem contexto de
+    // sessão e escrevia o que era plausível: no fim de uma classificatória em que o jogador
+    // não marcou tempo, "Novato, que corrida" (medido em 17/08/2026).
+    //
+    // A linha é afirmativa e vem sempre porque a negativa não ensina o que dizer. "Não é
+    // corrida" deixa o modelo escolher entre treino e classificatória, e ele escolhe errado
+    // metade das vezes; "estamos na classificatória" fecha a porta.
+    match e.tipo_sessao {
+        "corrida" => linhas.push("Sessão: CORRIDA.".to_string()),
+        "classificacao" => linhas.push(
+            "Sessão: CLASSIFICATÓRIA. Não é corrida: aqui se busca UMA volta rápida para \
+             definir o grid, não há disputa de posição na pista e não existe resultado de \
+             corrida para comentar."
+                .to_string(),
+        ),
+        _ => linhas.push(
+            "Sessão: TREINO LIVRE. Não é corrida nem classificatória: nada aqui vale \
+             posição, grid ou pontos."
+                .to_string(),
+        ),
+    }
     if e.em_formacao {
         linhas.push("Situação: volta de formação, a corrida ainda não largou.".to_string());
-    } else if !e.em_corrida {
-        linhas.push("Situação: a sessão não está em corrida.".to_string());
     }
 
     if e.posicao > 0 {

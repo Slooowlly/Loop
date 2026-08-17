@@ -447,3 +447,44 @@ A ordem inverteu depois de Okayama. A família que parecia a mais sólida é a m
    compilado e testado, até haver corrida verde com caso.
 5. **Incidente genérico** — não é medida, é o balde de baixa confiança dos acima. O SDK
    não expõe incidente de outro carro.
+
+## O diário: medir o que NÃO saiu
+
+Adicionado em 16/08/2026, junto de `scripts/spotter-tracker.mjs`.
+
+Toda a régua acima saiu de **captura reprocessada**: rodar o detector de novo, fora do jogo, sobre
+`race_*.jsonl.gz`. É o método certo para calibrar, e ele tem um ponto cego que só aparece na
+corrida de verdade: o detector reprocessado não conhece a arbitragem do tique, a fila de
+prioridade nem a camada de voz. Ele diz o que a regra faria; não diz o que o jogador ouviu.
+
+`iracing_sdk/spotter_diario.rs` fecha essa distância gravando, **em corrida**, o que cada detector
+recusou e por quê. O vocabulário de motivos hoje:
+
+| Família | Motivos |
+|---|---|
+| todas | `perdeu_o_tique` (com quem ganhou) |
+| `frente` | `jogador_fora_da_pista`, `sessao_nao_e_corrida`, `jogador_parado`, `ja_avisado`, `longe`, `cedo`, `tarde` |
+| `tras` | `campo_sem_ritmo`, `sem_perseguidor`, `ritmo_ok`, `saida_de_box` |
+| `boxe` | `perto`, `longe`, `sem_diferenca`, `sem_fechamento`, `cedo` |
+
+Toda recusa que compara contra um limiar carrega a **folga**: quanto faltou. É essa coluna que
+responde a pergunta de calibração sem rodar nada de novo, e é o que separa um detector saudável
+(recusas a centenas de metros do corte) de um limiar mal posto (recusas a 2 m dele).
+
+> **A folga é a MENOR do episódio, e a primeira versão errou isso.** Ela fechava a linha na
+> transição do motivo e registrava a folga daquele instante. O motivo muda justamente quando um
+> limiar é cruzado, então a folga saía perto de zero por construção, mesmo para um candidato que
+> passou longe de disparar: na corrida de 17/08/2026 as recusas de `boxe/perto` saíram todas com
+> folga de 2 a 20 cm, e nenhuma delas queria dizer nada. Hoje a unidade do arquivo é o episódio
+> (mesmo candidato, mesmo motivo, do primeiro tique ao último), e o que ele carrega é o instante
+> em que a recusa chegou mais perto de virar fala, com `durou_s` e `tiques` ao lado. Uma folga de
+> 0,15 km/h que durou quatro segundos é notícia; a mesma folga num tique é ruído de amostragem.
+
+As famílias `voltar`, `bandeira` e `clima` ficaram só com `perdeu_o_tique`. Os portões delas são
+bits que a captura já grava (`session_flags`, `track_wetness`), então o tracker os responde da
+captura sem instrumentação nova.
+
+> Armadilha registrada na construção: a detecção de salto de sessão do diário mediu, na primeira
+> versão, o intervalo entre duas NOTAS. As notas são esparsas por construção, então duas recusas
+> legítimas a dez segundos de distância pareciam replay, o dedup era limpo e a mesma recusa entrava
+> duas vezes no arquivo. O relógio do salto é o do tique, sempre.

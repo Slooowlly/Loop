@@ -55,6 +55,19 @@ describe("TeamMiniCard", () => {
     await waitFor(() => expect(screen.queryByTestId("team-mini-card")).toBeNull());
   });
 
+  // Na pré-temporada os três números da temporada nascem zerados: a temporada
+  // ativa ainda não correu. Mostrar "0, 0, 0" diz que a equipe não fez nada.
+  it("esconde o bloco de temporada quando a temporada ainda não aconteceu", async () => {
+    montar(equipe({ temp_posicao: 0, pontos: 0, vitorias: 0 }));
+    fireEvent.click(screen.getByText("Logo"));
+
+    const ficha = await screen.findByTestId("team-mini-card");
+    expect(ficha.textContent).not.toContain("Temporada");
+    // O resto da ficha segue inteiro.
+    expect(ficha.textContent).toContain("Estrutura");
+    expect(ficha.textContent).toContain("7 títulos");
+  });
+
   it("equipe sem titulo nem vitoria na categoria diz isso em vez de mostrar zeros", async () => {
     montar(equipe({ categoria_titulos: 0, categoria_vitorias: 0 }));
     fireEvent.click(screen.getByText("Logo"));

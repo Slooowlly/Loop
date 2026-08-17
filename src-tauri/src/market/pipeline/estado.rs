@@ -78,6 +78,12 @@ pub(super) fn load_market_contexts(
     drivers_by_id: &HashMap<String, Driver>,
     expiring_by_driver: &HashMap<String, Contract>,
 ) -> Result<HashMap<String, DriverMarketContext>, String> {
+    // Papel do último contrato Regular, para quem não está em `expiring_by_driver`.
+    // Os caminhos de shortlist (scan do jogador e cascata) passavam um mapa VAZIO,
+    // então TODO candidato caía no default `Numero2` e levava -2.0 de visibilidade —
+    // medido: era o corte dominante do gate de 4.0 nas faixas baixas (77% a 91% das
+    // avaliações de vaga). O papel de verdade existe no banco; a conta usa ele.
+    let last_papel_by_driver = load_last_regular_papeis(conn)?;
     let mut contexts = HashMap::new();
     if let Some(season_id) = previous_season_id {
         let mut stmt = conn
@@ -136,6 +142,7 @@ pub(super) fn load_market_contexts(
                     papel: expiring_by_driver
                         .get(&piloto_id)
                         .map(|contract| contract.papel.clone())
+                        .or_else(|| last_papel_by_driver.get(&piloto_id).cloned())
                         .unwrap_or(TeamRole::Numero2),
                 },
             );
@@ -143,11 +150,47 @@ pub(super) fn load_market_contexts(
     }
 
     for driver in drivers_by_id.values() {
-        contexts
-            .entry(driver.id.clone())
-            .or_insert_with(|| default_market_context(driver));
+        contexts.entry(driver.id.clone()).or_insert_with(|| {
+            let mut context = default_market_context(driver);
+            if let Some(papel) = last_papel_by_driver.get(&driver.id) {
+                context.papel = papel.clone();
+            }
+            context
+        });
     }
     Ok(contexts)
+}
+
+/// Mapa piloto → papel do contrato Regular mais recente (por `temporada_fim`). O par de
+/// [`load_last_regular_categories`], pelo mesmo motivo: agente livre não tem contrato
+/// ativo, mas o papel que ele exercia é fato do banco, não um default. Quem nunca teve
+/// contrato (rookie gerado) fica fora do mapa e cai no `Numero2` do chamador.
+pub(super) fn load_last_regular_papeis(
+    conn: &Connection,
+) -> Result<HashMap<String, TeamRole>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT c1.piloto_id, c1.papel
+             FROM contracts c1
+             WHERE c1.tipo = 'Regular'
+               AND CAST(c1.temporada_fim AS INTEGER) = (
+                   SELECT MAX(CAST(c2.temporada_fim AS INTEGER))
+                   FROM contracts c2
+                   WHERE c2.piloto_id = c1.piloto_id AND c2.tipo = 'Regular'
+               )",
+        )
+        .map_err(|e| format!("Falha ao preparar últimos papéis: {e}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| format!("Falha ao consultar últimos papéis: {e}"))?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let (piloto_id, papel) = row.map_err(|e| format!("Falha ao ler último papel: {e}"))?;
+        map.insert(piloto_id, TeamRole::from_str_strict(&papel)?);
+    }
+    Ok(map)
 }
 
 pub(super) fn default_market_context(driver: &Driver) -> DriverMarketContext {

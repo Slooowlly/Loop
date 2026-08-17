@@ -1,5 +1,4 @@
 import { useTranslation } from "react-i18next";
-import ProposalCard from "./ProposalCard";
 import OfferCategoryRow from "./OfferCategoryRow";
 import WeeklyClosingMovement from "./WeeklyClosingMovement";
 import { CLASS_LABELS } from "../preSeasonFormatters.js";
@@ -51,7 +50,6 @@ export default function DecisionsPanel({
   playerSignedThisWindow,
   playerBrand,
   isComplete,
-  isAdvancingWeek,
   isOpeningWeek,
   interestForecast,
   totalOffers,
@@ -59,39 +57,31 @@ export default function DecisionsPanel({
   brandOfferGroups,
   otherOfferGroups,
   weeklyClosingGroups,
-  handleRespondProposal,
   openOffersFor,
   setTransferDetail,
 }) {
   const { t } = useTranslation();
   return (
     <aside className="glass scroll-area animate-drawer-in min-h-0 overflow-y-auto rounded-2xl px-4 py-4 lg:px-5 lg:py-5">
-      {/* Propostas formais: equipes que cortejam o jogador por mérito (com prazo). */}
+      {/* Propostas formais: as fichas moram no modal de ofertas, que é a única tela
+          onde o jogador aceita ou recusa. Aqui fica só a porta para lá — sem ela o
+          v1 não teria como abrir o modal numa semana só de proposta. */}
       {playerProposals.length > 0 && (
-        <div className="mb-5">
-          <div className="mb-4 flex h-6 items-center gap-2">
-            <span className="relative inline-flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400/80" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400" />
-            </span>
-            <p className="text-body-sm font-bold uppercase tracking-[0.22em] text-amber-300">
-              {t("preSeason.proposals.title")}
-            </p>
-          </div>
-          <div className="space-y-3">
-            <p className="text-body-sm text-[color:var(--text-secondary)]">
-              {t("preSeason.proposals.subtitle")}
-            </p>
-            {playerProposals.map((p) => (
-              <ProposalCard
-                key={p.proposal_id}
-                proposal={p}
-                isAdvancingWeek={isAdvancingWeek}
-                onRespond={handleRespondProposal}
-              />
-            ))}
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => openOffersFor(null)}
+          data-testid="proposals-open-modal"
+          className="transition-glass mb-5 flex w-full items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3.5 py-3 text-left hover:bg-amber-400/[0.16]"
+        >
+          <span className="relative inline-flex h-2.5 w-2.5 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400/80" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400" />
+          </span>
+          <span className="min-w-0 flex-1 truncate text-body-sm font-bold uppercase tracking-[0.16em] text-amber-300">
+            {t("preSeason.offers.summaryProposals", { count: playerProposals.length })}
+          </span>
+          <span className="shrink-0 text-amber-300">›</span>
+        </button>
       )}
 
       <div className="mb-4 flex h-6 items-center gap-2">

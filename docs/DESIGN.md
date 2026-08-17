@@ -97,6 +97,41 @@ conexão SQLite, roda a lógica em transação e devolve DTO serializado (serde)
 corrida (tentativas de ultrapassagem, batidas, DNF, quebra de peça, incidentes, estilo de
 pilotagem).
 
+**Conferir o que foi gravado.** `scripts/captura-auditar.mjs` (`npm run captura:auditar`) audita a
+captura em quatro frentes: estrutura (cabeçalho, inventário, YAML, bloco `history`, trailer do
+gzip), continuidade (taxa efetiva, buracos, saltos), canais mortos e o derivado contra o cru.
+
+O modo de falha que ele existe para pegar está em `canais.rs`: a leitura casa cada canal por NOME
+num `match`, e nome que não existe cai no `_ => {}` calado. Foi assim que `PitRepairNeeded` (o
+nome real é `PitRepairLeft`) deixou o dano do carro sumir. **De fora, um canal ausente e um canal
+que vale zero são a mesma coisa**, e o auditor separa os dois cruzando três listas: os canais que
+o Rust cura, os que o sim publica (o bloco `vars`), e os campos que de fato variaram.
+
+> **A regressão que ele achou, em 17/08/2026.** `record_frame` pulava o quadro sempre que
+> `session_time` não fosse MAIOR que o último gravado. Reiniciar a sessão devolve o relógio a
+> zero, e a guarda passou a recusar todo quadro seguinte até o relógio novo ultrapassar o
+> velho: **594 segundos de sim sem um único quadro** numa corrida em Oschersleben, mais 161 s e
+> 614 s em outras duas capturas do acervo. O arquivo resultante parece contínuo, porque o filtro
+> só admite valor crescente, e o buraco só aparece cruzando com o `session_tick` — que é o
+> relógio monotônico do sim e não reinicia. Hoje a decisão mora em `decidir()`, uma função pura
+> com os três casos (gravar, pular, relógio novo) e a regressão coberta por teste.
+
+Duas régua medidas em 16/08/2026 sobre as onze capturas do disco, e ambas contra a intuição:
+
+- **A taxa efetiva não é 60 Hz e não pode ser.** O amostrador dorme `SAMPLER_PERIOD_MS = 16` e o
+  relógio do Windows tem resolução de ~15,6 ms. A banda real é **53 a 58 Hz**, e um limiar posto
+  em 60 reprovaria toda captura saudável.
+- **O `cars[]` tem teto aritmético abaixo do alvo.** Ele é escrito no primeiro quadro que cruza
+  1/20 s desde o último, e a 56 Hz esse é o terceiro quadro: 18,7 Hz, caindo a 14 quando o jitter
+  empurra para o quarto. O teto é `taxa / ceil(taxa / alvo)`, nunca os 20 nominais.
+
+O julgamento de "campo constante a corrida inteira" é por GRUPO (ambiente, sessão, sentinela,
+pilotagem, progresso), cada um com a condição sob a qual a constância vira alarme. A primeira
+versão, sem grupos, apontou 19 falsos numa única sessão, e um auditor que sempre grita treina
+quem o lê a ignorá-lo. O guard `scripts/tests/auditor-de-captura-le-o-rust.test.mjs` cobre a
+parte frágil: as duas extrações por regex do Rust falham devolvendo VAZIO, e o relatório seguiria
+saindo bonito sem ter olhado nada.
+
 **Janelas.** `tauri.conf.json` declara três webviews servindo o mesmo `index.html`: a principal
 (sem decoração, com controles de janela em React sobre `commands/window.rs`), `overlay` e
 `engineer`, as duas transparentes e always-on-top, para uso sobre o iRacing em corrida e em VR.
@@ -1012,6 +1047,29 @@ estão em [tts-poc-latencia.md](tts-poc-latencia.md), o inventário de peças em
 `ptt_voz.rs` transcreve e responde, `volante.rs` lê o botão do volante, e
 `engenheiro_responder` monta a resposta.
 
+> **`SessionState = Racing` não quer dizer corrida.** Ele vale igual em treino livre e
+> classificação, e quem responde "que sessão é esta" é o `SessionNum` cruzado com o
+> `SessionInfo:Sessions` do YAML. Até 17/08/2026 `EstadoAgora::em_corrida` era só o estado, e o
+> efeito estava no rádio: no fim de uma classificatória em Oschersleben, com o jogador sem ter
+> marcado tempo, o engenheiro abriu com "Novato, que corrida". Hoje `em_corrida` cruza os dois e
+> `EstadoAgora::tipo_sessao` devolve `corrida`, `classificacao` ou `treino`, que vira a primeira
+> linha do dossiê enviado ao modelo. A linha é **afirmativa** de propósito: "não é corrida"
+> deixava o modelo escolher entre treino e classificatória, e ele errava metade das vezes.
+>
+> Fica em aberto a peça gravada `tv_melhor_e_do` ("A volta mais rápida **da corrida** é do"),
+> que o canal de ritmo toca também na classificatória. Corrigir o texto exige regravar o áudio.
+>
+> **`PaceMode` não diz se o campo está em formação.** Nas sessões com IA ele vale 4
+> (NotPacing) a classificação inteira e fica preso em 1 a 3 a corrida inteira — medido em
+> Okayama e Oschersleben (17/08/2026). A leitura antiga (`em_formacao = pace_mode > 0`) deixava
+> `em_formacao` verdadeiro quase sempre, e ele é o portão de `em_corrida_de_verdade`: **~820
+> peças gravadas do acervo de resposta (21% do total) nunca tocavam**, toda resposta de PTT
+> caía no modelo, o briefing de "antes da largada" saía dentro da classificação e o dossiê
+> dizia "volta de formação" no meio da prova. Hoje a formação é uma TRAVA no monitor
+> (`verde_da_tentativa`): sessão de corrida antes do primeiro `live_is_green` da tentativa,
+> rearmada no reinício e no salto de replay. A amarela do meio da prova não a ressuscita, por
+> memória e por teste.
+
 ### 20.2 Spotter (`iracing_sdk/spotter*.rs`)
 
 Um módulo por assunto: `spotter_frente`, `spotter_tras`, `spotter_lento`, `spotter_bandeira`,
@@ -1024,6 +1082,44 @@ fora" soa como "você está fora", e o sujeito implícito é sempre o piloto), e
 quatro famílias que abrem o canal sozinhas foi medida em [radio-carga.md](radio-carga.md). O que
 falta na captura para o aviso de obstáculo à frente está em
 [spotter-obstaculo.md](spotter-obstaculo.md).
+
+#### O diário: por que ele ficou calado
+
+`iracing_sdk/spotter_diario.rs` grava a **recusa**. Os detectores decidem a 60 Hz e só o SIM
+deixava rastro: uma família que passa minutos perdendo a arbitragem do tique para o lateral
+produzia o mesmo arquivo que produziria se estivesse morta.
+
+O que entra: o candidato que a regra descartou, com o motivo e a **folga** que faltou para o
+limiar (`longe`, `cedo`, `tarde` no `spotter_frente`; `ritmo_ok`, `sem_perseguidor`,
+`campo_sem_ritmo`, `saida_de_box` no `spotter_tras`), os portões de sessão, e quem perdeu o tique
+nas sete famílias. O que fica de fora é o tique comum, em que nada foi visto: a corrida inteira
+já está em `race_capture.rs`.
+
+Três decisões que sustentam o custo:
+
+- **Dedup por transição**, com piso de 0,5 s por par (família, alvo). A mesma recusa se repete
+  milhares de vezes enquanto a geometria não muda.
+- **Nada de I/O no tique.** `nota()` enfileira; quem escreve é `escoar()`, uma vez por amostra e
+  fora de todo lock de observador.
+- **O relógio do salto é o do tique**, jamais o intervalo entre notas. As notas são esparsas por
+  construção, e medir o salto nelas fazia duas recusas legítimas distantes parecerem replay, o
+  que limpava o dedup e contava duas vezes o que aconteceu uma.
+
+As linhas vão para o mesmo `logs/radio/*.jsonl`, no canal `spotter_diario`, porque o carimbo de
+sessão já vem pronto dali. `radio-timeline.mjs` esconde esse canal por padrão: aquela leitura é o
+que o jogador ouviu.
+
+#### O tracker
+
+`scripts/spotter-tracker.mjs` é a ferramenta de quem termina uma corrida teste. Ele junta o
+registro do rádio com a captura de corrida por `(sn, t)` e imprime, por fala, o estado do mundo
+naquele instante (velocidade, volta, superfície, `CarLeftRight` cru, vizinho da frente e de trás
+em metros), depois as recusas agrupadas por família e motivo com a distribuição da folga, e o
+resumo da sessão.
+
+A captura é lida em fluxo, com `Z_SYNC_FLUSH`: o `.gz` da corrida que está rodando agora está
+sempre truncado, porque o fluxo só é finalizado no `stop()`, e sem isso o `zlib` joga fora
+justamente a corrida que se quer olhar.
 
 ---
 
@@ -1185,7 +1281,7 @@ Agrupados por área:
 
 ```
 MainMenu
-  ├─ NewCareer (wizard: categoria → dificuldade → equipe → confirmação)
+  ├─ NewCareer (wizard: piloto → histórico → categoria → equipe → confirmação)
   ├─ LoadSave (lista de saves + BackupsModal)
   ├─ Settings (idioma, autosave, iRacing, engenheiro, overlay, diagnóstico)
   └─ Dashboard (MainLayout: Header + TabNavigation + PauseMenu)
@@ -1308,7 +1404,8 @@ tom discreto vem do estilo), e acentuação plena, cobrada pelo guard
 ## 26. Loop de jogo, ponta a ponta
 
 ```
-1. Nova carreira    → wizard escolhe categoria, dificuldade e equipe
+1. Nova carreira    → wizard escolhe piloto, categoria e equipe (a dificuldade saiu do
+                      wizard em 16/08/2026: o mundo histórico nasce sempre em "medio")
                     → generators/world cria 200+ pilotos, 60+ equipes e contratos
                     → build_full_season_calendar gera 74 entradas (sw 10 a 51)
                     → temporada em fase Temporada, pronta para correr

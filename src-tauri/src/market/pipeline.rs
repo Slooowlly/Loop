@@ -46,7 +46,9 @@ use crate::market::proposals::{
 use crate::market::renewal::should_renew_contract;
 use crate::market::slam_ambition::{self, SlamDecision};
 use crate::market::sync::sync_team_slots_from_active_regular_contracts;
-use crate::market::team_ai::{calculate_offer_salary, generate_team_proposals, AvailableDriver};
+use crate::market::team_ai::{
+    calculate_offer_salary, duracao_de_contrato, generate_team_proposals, AvailableDriver,
+};
 use crate::market::visibility::calculate_visibility;
 use crate::models::contract::Contract;
 use crate::models::driver::Driver;
@@ -480,6 +482,7 @@ fn run_market_inner(
                 rng,
                 None,
                 &HashSet::new(),
+                None,
             )?;
 
             refreshed_drivers = driver_queries::get_all_drivers(conn)
@@ -501,6 +504,12 @@ fn run_market_inner(
     })
 }
 
+/// Teto de passadas do preenchimento final. A cascata de promoções converge sozinha (o
+/// assento reaberto desce um degrau por passada e a base é preenchida por rookie gerado,
+/// que não deixa vaga atrás), então o teto é só a rede contra um caso patológico: nove
+/// categorias na escada, com folga.
+const MAX_PASSADAS_DE_PREENCHIMENTO: usize = 32;
+
 /// Escaneia todas as equipes de categorias regulares e garante que tenham 2 pilotos.
 /// Caso faltem pilotos, preenche com novos rookies (rookies são gerados e contratados).
 pub fn fill_all_remaining_vacancies(
@@ -521,6 +530,37 @@ pub(crate) fn fill_all_remaining_vacancies_reported(
     rng: &mut impl Rng,
     report: &mut MarketReport,
 ) -> Result<(), String> {
+    preencher_vagas_restantes(conn, new_season_number, rng, report, false)
+}
+
+/// [`fill_all_remaining_vacancies_reported`] com a GARANTIA DE PORTA do jogador dentro
+/// do laço: a cada passada, antes de a escada preencher, ele escolhe entre as vagas
+/// abertas naquele instante ([`ensure_player_seated`], que sai no ato se ele já tem
+/// contrato).
+///
+/// O lugar importa. A passada final promove pilotos das categorias de baixo, e cada
+/// promoção reabre o assento que o promovido deixou — é ali que nasce a vaga de estreia
+/// que o agente livre sem licença alcança. Rodando a garantia só ANTES do preenchimento,
+/// ele decidia sobre um grid em que sobravam apenas assentos licenciados fora do alcance
+/// dele, ficava de fora, e as vagas de estreia abriam meio segundo depois para a IA.
+/// Medido no save da temporada 28 em 17/08/2026: seis assentos vazios no fecho e o
+/// jogador atravessando a virada sem equipe.
+pub(crate) fn fill_all_remaining_vacancies_garantindo_jogador(
+    conn: &Connection,
+    new_season_number: i32,
+    rng: &mut impl Rng,
+    report: &mut MarketReport,
+) -> Result<(), String> {
+    preencher_vagas_restantes(conn, new_season_number, rng, report, true)
+}
+
+fn preencher_vagas_restantes(
+    conn: &Connection,
+    new_season_number: i32,
+    rng: &mut impl Rng,
+    report: &mut MarketReport,
+    garantir_jogador: bool,
+) -> Result<(), String> {
     let teams = team_queries::get_all_teams(conn)
         .map_err(|e| format!("Falha ao carregar equipes para preenchimento final: {e}"))?;
     let debut_year = get_season_by_number(conn, new_season_number)?
@@ -530,7 +570,7 @@ pub(crate) fn fill_all_remaining_vacancies_reported(
         is_regular_vacancy(vacancy) && is_category_active_in_year(&vacancy.categoria, debut_year)
     };
 
-    loop {
+    for _ in 0..MAX_PASSADAS_DE_PREENCHIMENTO {
         let current_drivers = driver_queries::get_all_drivers(conn)
             .map_err(|e| format!("Falha ao recarregar pilotos: {e}"))?;
         let current_by_id: HashMap<String, Driver> = current_drivers
@@ -547,7 +587,14 @@ pub(crate) fn fill_all_remaining_vacancies_reported(
             break;
         }
 
+        // O jogador escolhe ANTES da escada, entre as vagas desta passada. Ver
+        // [`fill_all_remaining_vacancies_garantindo_jogador`].
+        if garantir_jogador {
+            ensure_player_seated(conn, new_season_number)?;
+        }
+
         // Acumula no report do chamador (cada iteração apenda novas assinaturas).
+        let assinadas_antes = report.new_signings.len();
         fill_remaining_vacancies_with_rookies(
             conn,
             &teams,
@@ -556,11 +603,18 @@ pub(crate) fn fill_all_remaining_vacancies_reported(
             rng,
             None,
             &HashSet::new(),
+            None,
         )?;
 
-        // Se após tentar preencher ainda persistirem as mesmas vagas (ex: erro na geração), quebra para evitar loop infinito
-        let final_vacancies = find_vacancies(conn)?.into_iter().filter(fillable).count();
-        if final_vacancies >= regular_vacancies.len() {
+        // O critério de parada é PROGRESSO, e não a contagem de vagas cair.
+        //
+        // Preencher promove gente da categoria de baixo, e cada promoção reabre o assento
+        // que o promovido deixou: a contagem de vagas fica igual ou sobe numa passada que
+        // assinou meio grid. Parando por ela, o fecho largava o grid com buracos — seis
+        // assentos vazios no save da temporada 28 em 17/08/2026, e nenhum aviso. Uma
+        // passada que não assina NINGUÉM (erro na geração de rookie, categoria sem
+        // candidato) não vai assinar na próxima, e é essa que encerra o laço.
+        if report.new_signings.len() == assinadas_antes {
             break;
         }
     }

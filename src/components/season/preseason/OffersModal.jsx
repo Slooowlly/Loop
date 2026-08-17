@@ -1,24 +1,38 @@
 import { useTranslation } from "react-i18next";
 import OfferCardRich from "./OfferCardRich";
+import ProposalCard from "./ProposalCard";
 import { subcatColor } from "../preSeasonFormatters.js";
 
 // Modal "Suas ofertas": fichas completas das equipes, agrupadas por categoria
 // (e por função N1/N2 dentro de cada uma).
+//
+// As propostas formais entram AQUI, no topo, e não na coluna da janela: toda
+// escolha do jogador (aceitar, recusar, assinar) acontece nesta tela e em
+// nenhuma outra. A separação continua valendo — proposta é a equipe indo atrás
+// dele, com prazo; oferta é assento aberto que ele pode buscar — mas as duas
+// decisões moram no mesmo lugar.
 export default function OffersModal({
   offersByCategory,
   offersModalCat,
   totalOffers,
   playerTier,
+  playerProposals = [],
   isAdvancingWeek,
   onClose,
   onClearCat,
+  onRespondProposal,
   onViewContract,
 }) {
   const { t } = useTranslation();
   const modalGroups = offersModalCat
     ? offersByCategory.filter((g) => g.cat === offersModalCat)
     : offersByCategory;
-  const modalCount = modalGroups.reduce((sum, g) => sum + g.n1.length + g.n2.length, 0);
+  // Com filtro de categoria ligado, as propostas seguem o mesmo recorte.
+  const modalProposals = offersModalCat
+    ? playerProposals.filter((p) => p.categoria === offersModalCat)
+    : playerProposals;
+  const modalCount =
+    modalGroups.reduce((sum, g) => sum + g.n1.length + g.n2.length, 0) + modalProposals.length;
   const modalCatLabel = offersModalCat ? modalGroups[0]?.label : null;
   return (
     <div
@@ -58,6 +72,37 @@ export default function OffersModal({
         </div>
 
         <div className="scroll-area space-y-5 overflow-y-auto px-6 py-5">
+          {modalProposals.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="relative inline-flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400/80" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400" />
+                </span>
+                <span className="text-body font-black uppercase tracking-[0.16em] text-amber-300">
+                  {t("preSeason.proposals.title")}
+                </span>
+                <div className="h-px flex-1 bg-gradient-to-r from-amber-400/35 to-transparent" />
+                <span className="text-body-sm text-[color:var(--text-muted)]">
+                  {t("preSeason.offers.vacancies", { count: modalProposals.length })}
+                </span>
+              </div>
+              <p className="text-body-sm text-[color:var(--text-secondary)]">
+                {t("preSeason.proposals.subtitle")}
+              </p>
+              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                {modalProposals.map((p) => (
+                  <ProposalCard
+                    key={p.proposal_id}
+                    proposal={p}
+                    isAdvancingWeek={isAdvancingWeek}
+                    onRespond={onRespondProposal}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
           {modalGroups.map((group) => {
             const n = group.n1.length + group.n2.length;
             const isPromotion = playerTier != null && group.tier > playerTier;

@@ -63,6 +63,20 @@ pub struct FlagExperimental {
 /// as executa —, e no fim as que não estão na virada (economia, importação, pista).
 pub const INVENTARIO: &[FlagExperimental] = &[
     FlagExperimental {
+        nome: "IRACER_CONTRATO_PLURIANUAL",
+        tipo: TipoDaFlag::Booleana { padrao: true },
+        dono: "market::team_ai",
+        efeito: "contratacao nova da IA usa a duracao sorteada por tier; desligada, volta ao 1 ano cravado",
+        destino: Destino::PadraoDefinitivo,
+    },
+    FlagExperimental {
+        nome: "IRACER_FUNDO_OLHA_PARA_BAIXO",
+        tipo: TipoDaFlag::Booleana { padrao: true },
+        dono: "market::pipeline::consolidacao",
+        efeito: "a metade de baixo da categoria tenta o campeao do feeder antes do pool, paga multa por contrato vivo e assina por 1 ano",
+        destino: Destino::PadraoDefinitivo,
+    },
+    FlagExperimental {
         nome: "IRACER_ROOKIE_MERIT",
         tipo: TipoDaFlag::Booleana { padrao: false },
         dono: "market::pipeline::consolidacao",
@@ -75,6 +89,34 @@ pub const INVENTARIO: &[FlagExperimental] = &[
         dono: "market::pipeline::consolidacao",
         efeito: "ordem de escolha dos assentos por prestígio + penalidade de quem o time não pode pagar",
         destino: Destino::PadraoDefinitivo,
+    },
+    FlagExperimental {
+        nome: "IRACER_MERCADO_EM_ONDAS",
+        tipo: TipoDaFlag::Booleana { padrao: true },
+        dono: "market::pipeline::consolidacao",
+        efeito: "a equipe so contrata a partir da semana de liberacao (metade de cima na abertura, fundo dos tiers altos na semana 5, fundo da base na 7); desligada, toda equipe contrata desde a abertura",
+        destino: Destino::Indefinido,
+    },
+    FlagExperimental {
+        nome: "IRACER_FUNDO_ESTREIA_NOVATO",
+        tipo: TipoDaFlag::Booleana { padrao: true },
+        dono: "market::pipeline::consolidacao",
+        efeito: "70% das equipes do fundo das categorias de estreia preferem um novato gerado a sobra do pool, por equipe-temporada; desligada, o fundo disputa o pool como qualquer equipe",
+        destino: Destino::Indefinido,
+    },
+    FlagExperimental {
+        nome: "IRACER_ROOKIE_NA_VITRINE",
+        tipo: TipoDaFlag::Booleana { padrao: true },
+        dono: "market::visibility",
+        efeito: "a categoria rookie troca o teto 3.0 de visibilidade por escala 0.5: o fora da curva passa do limiar de shortlist (4.0); desligada, nenhum piloto do tier 0 entra em shortlist alguma",
+        destino: Destino::Indefinido,
+    },
+    FlagExperimental {
+        nome: "IRACER_PROPOSTA_PRIMEIRA_ESCOLHA",
+        tipo: TipoDaFlag::Booleana { padrao: true },
+        dono: "market::pipeline::jogador",
+        efeito: "a proposta formal ao jogador só nasce quando ele é o MELHOR candidato ainda livre da vaga; desligada, volta a nascer com ele em qualquer lugar do top-3",
+        destino: Destino::Indefinido,
     },
     FlagExperimental {
         nome: "IRACER_PROMO_SOFT_LANDING",

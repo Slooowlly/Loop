@@ -5,6 +5,7 @@ mod fala;
 mod marco;
 mod memoria;
 mod momento;
+mod sessao;
 mod tratamento;
 mod vizinhanca;
 
@@ -20,6 +21,7 @@ pub(super) fn estado_base() -> EstadoAgora {
     EstadoAgora {
         conectado: true,
         em_corrida: true,
+        tipo_sessao: "corrida",
         verde: true,
         em_formacao: false,
         posicao: 5,

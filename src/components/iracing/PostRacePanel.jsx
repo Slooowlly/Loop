@@ -177,7 +177,11 @@ function PostRacePanel() {
   const traceRows = useMemo(() => {
     if (!history) return [];
     return history.laps.map((snap) => {
-      const row = { lap: snap.lap };
+      // X FRACIONÁRIO: `lap` são as voltas COMPLETAS do líder e `progress` o quanto ele
+      // já andou da volta em curso. Dentro da mesma volta o backend grava um ponto por
+      // troca de posição — sem a parte fracionária eles empilham no mesmo X, e o trace
+      // perde a volta inteira de dados e desenha um degrau vertical na virada.
+      const row = { lap: snap.lap + (Number.isFinite(snap.progress) ? snap.progress : 0) };
       for (const c of snap.cars) {
         row[`c${c.idx}`] = traceMode === "gap" ? c.gap : c.position;
       }
@@ -227,9 +231,17 @@ function PostRacePanel() {
   }, [traceRows, traceMode, gapCap]);
 
   const lapDomain = useMemo(() => {
-    if (!history || history.laps.length === 0) return [1, 1];
-    return [history.laps[0].lap, history.laps[history.laps.length - 1].lap];
-  }, [history]);
+    if (!traceRows.length) return [1, 1];
+    return [traceRows[0].lap, traceRows[traceRows.length - 1].lap];
+  }, [traceRows]);
+
+  // A amarela é gravada com as voltas COMPLETAS do líder no instante — a volta que
+  // estava em curso ocupa [L, L+1] no eixo fracionário. O gráfico pinta a faixa
+  // centrada (±0,5 volta), então o centro é L + 0,5.
+  const yellowBands = useMemo(
+    () => (history?.yellow_laps ?? []).map((l) => l + 0.5),
+    [history],
+  );
 
   // Posição do jogador volta a volta (para os cartões de resumo).
   const playerPositions = useMemo(() => {
@@ -478,7 +490,7 @@ function PostRacePanel() {
                     mode={traceMode}
                     lapDomain={lapDomain}
                     gapCap={gapCap}
-                    yellowLaps={history.yellow_laps}
+                    yellowLaps={yellowBands}
                   />
                 </div>
               )}

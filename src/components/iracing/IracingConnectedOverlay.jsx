@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import useCareerStore from "../../stores/useCareerStore";
@@ -191,6 +191,10 @@ function IracingConnectedOverlay() {
   const track = useMemo(() => history?.player_track ?? [], [history]);
   const laps = useMemo(() => history?.laps ?? [], [history]);
   const yellowLaps = useMemo(() => history?.yellow_laps ?? [], [history]);
+  // A amarela é gravada com as voltas COMPLETAS do líder no instante — a volta que
+  // estava em curso ocupa [L, L+1] no eixo fracionário. O gráfico pinta a faixa
+  // centrada (±0,5 volta), então o centro é L + 0,5.
+  const yellowBands = useMemo(() => yellowLaps.map((l) => l + 0.5), [yellowLaps]);
   const carsMeta = useMemo(() => history?.cars_meta ?? [], [history]);
   const driverNames = useMemo(() => history?.driver_names ?? {}, [history]);
   const pitSet = useMemo(() => new Set(history?.player_pit_laps ?? []), [history]);
@@ -336,7 +340,12 @@ function IracingConnectedOverlay() {
         if (activeIdxSet.has(c.idx) && Number.isFinite(c.gap)) minGap = Math.min(minGap, c.gap);
       }
       if (!Number.isFinite(minGap)) minGap = 0;
-      const row = { lap: snap.lap };
+      // X FRACIONÁRIO: `lap` são as voltas COMPLETAS do líder e `progress` o quanto ele
+      // já andou da volta em curso. O backend grava vários snapshots dentro da mesma
+      // volta (toda troca de posição vira um ponto) e só o par diferencia um do outro.
+      // Usando só `lap`, todos empilhavam no mesmo X: o gráfico perdia a volta inteira
+      // de dados e desenhava um degrau vertical na virada.
+      const row = { lap: snap.lap + (Number.isFinite(snap.progress) ? snap.progress : 0) };
       for (const c of snap.cars) {
         if (activeIdxSet.has(c.idx)) row[`c${c.idx}`] = c.gap - minGap;
       }
@@ -384,27 +393,39 @@ function IracingConnectedOverlay() {
 
   // Gap do jogador por volta (já relativo à classe e clampado), para posicionar
   // os pins na linha dele (interpolando em voltas fracionárias).
-  const playerGapByLap = useMemo(() => {
-    const m = new Map();
+  // Série [x, gap] do jogador, ordenada. Com o X fracionário não existe mais "o ponto
+  // da volta N": o pin cai entre duas amostras e o valor sai por interpolação linear
+  // entre as vizinhas.
+  const playerGapSerie = useMemo(() => {
+    const s = [];
     for (const row of displayRows) {
       const v = row[`c${playerIdx}`];
-      if (v != null) m.set(row.lap, v);
+      if (v != null) s.push([row.lap, v]);
     }
-    return m;
+    return s.sort((a, b) => a[0] - b[0]);
   }, [displayRows, playerIdx]);
+
+  const gapAt = useCallback(
+    (x) => {
+      const s = playerGapSerie;
+      if (!s.length) return null;
+      if (x <= s[0][0]) return s[0][1];
+      if (x >= s[s.length - 1][0]) return s[s.length - 1][1];
+      for (let i = 1; i < s.length; i++) {
+        const [x1, y1] = s[i];
+        if (x1 >= x) {
+          const [x0, y0] = s[i - 1];
+          const span = x1 - x0;
+          return span > 0 ? y0 + ((y1 - y0) * (x - x0)) / span : y1;
+        }
+      }
+      return null;
+    },
+    [playerGapSerie],
+  );
 
   const playerPins = useMemo(() => {
     if (!playerInTrace) return [];
-    const gapAt = (lapF) => {
-      const lo = Math.floor(lapF);
-      const hi = Math.ceil(lapF);
-      const a = playerGapByLap.get(lo);
-      const b = playerGapByLap.get(hi);
-      if (a == null && b == null) return null;
-      if (a == null) return b;
-      if (b == null || hi === lo) return a;
-      return a + (b - a) * (lapF - lo);
-    };
     return playerIncidents
       .map((m, i) => {
         const y = gapAt(m.lap_f);
@@ -420,13 +441,13 @@ function IracingConnectedOverlay() {
         return { key: `pin${i}`, x: m.lap_f, y, kind, color };
       })
       .filter(Boolean);
-  }, [playerIncidents, playerInTrace, playerGapByLap]);
+  }, [playerIncidents, playerInTrace, gapAt]);
 
   const bestLapPin = useMemo(() => {
     if (!playerInTrace || bestLapNum == null) return null;
-    const y = playerGapByLap.get(bestLapNum);
+    const y = gapAt(bestLapNum);
     return y == null ? null : { x: bestLapNum, y };
-  }, [playerInTrace, bestLapNum, playerGapByLap]);
+  }, [playerInTrace, bestLapNum, gapAt]);
 
   // O race trace é o gráfico MAIS PESADO (até 63 séries de linha, centenas de
   // pontos cada). O que ele mostra só muda por VOLTA/ultrapassagem, não a cada
@@ -448,7 +469,7 @@ function IracingConnectedOverlay() {
         mode="gap"
         lapDomain={["dataMin", "dataMax"]}
         gapCap={gapCap}
-        yellowLaps={yellowLaps}
+        yellowLaps={yellowBands}
         playerPins={playerPins}
         bestLapPin={bestLapPin}
         tickFontSize={10}

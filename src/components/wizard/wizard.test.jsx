@@ -2,16 +2,16 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import CategoryCard from "./CategoryCard";
-import DifficultyCard from "./DifficultyCard";
 import StepIndicator from "./StepIndicator";
 import TeamCard from "./TeamCard";
-import { DIFFICULTIES, STARTING_CATEGORIES, WIZARD_STEPS } from "../../utils/constants";
+import { STARTING_CATEGORIES, WIZARD_STEPS } from "../../utils/constants";
 
-// Os quatro cartões do funil de criação de carreira — a primeira coisa que todo jogador
-// novo atravessa, e a única tela do jogo que ele não pode pular. Estavam sem nenhum teste.
+// Os cartões do funil de criação de carreira — a primeira coisa que todo jogador novo
+// atravessa, e a única tela do jogo que ele não pode pular. Estavam sem nenhum teste.
+// (O cartão de dificuldade saiu do funil em 16/08/2026, junto com o passo inteiro.)
 //
 // O que se guarda aqui é o CONTRATO de seleção: qual valor cada cartão devolve ao ser
-// clicado e como ele mostra que está escolhido. Os três erram de formas diferentes e
+// clicado e como ele mostra que está escolhido. Os dois erram de formas diferentes e
 // silenciosas — o cartão de equipe aceita duas formas de DTO, o de categoria devolve `id`
 // e não o objeto, e a marca visual de "selecionado" é só uma classe.
 
@@ -20,49 +20,6 @@ function estaSelecionado(elemento) {
   const cartao = elemento.closest("div.rounded-3xl");
   return cartao?.className.includes("border-accent-primary") ?? false;
 }
-
-describe("DifficultyCard", () => {
-  const dificuldade = DIFFICULTIES[1]; // médio
-
-  it("devolve o ID da dificuldade, não o objeto", () => {
-    // A tela grava `formData.difficulty`, e a dificuldade é o ÚNICO campo que invalida um
-    // mundo já simulado — devolver o objeto aqui faria a comparação de descarte falhar.
-    const onSelect = vi.fn();
-    render(<DifficultyCard difficulty={dificuldade} selected={false} onSelect={onSelect} />);
-
-    fireEvent.click(screen.getByText(dificuldade.emoji));
-    expect(onSelect).toHaveBeenCalledWith("medio");
-  });
-
-  it("mostra o nome e a descrição traduzidos, e não a chave crua", () => {
-    render(<DifficultyCard difficulty={dificuldade} selected={false} onSelect={vi.fn()} />);
-    const cartao = screen.getByText(dificuldade.emoji).closest("div.rounded-3xl");
-    expect(cartao.textContent).not.toContain("newCareer.difficulty");
-  });
-
-  it("marca visualmente só o cartão escolhido", () => {
-    const { rerender } = render(
-      <DifficultyCard difficulty={dificuldade} selected={false} onSelect={vi.fn()} />,
-    );
-    expect(estaSelecionado(screen.getByText(dificuldade.emoji))).toBe(false);
-
-    rerender(<DifficultyCard difficulty={dificuldade} selected onSelect={vi.fn()} />);
-    expect(estaSelecionado(screen.getByText(dificuldade.emoji))).toBe(true);
-  });
-
-  it("dá a cada dificuldade uma barra de nível diferente — as quatro não se confundem", () => {
-    const larguras = DIFFICULTIES.map((d) => {
-      const { container, unmount } = render(
-        <DifficultyCard difficulty={d} selected={false} onSelect={vi.fn()} />,
-      );
-      const barra = container.querySelector("[style*='width']");
-      const largura = barra.getAttribute("style");
-      unmount();
-      return largura;
-    });
-    expect(new Set(larguras).size).toBe(DIFFICULTIES.length);
-  });
-});
 
 describe("CategoryCard", () => {
   const categoria = STARTING_CATEGORIES[0];

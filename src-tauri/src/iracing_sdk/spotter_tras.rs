@@ -46,6 +46,7 @@ use crate::iracing_sdk::spotter_base::{
     adiante, saltou, spotter_singleton, AUSENCIA_MAX_S, ESTADO_CORRIDA, MAX_CARROS,
     SUP_ENTRANDO_BOX, SUP_FORA_DA_PISTA, SUP_NA_CAIXA, SUP_NA_PISTA,
 };
+use crate::iracing_sdk::spotter_diario::{self as diario, arredondar};
 use crate::iracing_sdk::CarSnapshot;
 
 /// ENTRADA — vem gente por trás, e vem mais rápido.
@@ -492,6 +493,17 @@ impl ObservadorTras {
             // O campo não está em ritmo (largada parada, fila de amarela que acabou de
             // limpar). Sem mediana não há comparação; o estado aberto continua, porque
             // quem o fecha é o tráfego ter passado e não a mediana ter oscilado.
+            //
+            // Anotado no diário porque é um portão que pode ficar fechado por minutos
+            // inteiros, e do lado de fora do arquivo isso é indistinguível de um detector
+            // que simplesmente não achou ninguém. Ver [`crate::iracing_sdk::spotter_diario`].
+            diario::nota(a.tempo_s, "tras", diario::SEM_ALVO, "campo_sem_ritmo", diario::SEM_FOLGA, || {
+                serde_json::json!({
+                    "mediana_ritmo": arredondar(mediana_ritmo, 3),
+                    "mediana_ms": arredondar(mediana_ms, 1),
+                    "min_ms": CAMPO_MIN_MS,
+                })
+            });
             self.lento_desde_s = None;
             return self.pendente.map(Pendente::chave);
         }
@@ -521,6 +533,9 @@ impl ObservadorTras {
         match self.ativo.as_mut() {
             None => {
                 let Some(p) = perseguidor else {
+                    diario::nota(a.tempo_s, "tras", diario::SEM_ALVO, "sem_perseguidor", diario::SEM_FOLGA, || {
+                        serde_json::json!({ "fracao": arredondar(fracao, 3) })
+                    });
                     return self.pendente.map(Pendente::chave);
                 };
                 let sustentado = |desde: Option<f64>, espera: f64| {
@@ -531,15 +546,42 @@ impl ObservadorTras {
                 } else if sustentado(self.azul_desde_s, CONFIRMA_AZUL_S) {
                     OrigemTras::Azul
                 } else {
+                    // Tem alguém chegando e o jogador ainda não está lento o bastante, ou
+                    // não ficou lento por tempo suficiente. É a recusa mais informativa da
+                    // família: `fracao` contra [`FRACAO_LENTO`] é exatamente o limiar que se
+                    // discute quando o rádio parece surdo ao tráfego.
+                    diario::nota(a.tempo_s, "tras", p.idx, "ritmo_ok", fracao - FRACAO_LENTO, || {
+                        serde_json::json!({
+                            "fracao": arredondar(fracao, 3),
+                            "corte": FRACAO_LENTO,
+                            "folga": arredondar(fracao - FRACAO_LENTO, 3),
+                            // Há quanto tempo está lento. Abaixo de [`CONFIRMA_S`] o corte
+                            // já foi cruzado e o que falta é a confirmação.
+                            "lento_ha_s": self
+                                .lento_desde_s
+                                .map(|d| arredondar(a.tempo_s - d, 1))
+                                .unwrap_or(0.0),
+                            "dist_m": arredondar(p.distancia_m, 0),
+                            "chega_em_s": arredondar(p.chega_em_s, 1),
+                        })
+                    });
                     return self.pendente.map(Pendente::chave);
                 };
                 // A saída do box é o único falso positivo com volume nos dados, e é o
                 // piloto que menos precisa ser informado de que está devagar.
                 if let Some(box_em) = self.via_de_box_em_s {
                     if a.tempo_s - box_em < SAIDA_BOX_S {
+                        diario::nota(a.tempo_s, "tras", p.idx, "saida_de_box", diario::SEM_FOLGA, || {
+                            serde_json::json!({
+                                "ha_s": arredondar(a.tempo_s - box_em, 1),
+                                "janela_s": SAIDA_BOX_S,
+                            })
+                        });
                         return self.pendente.map(Pendente::chave);
                     }
                 }
+                diario::limpar("tras", p.idx);
+                diario::limpar("tras", diario::SEM_ALVO);
                 self.abrir(a.tempo_s, origem, fracao, p);
             }
             Some(ativo) => {

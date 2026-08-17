@@ -423,6 +423,8 @@ mod tests {
 
         let result = run_promotion_relegation(&conn, 1, &mut rng).expect("promotion should run");
 
+        // 14 = 6 do block1 + 6 do block2 + 2 do block3. A escada de EQUIPES para na
+        // Production: quem sobe dali para o gt4 é o piloto, não a equipe.
         assert_eq!(result.movements.len(), 14);
         assert!(!result.attribute_deltas.is_empty());
     }
@@ -436,6 +438,17 @@ mod tests {
 
         assert_eq!(result.movements.len(), 14);
         assert!(!result.attribute_deltas.is_empty());
+        // A escada de EQUIPES não liga Production e gt4 em nenhuma direção: dali para
+        // cima quem sobe é o piloto. (O gt4 continua recebendo equipe da Endurance pelo
+        // block3, então a checagem precisa ser do PAR, não da categoria de destino.)
+        let liga_production_e_gt4 = |m: &TeamMovement| {
+            (m.from_category == "production_challenger" && m.to_category == "gt4")
+                || (m.from_category == "gt4" && m.to_category == "production_challenger")
+        };
+        assert!(
+            !result.movements.iter().any(liga_production_e_gt4),
+            "a escada de equipes nao liga Production e gt4"
+        );
     }
 
     #[test]

@@ -328,6 +328,17 @@ struct RaceMonitor {
     /// Diagnóstico ao vivo por carro (para a UI) + se está verde.
     cars_debug: Vec<CarDebug>,
     live_is_green: bool,
+    /// Já houve verde NESTA tentativa de corrida. É a trava que responde "estamos em
+    /// formação?": a formação é o trecho da sessão de corrida ANTES do primeiro verde, e
+    /// nada além disso.
+    ///
+    /// Existe porque os dois sinais óbvios mentem, e os dois foram medidos (17/08/2026):
+    /// `PaceMode` vale 4 (NotPacing) a classificação inteira e fica preso em 1 a 3 a corrida
+    /// inteira nas sessões com IA; `race_green_time` marca a entrada em `SessionState =
+    /// Racing`, que acontece com o campo ainda atrás do pace car. O que separa formação de
+    /// corrida é o verde de verdade (`live_is_green`), e ele precisa de memória porque a
+    /// amarela no meio da prova o apaga sem que a formação volte.
+    verde_da_tentativa: bool,
     /// `session_time` do verde (largada) — para o cooldown de início.
     race_green_time: Option<f64>,
 
@@ -584,6 +595,7 @@ impl RaceMonitor {
             last_collective_alert: None,
             cars_debug: Vec::new(),
             live_is_green: false,
+            verde_da_tentativa: false,
             race_green_time: None,
             history: RaceHistory::empty(),
             hist_session_num: -1,

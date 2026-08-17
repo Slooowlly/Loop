@@ -53,7 +53,12 @@ export default function PreSeasonHeader({
                 {t("preSeason.header.offerCount", { count: playerOffers.length })}
               </span>
             )}
-            {stageKey && forecastLabel && (
+            {/* O chip de interesse vive a janela INTEIRA, não só nas semanas de
+                abertura: a proposta formal só nasce quando o jogador é a primeira
+                escolha da vaga, então "tem equipe de olho, mas há gente na frente"
+                é o estado comum das semanas de assinatura — e sem o chip essas
+                semanas seriam uma tela muda com interesse real por trás. */}
+            {forecastLabel && (
               <span className="glass-light rounded-full px-2.5 py-1 text-body-sm font-semibold text-[color:var(--text-secondary)]">
                 {forecastLabel}
               </span>

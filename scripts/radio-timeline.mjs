@@ -19,6 +19,12 @@
 //   node scripts/radio-timeline.mjs --canal spotter,quebra
 //   node scripts/radio-timeline.mjs --so-perdidas   # o que não chegou ao ouvido
 //   node scripts/radio-timeline.mjs --canal portao  # só o silêncio: quando o rádio fechou, e por quê
+//   node scripts/radio-timeline.mjs --balanco       # ele fala demais ou de menos, e quando
+//
+// O `--balanco` responde a pergunta de quem vai CALIBRAR, e não a de quem quer ler a corrida:
+// quanto do ar cada boca tomou, qual o vão entre falas, onde ficaram os maiores silêncios e
+// como o volume se distribuiu ao longo da prova. Ele cobre o spotter e o engenheiro juntos,
+// porque o jogador tem um par de ouvidos só. Aceita `--canal` e `--sn` para recortar.
 //
 // As marcas da coluna do meio: `·` decidida no Rust, `✎` redigida pelo modelo, `▶` tocou,
 // `✗` não saiu inteira, `♪` tem gravação em disco, `○`/`⊘` o portão do rádio abrindo e fechando,
@@ -43,7 +49,15 @@ function pastaDosRegistros() {
 }
 
 function lerArgumentos(argv) {
-  const o = { arquivo: null, lista: false, sn: null, canais: null, soPerdidas: false, largura: 96 };
+  const o = {
+    arquivo: null,
+    lista: false,
+    sn: null,
+    canais: null,
+    soPerdidas: false,
+    largura: 96,
+    balanco: false,
+  };
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--lista") o.lista = true;
@@ -51,6 +65,7 @@ function lerArgumentos(argv) {
     else if (a === "--sn") o.sn = Number(argv[(i += 1)]);
     else if (a === "--canal") o.canais = new Set(String(argv[(i += 1)]).split(","));
     else if (a === "--largura") o.largura = Number(argv[(i += 1)]);
+    else if (a === "--balanco") o.balanco = true;
     else if (!a.startsWith("--")) o.arquivo = a;
   }
   return o;
@@ -228,6 +243,209 @@ function imprimirFalas(falas, largura) {
  * quantas falas por minuto o rádio produz, quanto do tempo ele ocupa o canal, e quantas
  * decisões morreram sem virar som.
  */
+// ── Balanço ──────────────────────────────────────────────────────────────────
+//
+// O resumo abaixo conta o que o rádio FEZ. O balanço responde outra pergunta, que é a de
+// quem vai calibrar: **ele fala demais ou de menos, e quando?**
+//
+// Média não responde isso. Quatro falas por minuto podem ser quatro falas espalhadas ou
+// vinte no primeiro minuto e silêncio no resto, e as duas corridas soam completamente
+// diferentes. O que responde é a distribuição: o vão entre falas, o maior silêncio, e o
+// perfil ao longo da prova.
+//
+// As duas bocas contabilizam duração de jeitos diferentes, e o balanço tem de saber os dois:
+// o spotter carrega `dur_s` na própria linha (a peça é uma gravação de duração conhecida), e
+// o engenheiro só sabe quanto durou quando termina, então ele abre com `ok` e fecha com
+// `fim`. Quem une os dois é `costurarDuracoes`, que já roda na leitura.
+
+/// As bocas do ENGENHEIRO, para o balanço poder somá-lo contra o spotter.
+///
+/// `portao` e `servidor` ficam de fora: o primeiro é o motivo do silêncio e o segundo é uma
+/// ida à rede. Nenhum dos dois é fala, e contá-los inflaria o rádio com o que ninguém ouviu.
+const BOCAS_ENGENHEIRO = new Set(["quebra", "ritmo", "aviso", "classificacao", "ocasiao", "resposta"]);
+
+/// Quanto tempo esta fala de fato ocupou o canal.
+///
+/// A cortada ocupou até o corte, e não a duração que ela pretendia ter. Somar a pretendida
+/// infla a ocupação justamente nas corridas mais movimentadas, que são as que se quer medir.
+function ocupou(f) {
+  const dur = f.detalhe?.dur_s ?? 0;
+  return Math.max(0, dur - (f.detalhe?.restou_s ?? 0));
+}
+
+function mediana(v) {
+  if (v.length === 0) return 0;
+  const s = [...v].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)];
+}
+
+/// Uma barra de texto, para o perfil caber no terminal sem virar gráfico.
+function barra(v, max, largura = 28) {
+  if (max <= 0) return "";
+  return "█".repeat(Math.max(v > 0 ? 1 : 0, Math.round((v / max) * largura)));
+}
+
+function imprimirBalanco(todas, opcoes) {
+  // Só o que SOOU. Decisão sem som não ocupa ouvido, e é o ouvido que se está balanceando.
+  let tocadas = todas.filter((f) => f.fase === "tocada" && f.desfecho === "ok");
+  if (opcoes.canais) tocadas = tocadas.filter((f) => opcoes.canais.has(f.canal));
+
+  // Uma TENTATIVA de cada vez, e não uma sessão.
+  //
+  // O `sn` sozinho não identifica uma corrida: reiniciar a sessão devolve o `session_time` a
+  // zero e mantém o mesmo `sn`, então três largadas da mesma corrida compartilham o número.
+  // Medido no registro de 17/08/2026: a sessão 1 foi reiniciada três vezes, e ordenar tudo
+  // por `t` empilhou as três tentativas no mesmo eixo. O resultado era um "silêncio de 219 s"
+  // que nunca existiu — era o fim de uma tentativa colado no começo da seguinte.
+  //
+  // A separação usa o RELÓGIO DE PAREDE, que é o único monotônico aqui, e corta onde o `t`
+  // recua. É a mesma doutrina do `spotter_base::saltou` do lado Rust.
+  const SALTO_MAX_S = 5;
+  const ordenadas = [...todas]
+    .filter((f) => typeof f.t === "number")
+    .sort((a, b) => String(a.rel).localeCompare(String(b.rel)));
+  const corridas = [];
+  let atual = null;
+  for (const f of ordenadas) {
+    const nova = !atual || f.sn !== atual.sn || f.t < atual.ultimo - SALTO_MAX_S;
+    if (nova) {
+      atual = { sn: f.sn, tentativa: corridas.filter((c) => c.sn === f.sn).length + 1, linhas: [], ultimo: f.t };
+      corridas.push(atual);
+    }
+    atual.linhas.push(f);
+    atual.ultimo = Math.max(atual.ultimo, f.t);
+  }
+
+  for (const corrida of corridas) {
+    if (opcoes.sn !== null && !Number.isNaN(opcoes.sn) && corrida.sn !== opcoes.sn) continue;
+    const falas = corrida.linhas
+      .filter((f) => tocadas.includes(f))
+      .sort((a, b) => a.t - b.t);
+    // A janela é do PRIMEIRO ao ÚLTIMO instante da tentativa inteira, e não da primeira à
+    // última fala: o silêncio antes da primeira fala é silêncio, e medir só entre falas
+    // esconderia justamente o rádio que demora a abrir a boca.
+    const ts = corrida.linhas.map((f) => f.t);
+    const t0 = Math.min(...ts);
+    const t1 = Math.max(...ts);
+    const janela = t1 - t0;
+    // Tentativa abortada em segundos não descreve cadência nenhuma.
+    if (janela < 30) continue;
+    if (falas.length === 0) continue;
+
+    const quantas = corridas.filter((c) => c.sn === corrida.sn).length;
+    const rotulo = quantas > 1 ? `sessão ${corrida.sn}, tentativa ${corrida.tentativa} de ${quantas}` : `sessão ${corrida.sn}`;
+    console.log(`\n═══ BALANÇO — ${rotulo} ═══`);
+    console.log(`  Janela ........... ${(janela / 60).toFixed(1)} min`);
+
+    // ── Por boca ──
+    const grupos = new Map();
+    for (const f of falas) {
+      const g = grupos.get(f.canal) ?? { n: 0, s: 0, ts: [] };
+      g.n += 1;
+      g.s += ocupou(f);
+      g.ts.push(f.t);
+      grupos.set(f.canal, g);
+    }
+    console.log("\n  canal            falas   /min     s no ar    % janela   vão mediano");
+    for (const [canal, g] of [...grupos].sort((a, b) => b[1].s - a[1].s)) {
+      const vaos = g.ts.slice(1).map((t, i) => t - g.ts[i]);
+      console.log(
+        `  ${canal.padEnd(16)} ${String(g.n).padStart(4)}  ${((g.n / janela) * 60).toFixed(1).padStart(5)}` +
+          `  ${g.s.toFixed(1).padStart(9)}  ${((g.s / janela) * 100).toFixed(1).padStart(8)}%` +
+          `  ${vaos.length ? mediana(vaos).toFixed(1) + "s" : "—"}`,
+      );
+    }
+
+    // ── Spotter contra engenheiro ──
+    //
+    // A divisão que interessa: os dois são a mesma pessoa no ouvido do jogador, e o que
+    // pesa é quanto cada um toma do tempo total.
+    const spot = falas.filter((f) => f.canal === "spotter");
+    const eng = falas.filter((f) => BOCAS_ENGENHEIRO.has(f.canal));
+    const sSpot = spot.reduce((s, f) => s + ocupou(f), 0);
+    const sEng = eng.reduce((s, f) => s + ocupou(f), 0);
+    const total = sSpot + sEng;
+    console.log(`\n  spotter .......... ${spot.length} falas, ${sSpot.toFixed(1)}s`);
+    console.log(`  engenheiro ....... ${eng.length} falas, ${sEng.toFixed(1)}s`);
+    if (total > 0) {
+      console.log(
+        `  divisão do ar .... spotter ${((sSpot / total) * 100).toFixed(0)}%, ` +
+          `engenheiro ${((sEng / total) * 100).toFixed(0)}%`,
+      );
+    }
+    console.log(`  canal ocupado .... ${((total / janela) * 100).toFixed(1)}% da sessão`);
+
+    // ── Os silêncios ──
+    //
+    // A metade da pergunta que a taxa não responde. Um rádio a 4 falas/min com um vão de
+    // seis minutos no meio não é um rádio calibrado, é um rádio que desistiu.
+    const vaos = [];
+    let anterior = t0;
+    for (const f of falas) {
+      const vao = f.t - anterior;
+      if (vao > 0) vaos.push({ de: anterior, ate: f.t, s: vao });
+      anterior = Math.max(anterior, f.t + ocupou(f));
+    }
+    if (t1 > anterior) vaos.push({ de: anterior, ate: t1, s: t1 - anterior });
+    vaos.sort((a, b) => b.s - a.s);
+    console.log(`\n  silêncios: mediano ${mediana(vaos.map((v) => v.s)).toFixed(1)}s, maiores:`);
+    for (const v of vaos.slice(0, 5)) {
+      console.log(`    ${v.s.toFixed(0).padStart(4)}s  de ${SEG(v.de)} a ${SEG(v.ate)}`);
+    }
+
+    // ── O perfil ao longo da prova ──
+    //
+    // É onde "fala demais" vira uma resposta acionável: o rádio que despeja tudo na largada
+    // e emudece precisa de mudança de cadência, e o que distribui parelho precisa de volume.
+    const BALDES = 12;
+    const largura = janela / BALDES;
+    if (largura > 0) {
+      const baldes = Array.from({ length: BALDES }, () => ({ n: 0, s: 0 }));
+      for (const f of falas) {
+        const i = Math.min(BALDES - 1, Math.floor((f.t - t0) / largura));
+        baldes[i].n += 1;
+        baldes[i].s += ocupou(f);
+      }
+      const max = Math.max(...baldes.map((b) => b.s));
+      console.log(`\n  perfil (cada faixa = ${(largura / 60).toFixed(1)} min):`);
+      for (const [i, b] of baldes.entries()) {
+        const de = t0 + i * largura;
+        console.log(
+          `    ${SEG(de)} ${String(b.n).padStart(3)} falas ${b.s.toFixed(0).padStart(4)}s  ${barra(b.s, max)}`,
+        );
+      }
+    }
+  }
+
+  // ── O portão ──
+  //
+  // O silêncio que NÃO é falta de assunto. Sem esta conta, um rádio calado por decisão e um
+  // rádio calado por defeito são o mesmo relatório.
+  const portao = todas.filter((f) => f.canal === "portao");
+  if (portao.length > 0) {
+    // `durou_s` mede quanto durou o estado ANTERIOR, e o anterior é `detalhe.de` — não o
+    // `desfecho`, que é o estado NOVO. Somar pelo desfecho credita ao estado errado toda vez
+    // que o portão vira, e só passa despercebido num registro em que ele nunca fechou.
+    const tempo = new Map();
+    for (const f of portao) {
+      const de = f.detalhe?.de;
+      const s = f.detalhe?.durou_s;
+      if (typeof de !== "string" || typeof s !== "number") continue;
+      tempo.set(de, (tempo.get(de) ?? 0) + s);
+    }
+    console.log(`\n═══ PORTÃO ═══`);
+    console.log(`  ${portao.length} viradas registradas`);
+    for (const [estado, s] of [...tempo].sort((a, b) => b[1] - a[1])) {
+      console.log(`    ${String(estado).padEnd(12)} ${s.toFixed(0)}s`);
+    }
+    if (!tempo.has("fechado")) {
+      console.log("  O portão nunca fechou nesta sessão: o silêncio medido acima não é dele.");
+    } else {
+      console.log("  O portão fechado é silêncio por decisão, e não por falta de assunto.");
+    }
+  }
+}
+
 function imprimirResumo(falas) {
   const tocadas = falas.filter((f) => f.fase === "tocada" && f.desfecho === "ok");
   const decididas = falas.filter((f) => f.fase === "decidida");
@@ -450,7 +668,18 @@ if (!arquivo || !fs.existsSync(arquivo)) {
   process.exit(1);
 }
 
-const { cabecalho, falas } = carregar(arquivo);
+const { cabecalho, falas: tudo } = carregar(arquivo);
+// O DIÁRIO DO SPOTTER fica de fora por padrão. Ele compartilha este arquivo (ver
+// `iracing_sdk/spotter_diario.rs`) porque o carimbo de sessão já vem pronto daqui, e o que ele
+// escreve é a RECUSA: o candidato que o detector viu e descartou. Isso não é fala, e misturá-lo
+// tornaria ilegível justamente a leitura que mais se faz — o que o jogador ouviu. Pior, cada
+// recusa tem `desfecho` diferente de `ok`, então ela entraria no `--so-perdidas` e no resumo
+// como fala engolida, que é uma conta errada.
+//
+// Quem quer ler o diário lê com `spotter-tracker.mjs`, que é a ferramenta dele; `--canal
+// spotter_diario` continua trazendo as linhas cruas para cá quando se pede.
+const pedidoODiario = opcoes.canais?.has("spotter_diario") ?? false;
+const falas = pedidoODiario ? tudo : tudo.filter((f) => f.canal !== "spotter_diario");
 // O fechamento já foi costurado na abertura pela leitura: mostrá-lo aqui listaria cada fala duas
 // vezes, e a segunda sem texto nenhum.
 let mostrar = falas.filter((f) => f.desfecho !== "fim");
@@ -464,5 +693,9 @@ console.log(
   `   relógio      sessão  sn volta  canal                      fala\n` +
     `   ${"─".repeat(90)}`,
 );
-imprimirFalas(mostrar, opcoes.largura);
-imprimirResumo(falas);
+if (opcoes.balanco) {
+  imprimirBalanco(falas, opcoes);
+} else {
+  imprimirFalas(mostrar, opcoes.largura);
+  imprimirResumo(falas);
+}

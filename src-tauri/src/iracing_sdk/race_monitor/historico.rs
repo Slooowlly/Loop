@@ -377,6 +377,35 @@ impl RaceMonitor {
                             Some(acc.map_or(v, |a| a.min(v)))
                         })
                 })
+                // PRIMEIRA VOLTA da corrida: ninguém fechou volta ainda, então não existe
+                // `last_lap_time` nem `best_lap_time` em carro NENHUM — nem no líder, que
+                // acabou de cruzar (o canal do tempo chega décimos depois da virada). O
+                // fallback fixo de 90 s cobrava essa diferença de todo carro com uma volta
+                // a menos que o líder, que na volta 1 é o campo INTEIRO: numa pista de 60 s
+                // o pelotão aparecia 30 s atrás e batia no teto do gráfico, e na volta 2 o
+                // trace caía em degrau quando o tempo real entrava. Aqui a volta de
+                // referência sai do próprio `est_time` (segundos desde a linha até onde o
+                // carro está): dividido pelo `lap_dist_pct`, ele dá a volta cheia. Mediana
+                // entre os carros já longe da linha, para um `est_time` torto não mandar.
+                .or_else(|| {
+                    let mut estimativas: Vec<f64> = t
+                        .cars
+                        .iter()
+                        .filter(|c| {
+                            c.est_time.is_finite()
+                                && c.est_time > 0.0
+                                && c.lap_dist_pct.is_finite()
+                                && c.lap_dist_pct >= 0.25
+                        })
+                        .map(|c| c.est_time / c.lap_dist_pct.min(1.0))
+                        .filter(|v| v.is_finite() && *v > 0.0)
+                        .collect();
+                    if estimativas.is_empty() {
+                        return None;
+                    }
+                    estimativas.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    Some(estimativas[estimativas.len() / 2])
+                })
                 .unwrap_or(90.0);
             // Posição do líder DENTRO da volta em segundos (`CarIdxEstTime`), base do
             // gap contínuo abaixo.

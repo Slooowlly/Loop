@@ -245,3 +245,91 @@ fn abastecimento_longo_nao_e_confundido_com_troca_de_pneu() {
         "abastecimento virou troca"
     );
 }
+
+// ── em_formacao: a formação é "corrida antes do primeiro verde", e nada mais ─
+
+/// O arreio destes testes fala com o monitor pelas mesmas portas do amostrador: o número da
+/// sessão de corrida vem do YAML (`set_race_session_num`) e o verde vem de `observe`, que é
+/// quem escreve `live_is_green` e arma a trava. Setar campos internos na mão provaria só que
+/// o teste sabe escrever neles.
+fn frame_em(session_num: i32, flags: u32) -> IracingTelemetry {
+    IracingTelemetry {
+        session_num,
+        session_state: STATE_RACING,
+        session_time: 100.0,
+        player_car_idx: 0,
+        session_flags: flags as i32,
+        cars: vec![on_track(0, 1, 1)],
+        ..Default::default()
+    }
+}
+
+/// O defeito que originou tudo (17/08/2026): `PaceMode` vale 4 a classificação inteira, e a
+/// leitura antiga (`pace_mode > 0`) punha a QUALI em formação — o briefing de "antes da
+/// largada" saía com o jogador buscando volta rápida.
+#[test]
+fn a_classificacao_nunca_esta_em_formacao() {
+    let mut m = RaceMonitor::new();
+    m.set_race_session_num(2);
+    let mut t = frame_em(1, 0); // sessão 1 = quali; a corrida é a 2
+    t.pace_mode = 4; // o valor REAL medido nas capturas: NotPacing a quali inteira
+    m.observe(&t);
+    let e = m.montar_estado_agora();
+    assert!(!e.em_formacao, "quali não é formação, diga o PaceMode o que disser");
+    assert!(!e.em_corrida);
+}
+
+#[test]
+fn a_corrida_antes_do_verde_esta_em_formacao_e_depois_nao() {
+    let mut m = RaceMonitor::new();
+    m.set_race_session_num(2);
+
+    // Atrás do pace car: estado Racing com caution — o retrato medido da largada real.
+    let mut t = frame_em(2, FLAG_CAUTION);
+    // O PaceMode preso em 2 (o valor medido em Oschersleben a corrida INTEIRA) não pode
+    // mais decidir nada.
+    t.pace_mode = 2;
+    m.observe(&t);
+    assert!(m.montar_estado_agora().em_formacao, "antes do verde é formação");
+
+    // O verde abre: caution some, e a formação acaba.
+    let mut t = frame_em(2, 0);
+    t.pace_mode = 2;
+    t.session_time = 110.0;
+    m.observe(&t);
+    assert!(!m.montar_estado_agora().em_formacao, "depois do verde não há formação");
+
+    // Amarela no meio da prova NÃO ressuscita a formação: a trava tem memória, e é para
+    // isso que ela existe — sem memória, todo safety car viraria "a corrida ainda não
+    // largou" no dossiê do engenheiro.
+    //
+    // O relógio anda POUCO entre os quadros, como no amostrador real. Um salto grande aqui
+    // dispararia o detector de replay, que zera a trava de propósito — e o teste passaria a
+    // medir o detector, não a amarela.
+    let mut t = frame_em(2, FLAG_CAUTION);
+    t.pace_mode = 2;
+    t.session_time = 111.0;
+    m.observe(&t);
+    let e = m.montar_estado_agora();
+    assert!(!e.em_formacao, "amarela é amarela, não formação");
+    assert!(!e.verde, "e o verde vivo apaga normalmente");
+}
+
+#[test]
+fn o_reinicio_da_tentativa_rearma_a_formacao() {
+    let mut m = RaceMonitor::new();
+    m.set_race_session_num(2);
+    let t = frame_em(2, 0);
+    m.observe(&t); // verde visto
+    assert!(!m.montar_estado_agora().em_formacao);
+
+    m.start_attempt(0.0); // reinício: a largada nova ainda não aconteceu
+
+    let mut t = frame_em(2, FLAG_CAUTION);
+    t.session_time = 5.0;
+    m.observe(&t);
+    assert!(
+        m.montar_estado_agora().em_formacao,
+        "a tentativa nova recomeça em formação até o verde dela"
+    );
+}

@@ -60,6 +60,22 @@ fn avancar_semana(
     repair_missing_licenses_for_current_categories(conn)?;
     let week = plan.state.current_week;
     let season = plan.state.season_number;
+    // O plano jogável executa uma semana por vez e guarda cada uma, então `current_week`
+    // e o tamanho de `executed_weeks` andam juntos. Num save de 17/08/2026 eles estavam
+    // separados por cinco: semana 10 no estado e quatro semanas guardadas, com a janela
+    // marcada como completa sem ter passado pelo fechamento — o jogador atravessou a
+    // virada sem equipe e o grid ficou com seis assentos vazios. Não sabemos por qual
+    // caminho, e o plano daquele save já foi apagado pela finalização. A linha abaixo é
+    // para o próximo caso não chegar sem prova: ela não interrompe nada.
+    if narrar && plan.executed_weeks.len() as i32 != week - 1 {
+        crate::diagnostico::linha(
+            "pre-temporada",
+            &format!(
+                "plano fora de passo: semana {week} da temporada {season} com {} semanas guardadas",
+                plan.executed_weeks.len()
+            ),
+        );
+    }
     let season_id = get_season_id_by_number(conn, season)?
         .ok_or_else(|| format!("Temporada {season} nao encontrada"))?;
     // A semente mistura temporada E semana. Semeando só com a temporada, toda semana da
@@ -133,6 +149,7 @@ fn avancar_semana(
     crate::market::pipeline::fill_vacancies_paced(
         conn,
         season,
+        week,
         Some(&ritmo),
         &reserved,
         &mut report,
@@ -263,8 +280,14 @@ fn avancar_semana(
         // O preenchimento final assina vários pilotos de uma vez. Captura essas
         // assinaturas num report e mapeia p/ feed — senão a última semana ficaria
         // muda (os pilotos preenchidos no fechamento sumiam do "fechamento da semana").
+        //
+        // A garantia de porta acima resolve o caso normal, em que a escada segurou
+        // assento vazio pro jogador a semana toda. A variante `_garantindo_jogador`
+        // cobre o outro: quando ela não acha vaga ao alcance dele, a passada final ainda
+        // vai reabrir assento de estreia ao promover gente de baixo, e ele decide sobre
+        // cada um antes da IA. Sai no ato quando ele já assinou.
         let mut final_report = crate::market::proposals::MarketReport::default();
-        crate::market::pipeline::fill_all_remaining_vacancies_reported(
+        crate::market::pipeline::fill_all_remaining_vacancies_garantindo_jogador(
             conn,
             season,
             &mut rng,

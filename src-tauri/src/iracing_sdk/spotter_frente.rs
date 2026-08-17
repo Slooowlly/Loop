@@ -31,6 +31,7 @@ use crate::iracing_sdk::spotter_base::{
     adiante, saltou, spotter_singleton, AUSENCIA_MAX_S, ESTADO_CORRIDA, JANELA_VEL_S, MAX_CARROS,
     SUP_ENTRANDO_BOX, SUP_FORA_DA_PISTA, SUP_FORA_DO_MUNDO, SUP_NA_CAIXA, SUP_NA_PISTA,
 };
+use crate::iracing_sdk::spotter_diario::{self as diario, arredondar};
 use crate::iracing_sdk::CarSnapshot;
 
 /// A fala. Uma só chave: as variações (`carro_fora_frente_2`, `_3`) são resolvidas
@@ -421,9 +422,27 @@ impl ObservadorFrente {
         // Passo 3: quem merece o rádio. Só o mais próximo — dois obstáculos na janela ao
         // mesmo tempo não existiram nos dados, mas se existirem o que importa é o primeiro
         // que o piloto vai encontrar, seja de que família for.
-        if !a.jogador_na_pista || !em_corrida || a.jogador_vel_ms <= 1.0 {
+        // Os PORTÕES de sessão. Anotados no diário porque a diferença entre "o detector não
+        // viu nada" e "o detector estava desligado o tempo todo" é invisível no arquivo do
+        // rádio, e é a primeira pergunta de quem termina uma corrida teste com o rádio
+        // calado. Ver [`crate::iracing_sdk::spotter_diario`].
+        let portao = if !a.jogador_na_pista {
+            Some("jogador_fora_da_pista")
+        } else if !em_corrida {
+            Some("sessao_nao_e_corrida")
+        } else if a.jogador_vel_ms <= 1.0 {
+            Some("jogador_parado")
+        } else {
+            None
+        };
+        if let Some(motivo) = portao {
+            diario::nota(a.tempo_s, "frente", diario::SEM_ALVO, motivo, diario::SEM_FOLGA, || {
+                serde_json::json!({ "estado": a.estado_sessao, "vel_ms": arredondar(a.jogador_vel_ms, 1) })
+            });
             return None;
         }
+        diario::limpar("frente", diario::SEM_ALVO);
+
         let mut alvo: Option<(f64, usize)> = None;
         for c in a.carros {
             let i = c.idx as usize;
@@ -434,16 +453,43 @@ impl ObservadorFrente {
                 continue;
             };
             if ep.avisado {
+                // Um episódio já avisado segue aberto até o carro sair da frente, e nesse
+                // intervalo ele é recusado a 60 Hz. Uma linha por episódio é o que diz que
+                // o obstáculo continuou lá depois da fala.
+                diario::nota(a.tempo_s, "frente", c.idx, "ja_avisado", diario::SEM_FOLGA, || {
+                    serde_json::json!({ "tipo": format!("{:?}", ep.tipo), "ep": ep.id })
+                });
                 continue;
             }
             let dist = adiante(a.jogador_pct, c.lap_dist_pct, a.comprimento_m);
-            if dist > DIST_MAX_M {
-                continue;
-            }
             let tta = dist / a.jogador_vel_ms;
-            if !(TTA_MIN_S..=TTA_MAX_S).contains(&tta) {
+            // O QUASE AVISO. É o número que calibra o limiar: um candidato recusado a 205 m
+            // com o corte em 200 diz uma coisa bem diferente de um recusado a 900 m, e hoje
+            // os dois saem do detector iguais, que é dizer que nenhum dos dois sai.
+            // Quanto faltou para o limiar que recusou. É a coluna que responde "mexer 10% no
+            // corte mudaria alguma coisa?" sem rodar nada de novo, e o diário guarda a MENOR
+            // do episódio inteiro em vez da do instante da transição.
+            let recusa = if dist > DIST_MAX_M {
+                Some(("longe", dist - DIST_MAX_M))
+            } else if tta > TTA_MAX_S {
+                Some(("cedo", tta - TTA_MAX_S))
+            } else if tta < TTA_MIN_S {
+                Some(("tarde", TTA_MIN_S - tta))
+            } else {
+                None
+            };
+            if let Some((motivo, folga)) = recusa {
+                diario::nota(a.tempo_s, "frente", c.idx, motivo, folga, || {
+                    serde_json::json!({
+                        "tipo": format!("{:?}", ep.tipo),
+                        "ep": ep.id,
+                        "dist_m": arredondar(dist, 0),
+                        "tta_s": arredondar(tta, 2),
+                    })
+                });
                 continue;
             }
+            diario::limpar("frente", c.idx);
             if alvo.map(|(d, _)| dist < d).unwrap_or(true) {
                 alvo = Some((dist, i));
             }

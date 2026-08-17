@@ -59,6 +59,13 @@ function Corpo({ team }) {
   const titulos = team.categoria_titulos ?? 0;
   const vitorias = team.categoria_vitorias ?? 0;
   const caixa = team.cash_balance ?? 0;
+  // A mesma decisão da ficha do piloto: a temporada só aparece quando houve
+  // temporada. Na pré-temporada os três números nascem zerados (`temp_posicao`
+  // é zerado na virada e os pontos são da temporada ativa, que ainda não
+  // correu) — abrir a ficha com "0 posição, 0 pontos, 0 vitórias" diz que a
+  // equipe não fez nada quando o que aconteceu é que ninguém correu ainda.
+  const houveTemporada =
+    (team.temp_posicao ?? 0) > 0 || (team.pontos ?? 0) > 0 || (team.vitorias ?? 0) > 0;
 
   return (
     <>
@@ -81,16 +88,18 @@ function Corpo({ team }) {
         </div>
       </div>
 
-      <SecaoDaFicha titulo={t("teamMiniCard.season")}>
-        <div className="flex items-start gap-1">
-          <NumeroDaFicha
-            rotulo={t("teamMiniCard.position")}
-            valor={team.temp_posicao > 0 ? team.temp_posicao : 0}
-          />
-          <NumeroDaFicha rotulo={t("teamMiniCard.points")} valor={team.pontos} />
-          <NumeroDaFicha rotulo={t("teamMiniCard.wins")} valor={team.vitorias} destaque />
-        </div>
-      </SecaoDaFicha>
+      {houveTemporada && (
+        <SecaoDaFicha titulo={t("teamMiniCard.season")}>
+          <div className="flex items-start gap-1">
+            <NumeroDaFicha
+              rotulo={t("teamMiniCard.position")}
+              valor={team.temp_posicao > 0 ? team.temp_posicao : 0}
+            />
+            <NumeroDaFicha rotulo={t("teamMiniCard.points")} valor={team.pontos} />
+            <NumeroDaFicha rotulo={t("teamMiniCard.wins")} valor={team.vitorias} destaque />
+          </div>
+        </SecaoDaFicha>
+      )}
 
       <SecaoDaFicha titulo={t("teamMiniCard.structure")}>
         <LinhaDeTier
@@ -144,8 +153,16 @@ function Corpo({ team }) {
   );
 }
 
-/// Envolve o logo da equipe e abre a ficha rápida no clique.
-export default function TeamMiniCard({ team, children }) {
+/// Envolve o logo ou o nome da equipe e abre a ficha rápida no clique.
+///
+/// O realce padrão é brilho porque o alvo original é o logo, que é imagem:
+/// sublinhar não diz nada nele. Quando o alvo é o NOME, o ponto de uso passa o
+/// sublinhado — o mesmo realce que o nome do piloto já usa na linha de assento.
+export default function TeamMiniCard({
+  team,
+  realce = "transition-all hover:brightness-125 focus-visible:brightness-125",
+  children,
+}) {
   const { t } = useTranslation();
 
   return (
@@ -154,9 +171,7 @@ export default function TeamMiniCard({ team, children }) {
       testId="team-mini-card"
       rotuloFechar={t("teamMiniCard.close")}
       desabilitado={!team}
-      // O logo é imagem: sublinhar não diz nada nele. O brilho é o mesmo realce
-      // que os cards do grid já usam para dizer "isto responde ao mouse".
-      realce="transition-all hover:brightness-125 focus-visible:brightness-125"
+      realce={realce}
       conteudo={<Corpo team={team} />}
     >
       {children}

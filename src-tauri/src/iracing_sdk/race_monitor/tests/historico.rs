@@ -269,3 +269,88 @@ fn lider_nao_ganha_carro_a_frente_fabricado_do_sentinela() {
     );
     assert_eq!(p.behind_idx, 2, "o carro de trás continua sendo achado");
 }
+
+// ── Histórico: a volta de referência do race trace na PRIMEIRA volta ─────
+
+/// Instante em que o líder fecha a volta 1 numa pista de 60 s. Ninguém tem
+/// `last_lap_time` nem `best_lap_time` ainda: o líder acabou de cruzar (o canal do
+/// tempo chega décimos depois) e o resto do campo nem cruzou. O único sinal de
+/// ritmo disponível é o `est_time`.
+fn frame_da_primeira_volta() -> IracingTelemetry {
+    let mut lider = on_track(1, 1, 1);
+    lider.lap_dist_pct = 0.02;
+    lider.est_time = 1.2;
+
+    // Jogador a 3 s do líder: 95% da volta, 57 s desde a linha.
+    let mut jogador = on_track(0, 2, 0);
+    jogador.lap_dist_pct = 0.95;
+    jogador.est_time = 57.0;
+
+    let mut terceiro = on_track(2, 3, 0);
+    terceiro.lap_dist_pct = 0.90;
+    terceiro.est_time = 54.0;
+
+    IracingTelemetry {
+        session_num: 2,
+        session_state: STATE_RACING,
+        session_time: 61.0,
+        player_car_idx: 0,
+        cars: vec![jogador, lider, terceiro],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn gap_da_primeira_volta_sai_do_est_time_e_nao_do_fallback_de_90s() {
+    let mut m = RaceMonitor::new();
+    m.attempts.push(active_attempt());
+
+    m.record_history(&frame_da_primeira_volta());
+
+    let snap = m.history.laps.last().expect("snapshot da volta 1");
+    assert_eq!(snap.lap, 1);
+    let jogador = snap.cars.iter().find(|c| c.idx == 0).unwrap();
+    // Volta de referência estimada = mediana de est_time/pct = 60 s.
+    // Líder: 1 × 60 + 1,2 = 61,2. Jogador: 0 × 60 + 57 = 57. Gap = 4,2 s.
+    assert!(
+        (jogador.gap - 4.2).abs() < 0.2,
+        "gap da volta 1 devia ficar em ~4,2 s de pista, veio {}",
+        jogador.gap
+    );
+}
+
+#[test]
+fn a_volta_2_nao_cai_em_degrau_depois_da_primeira() {
+    // O sintoma que o fallback de 90 s produzia: gap inflado na volta 1 e queda
+    // brusca na volta 2, quando o `last_lap_time` real finalmente entra. Com a
+    // referência estimada, as duas voltas ficam na mesma escala.
+    let mut m = RaceMonitor::new();
+    m.attempts.push(active_attempt());
+
+    m.record_history(&frame_da_primeira_volta());
+    let gap_v1 = m.history.laps.last().unwrap().cars.iter().find(|c| c.idx == 0).unwrap().gap;
+
+    // Volta 2: mesma distância entre os dois, agora com tempo de volta publicado.
+    let mut lider = on_track(1, 1, 2);
+    lider.lap_dist_pct = 0.02;
+    lider.est_time = 1.2;
+    lider.last_lap_time = 60.0;
+    let mut jogador = on_track(0, 2, 1);
+    jogador.lap_dist_pct = 0.95;
+    jogador.est_time = 57.0;
+    jogador.last_lap_time = 60.0;
+    m.record_history(&IracingTelemetry {
+        session_num: 2,
+        session_state: STATE_RACING,
+        session_time: 121.0,
+        player_car_idx: 0,
+        cars: vec![jogador, lider],
+        ..Default::default()
+    });
+    let gap_v2 = m.history.laps.last().unwrap().cars.iter().find(|c| c.idx == 0).unwrap().gap;
+
+    assert!(
+        (gap_v1 - gap_v2).abs() < 1.0,
+        "a mesma distância não pode mudar de escala entre as voltas 1 e 2: {gap_v1} → {gap_v2}"
+    );
+}

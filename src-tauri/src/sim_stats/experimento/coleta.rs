@@ -8,7 +8,12 @@ pub(super) fn coletar(runs: usize, seasons: usize, start: Instant, t: &mut Total
             .duration_since(UNIX_EPOCH)
             .expect("time")
             .as_nanos();
-        let base_dir = std::env::temp_dir().join(format!("iracer_mc_{run}_{nanos}"));
+        // O pid entra no nome porque o relógio do Windows anda em passos de ~15 ms:
+        // dois harnesses abertos no mesmo instante pegavam o MESMO diretório e um
+        // apagava o save do outro no meio da run (medido em 17/08/2026, quatro
+        // processos paralelos, panic no preseason_plan.json que o irmão removeu).
+        let pid = std::process::id();
+        let base_dir = std::env::temp_dir().join(format!("iracer_mc_{pid}_{run}_{nanos}"));
         std::fs::create_dir_all(&base_dir).expect("base dir");
 
         let input = CreateCareerInput {

@@ -16,11 +16,34 @@ pub(super) fn career_dir(base_dir: &Path) -> PathBuf {
 }
 
 /// Pré-temporada → Temporada, sem asserts (para rodar muitas temporadas seguidas).
+///
+/// Avança a janela SEMANA A SEMANA até ela fechar. Até 16/08/2026 esta função avançava
+/// uma única semana e depois forçava o plano como completo, e com isso o harness inteiro
+/// media um mundo em que a passada de MOVIMENTOS nunca rodava: `run_market_movements`
+/// (dona do rebaixamento por mérito, do assédio e da subida do campeão do rookie) só cai
+/// a partir de `signings_start_week`, que vale 3. Três medições independentes chegaram ao
+/// mesmo achado no mesmo dia, e nenhum número de mercado tirado do Monte Carlo antes
+/// disso é comparável com os de agora.
+///
+/// O teto existe para o harness nunca travar num plano que não fecha: `MARKET_DURATION_WEEKS`
+/// mais folga, e depois dele o fechamento forçado abaixo continua valendo como rede.
 pub(super) fn run_preseason_to_temporada(base_dir: &Path) {
     let db_path = career_db_path(base_dir);
     let career_dir = career_dir(base_dir);
 
-    let _ = advance_market_week_in_base_dir(base_dir, "career_001", None);
+    let teto = usize::from(crate::constants::timeline::MARKET_DURATION_WEEKS) + 3;
+    for _ in 0..teto {
+        if advance_market_week_in_base_dir(base_dir, "career_001", None).is_err() {
+            break;
+        }
+        let fechou = crate::market::preseason::load_preseason_plan(&career_dir)
+            .ok()
+            .flatten()
+            .is_some_and(|plan| plan.state.is_complete);
+        if fechou {
+            break;
+        }
+    }
 
     // Limpa propostas pendentes
     {

@@ -1,17 +1,19 @@
-﻿import { colors } from "./colors";
-
-// Passos do wizard como slugs estáveis; o rótulo exibido vem de
+﻿// Passos do wizard como slugs estáveis; o rótulo exibido vem de
 // `newCareer.wizardSteps.<slug>` resolvido no NewCareer (que tem o hook `t`).
-export const WIZARD_STEPS = ["difficulty", "driver", "history", "category", "team", "confirm"];
+export const WIZARD_STEPS = ["driver", "history", "category", "team", "confirm"];
 
-// `name`/`desc` de exibição migraram para i18n (`newCareer.difficulty.<id>`),
-// resolvidos no render. Aqui ficam só id/emoji/accent (lógica e visual).
+// O vocabulário de dificuldade que o backend aceita. O wizard deixou de oferecer a
+// escolha em 16/08/2026, porque a dificuldade da IA passou a ser adaptativa: aqui
+// sobrou só a validação do valor que vem gravado num draft retomado.
 export const DIFFICULTIES = [
-  { id: "facil", emoji: "😊", accent: colors.VERDE },
-  { id: "medio", emoji: "😐", accent: colors.AMARELO },
-  { id: "dificil", emoji: "😤", accent: colors.LARANJA },
-  { id: "lendario", emoji: "💀", accent: colors.VERMELHO },
+  { id: "facil" },
+  { id: "medio" },
+  { id: "dificil" },
+  { id: "lendario" },
 ];
+
+// A dificuldade que todo mundo histórico novo recebe, já que ninguém mais a escolhe.
+export const DIFFICULTY_PADRAO = "medio";
 
 // O rótulo (bandeira + gentílico) vem de `newCareer.nationality.<id>` /
 // `<id>_fem`, resolvido no render. O emoji da bandeira mora no valor traduzido.

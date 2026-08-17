@@ -1,5 +1,7 @@
 import { useTranslation } from "react-i18next";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import TeamLogoMark from "../../team/TeamLogoMark";
+import { DossieDoPiloto } from "../../driver/DriverMiniCard";
 import {
   WEEKLY_MARKET_MOVEMENT_BADGES,
   RELATION_EMPHASIS,
@@ -7,9 +9,41 @@ import {
   subcatLabel,
 } from "../preSeasonFormatters.js";
 
+// Seta de passo entre movimentos — o mesmo gesto da ficha do piloto, em escala
+// menor porque o modal também é. Chevron vertical de propósito: o trilho segue
+// a ordem de leitura da lista do fechamento, que é vertical.
+function StepButton({ label, direction, target, onSelect }) {
+  const Chevron = direction === "up" ? ChevronUp : ChevronDown;
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={!target}
+      onClick={() => target && onSelect(target)}
+      data-testid={`transfer-detail-step-${direction}`}
+      className={`grid h-12 w-12 place-items-center rounded-2xl border backdrop-blur-sm transition-glass ${
+        target
+          ? "border-white/15 bg-[#0d1727]/90 text-text-secondary hover:border-white/30 hover:bg-[#14233a] hover:text-text-primary"
+          : "cursor-not-allowed border-white/[0.06] bg-[#0b111a]/70 text-[#4a525d]"
+      }`}
+    >
+      <Chevron size={20} strokeWidth={1.6} aria-hidden="true" />
+    </button>
+  );
+}
+
 // Modal: Detalhe da transferência (clique num movimento do fechamento semanal).
-export default function TransferDetailModal({ event: ev, onClose }) {
+// `events` é o trilho das setas: a lista achatada do fechamento, na ordem da
+// tela. Sem ela (ou com um movimento só) o modal abre como sempre, sem setas.
+export default function TransferDetailModal({ event: ev, events = [], onSelect, onClose }) {
   const { t } = useTranslation();
+  // Por referência mesmo: o `ev` veio de um item desta lista, e os grupos são
+  // memoizados — enquanto o modal está aberto ninguém recria os objetos.
+  const stepIndex = events.indexOf(ev);
+  const previousEvent = stepIndex > 0 ? events[stepIndex - 1] : null;
+  const nextEvent =
+    stepIndex >= 0 && stepIndex < events.length - 1 ? events[stepIndex + 1] : null;
+  const showRail = Boolean(onSelect) && events.length > 1 && stepIndex >= 0;
   const badge = WEEKLY_MARKET_MOVEMENT_BADGES[ev.movement_kind];
   const emphasis = RELATION_EMPHASIS[ev.relation];
   const isDebut = !ev.from_team;
@@ -27,7 +61,30 @@ export default function TransferDetailModal({ event: ev, onClose }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="glass-strong animate-fade-in relative mx-4 w-full max-w-lg rounded-2xl p-6 md:p-7">
+      {/* O wrapper dá às setas uma âncora com a largura do card: a calha fica
+          sempre no mesmo lugar à direita, independente da altura do conteúdo. */}
+      <div className="relative mx-4 w-full max-w-lg">
+        {showRail && (
+          <div
+            data-testid="transfer-detail-step-rail"
+            className="absolute left-full top-1/2 ml-3 flex -translate-y-1/2 flex-col gap-2"
+          >
+            <StepButton
+              label={t("driverDetail.navigator.previous")}
+              direction="up"
+              target={previousEvent}
+              onSelect={onSelect}
+            />
+            <StepButton
+              label={t("driverDetail.navigator.next")}
+              direction="down"
+              target={nextEvent}
+              onSelect={onSelect}
+            />
+          </div>
+        )}
+
+      <div className="glass-strong animate-fade-in relative max-h-[85vh] w-full overflow-y-auto rounded-2xl p-6 md:p-7">
         <button
           onClick={onClose}
           aria-label={t("preSeason.actions.close")}
@@ -74,10 +131,9 @@ export default function TransferDetailModal({ event: ev, onClose }) {
         ) : (
         /* De → Para (equipes) */
         <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/25 px-4 py-4">
+          {/* Sem rótulo "De"/"Para": a seta e a ordem de leitura já dizem o
+              sentido, e as duas palavras só roubavam altura do bloco. */}
           <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
-            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
-              {t("preSeason.transferDetail.from")}
-            </div>
             {isDebut ? (
               <span className="text-[14px] font-semibold text-[color:var(--text-secondary)]">
                 {t("preSeason.transferDetail.careerDebut")}
@@ -97,9 +153,6 @@ export default function TransferDetailModal({ event: ev, onClose }) {
           </span>
 
           <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
-            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
-              {t("preSeason.transferDetail.to")}
-            </div>
             {toTeam ? (
               <>
                 <TeamLogoMark teamName={toTeam} color={accent} size="md" />
@@ -143,6 +196,17 @@ export default function TransferDetailModal({ event: ev, onClose }) {
                 ? t("preSeason.transferDetail.renewed")
                 : t("preSeason.transferDetail.previousTeam")}
         </p>
+
+        {/* O dossiê do piloto — o mesmo corpo da ficha rápida do mercado, sem o
+            nome (já está no título do modal). Só quando o evento sabe o id:
+            movimento antigo serializado sem driver_id continua abrindo o modal
+            como antes. */}
+        {ev.driver_id && (
+          <div className="mt-5 rounded-xl border border-white/10 bg-black/25 pb-1">
+            <DossieDoPiloto driverId={ev.driver_id} ocultarNome />
+          </div>
+        )}
+      </div>
       </div>
     </div>
   );

@@ -311,6 +311,24 @@ impl RaceMonitor {
         self.race_session_num >= 0 && t.session_num == self.race_session_num
     }
 
+    /// Que sessão do fim de semana está rolando: `corrida`, `classificacao` ou `treino`.
+    ///
+    /// Chave ESTÁVEL, e não prosa: ela viaja para o front no [`super::EstadoAgora`] e é
+    /// comparada como texto pelos fatos do engenheiro. Renomear uma é mudar as duas pontas.
+    ///
+    /// Sai dos dois números que o YAML já entregou, sem parser novo. O `treino` é o resto por
+    /// definição: se a sessão atual não é a corrida nem a classificatória, ela é treino —
+    /// inclusive quando o YAML não trouxe nenhuma das duas, que é o caso de um test drive.
+    pub(super) fn tipo_da_sessao(&self, t: &IracingTelemetry) -> &'static str {
+        if self.race_session_num >= 0 && t.session_num == self.race_session_num {
+            "corrida"
+        } else if self.qualy_session_num >= 0 && t.session_num == self.qualy_session_num {
+            "classificacao"
+        } else {
+            "treino"
+        }
+    }
+
     /// Guarda o número de cada carro (do `CarNumberRaw`).
     pub(super) fn set_car_numbers(&mut self, numbers: &[i32; 64]) {
         self.car_number = *numbers;

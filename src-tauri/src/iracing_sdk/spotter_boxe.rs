@@ -45,6 +45,7 @@ use crate::iracing_sdk::spotter_base::{
     adiante, empurrar_com_teto, saltou_desde, spotter_singleton, ESTADO_CORRIDA, JANELA_VEL_S,
     MAX_CARROS, SUP_ENTRANDO_BOX, SUP_NA_CAIXA, SUP_NA_PISTA,
 };
+use crate::iracing_sdk::spotter_diario::{self as diario, arredondar};
 
 pub const CHAVE_SAINDO_BOX: &str = "carro_saindo_box";
 
@@ -212,25 +213,43 @@ impl ObservadorBoxe {
             let Some(saiu) = self.carros[i].saiu_em_s else {
                 continue;
             };
+            // Daqui para baixo o carro É um candidato: ele saiu do box e está na pista. Cada
+            // recusa vai para o diário com a folga que faltou, porque esta é a família mais
+            // rara do sistema e a pergunta que ela levanta depois de uma corrida teste é
+            // sempre a mesma — não saiu ninguém do box, ou saiu e o corte não deixou passar?
+            // Ver [`crate::iracing_sdk::spotter_diario`].
             if a.tempo_s - saiu > SAIDA_JANELA_S {
                 continue;
             }
             let d = adiante(jog.lap_dist_pct, c.lap_dist_pct, a.comprimento_m);
-            if !(DIST_MIN_M..=DIST_MAX_M).contains(&d) {
-                continue;
-            }
             let dif = vel_jog - self.carros[i].vel_kmh;
-            if dif < DIF_MIN_KMH {
-                continue;
-            }
             let fechamento = dif / 3.6;
-            if fechamento < FECHAMENTO_MIN_MS {
+            let tta = if fechamento > 0.0 { d / fechamento } else { f64::INFINITY };
+            let recusa = if d < DIST_MIN_M {
+                Some(("perto", DIST_MIN_M - d))
+            } else if d > DIST_MAX_M {
+                Some(("longe", d - DIST_MAX_M))
+            } else if dif < DIF_MIN_KMH {
+                Some(("sem_diferenca", DIF_MIN_KMH - dif))
+            } else if fechamento < FECHAMENTO_MIN_MS {
+                Some(("sem_fechamento", FECHAMENTO_MIN_MS - fechamento))
+            } else if tta > TTA_MAX_S {
+                Some(("cedo", tta - TTA_MAX_S))
+            } else {
+                None
+            };
+            if let Some((motivo, folga)) = recusa {
+                diario::nota(a.tempo_s, "boxe", c.idx, motivo, folga, || {
+                    serde_json::json!({
+                        "dist_m": arredondar(d, 0),
+                        "dif_kmh": arredondar(dif, 1),
+                        "tta_s": if tta.is_finite() { arredondar(tta, 2) } else { -1.0 },
+                        "saiu_ha_s": arredondar(a.tempo_s - saiu, 1),
+                    })
+                });
                 continue;
             }
-            let tta = d / fechamento;
-            if tta > TTA_MAX_S {
-                continue;
-            }
+            diario::limpar("boxe", c.idx);
             if alvo.as_ref().map(|x| d < x.distancia_m).unwrap_or(true) {
                 alvo = Some(EpisodioBoxe {
                     inicio_s: a.tempo_s,

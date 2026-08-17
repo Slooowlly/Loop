@@ -46,8 +46,22 @@ pub fn calculate_visibility(
         vis -= 2.0;
     }
 
+    // Categoria de estreia tem holofote menor — mas o TETO duro de 3.0 que valia até
+    // 17/08/2026 ficava abaixo do limiar de shortlist (4.0 em `generate_team_proposals`)
+    // e tornava TODO piloto de rookie invisível para o mercado: zero propostas de mérito
+    // no tier 0, medido em 80 janelas de Monte Carlo. A ESCALA no lugar do teto preserva
+    // a intenção (rookie vale menos que o equivalente das categorias de cima) sem achatar
+    // a ordem: o meio do grid continua fora da vitrine, e só o fora da curva — top ~5,
+    // jovem, com vitória — passa do limiar e vira alvo de proposta.
+    //
+    // Desligar `IRACER_ROOKIE_NA_VITRINE` devolve o teto antigo, que é o braço "antes"
+    // do A/B — não é uma opção de jogo.
     if categoria == "mazda_rookie" || categoria == "toyota_rookie" {
-        vis = vis.min(3.0);
+        if crate::constants::flags_experimentais::booleana("IRACER_ROOKIE_NA_VITRINE") {
+            vis *= 0.5;
+        } else {
+            vis = vis.min(3.0);
+        }
     }
 
     vis.clamp(0.0, 10.0)
@@ -146,12 +160,18 @@ mod tests {
         assert!(visibility >= 8.0);
     }
 
+    /// A escala do rookie substitui o teto: o campeão jovem PASSA do limiar de
+    /// shortlist (4.0) — antes ninguém do tier 0 passava, nunca —, o meio do grid
+    /// continua abaixo dele, e um rookie sempre vale menos que o mesmo currículo
+    /// numa categoria de cima.
     #[test]
-    fn test_rookie_category_capped_visibility() {
-        let driver = sample_driver(19);
-
-        let visibility = calculate_visibility(
-            &driver,
+    fn a_escala_do_rookie_poe_o_fora_da_curva_na_vitrine_e_so_ele() {
+        if std::env::var("IRACER_ROOKIE_NA_VITRINE").is_ok() {
+            return; // o harness pode estar rodando o braço "antes"
+        }
+        let campeao = sample_driver(19);
+        let vis_campeao = calculate_visibility(
+            &campeao,
             1,
             12,
             0,
@@ -161,8 +181,33 @@ mod tests {
             &TeamRole::Numero1,
             "mazda_rookie",
         );
+        assert!(
+            vis_campeao >= 4.0,
+            "o campeão jovem do rookie tem que passar do limiar de shortlist: {vis_campeao}"
+        );
 
-        assert!(visibility <= 3.0);
+        let meio_de_grid = sample_driver(19);
+        let vis_meio = calculate_visibility(
+            &meio_de_grid,
+            6,
+            12,
+            0,
+            1,
+            0,
+            0,
+            &TeamRole::Numero1,
+            "mazda_rookie",
+        );
+        assert!(
+            vis_meio < 4.0,
+            "o meio do grid continua fora da vitrine: {vis_meio}"
+        );
+
+        // O mesmo currículo numa categoria de cima vale mais: a escala mantém o
+        // rookie como a categoria de menor holofote, que era a intenção do teto.
+        let vis_gt3 =
+            calculate_visibility(&campeao, 1, 12, 4, 5, 0, 4, &TeamRole::Numero1, "gt3");
+        assert!(vis_campeao < vis_gt3);
     }
 
     #[test]

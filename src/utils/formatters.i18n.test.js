@@ -1,7 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import i18n, { DEFAULT_LANGUAGE } from "../i18n/index.js";
 import {
-  difficultyLabel,
   formatLicenseLevel,
   formatSeasonPhase,
   formatPreseasonPhase,
@@ -24,7 +23,6 @@ afterAll(() => i18n.changeLanguage(DEFAULT_LANGUAGE));
 
 describe("formatters i18n (Fase 1 — mapas de label)", () => {
   it("PT é o baseline (default pt-BR)", () => {
-    expect(difficultyLabel("lendario")).toBe("Lendário");
     expect(formatLicenseLevel(0)).toBe("Amadora");
     expect(formatLicenseLevel(-1)).toBe("Sem licença");
     expect(formatSeasonPhase("PreTemporada")).toBe("Pré-Temporada");
@@ -35,7 +33,6 @@ describe("formatters i18n (Fase 1 — mapas de label)", () => {
 
   it("troca pra EN", () => {
     withLang("en-US", () => {
-      expect(difficultyLabel("lendario")).toBe("Legendary");
       expect(formatLicenseLevel(0)).toBe("Amateur");
       expect(formatLicenseLevel(9)).toBe("No license");
       expect(formatSeasonPhase("PreTemporada")).toBe("Preseason");
@@ -67,7 +64,6 @@ describe("formatters i18n (Fase 1 — mapas de label)", () => {
   });
 
   it("fallback: chave desconhecida devolve o valor cru", () => {
-    expect(difficultyLabel("xyz")).toBe("xyz");
     expect(formatSeasonPhase("Desconhecida")).toBe("Desconhecida");
   });
 });

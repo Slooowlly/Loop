@@ -107,6 +107,21 @@ describe("NewCareer", () => {
     vi.restoreAllMocks();
   });
 
+  // O funil abre direto na identidade: a escolha de dificuldade saiu em 16/08/2026, porque
+  // a dificuldade da IA passou a ser adaptativa. O valor continua indo para o backend fixo
+  // em "medio", que é o que o teste de geração abaixo trava.
+  it("abre no passo do piloto, sem pedir dificuldade", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("get_career_draft");
+    });
+
+    expect(screen.getByPlaceholderText("João Silva")).toBeInTheDocument();
+    expect(screen.queryByText("Lendario")).not.toBeInTheDocument();
+    expect(screen.queryByText("Dificuldade")).not.toBeInTheDocument();
+  });
+
   it("generates the world before showing category and team selection", async () => {
     renderPage();
 
@@ -114,7 +129,6 @@ describe("NewCareer", () => {
       expect(mockInvoke).toHaveBeenCalledWith("get_career_draft");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /proximo|próximo/i }));
     fireEvent.change(screen.getByPlaceholderText("João Silva"), {
       target: { value: "Rodrigo Teste" },
     });
@@ -143,7 +157,6 @@ describe("NewCareer", () => {
       expect(mockInvoke).toHaveBeenCalledWith("get_career_draft");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /proximo|próximo/i }));
     fireEvent.change(screen.getByPlaceholderText("João Silva"), {
       target: { value: "Rodrigo Teste" },
     });
@@ -188,7 +201,6 @@ describe("NewCareer", () => {
     });
 
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /pr.ximo/i }));
     fireEvent.change(screen.getByPlaceholderText(/Jo.o Silva/), {
       target: { value: "Rodrigo Teste" },
     });
@@ -201,6 +213,73 @@ describe("NewCareer", () => {
     });
 
     expect(screen.getByText("Simulando temporada 2012")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveGeneration(generatedDraft);
+      await Promise.resolve();
+    });
+  });
+
+  // O Atlas embaixo das mensagens de espera lê o banco do rascunho enquanto ele é
+  // escrito. O gatilho tem que ser o ANO fechado, e não o tique de um segundo do
+  // polling: a leitura disputa lock com a geração, e uma por segundo devolveria em
+  // espera parte do tempo que a criação do save acabou de ganhar.
+  it("recarrega o atlas a cada temporada concluída, e não a cada tique do polling", async () => {
+    vi.useFakeTimers();
+    let resolveGeneration;
+    let progressYear = 2004;
+    let generationStarted = false;
+    const historyCalls = [];
+    mockInvoke.mockImplementation((command, args) => {
+      if (command === "get_career_draft") {
+        if (!generationStarted) return Promise.resolve(null);
+        return Promise.resolve({
+          ...generatedDraft,
+          teams: [],
+          categories: [],
+          progress_year: progressYear,
+        });
+      }
+      if (command === "create_historical_career_draft") {
+        generationStarted = true;
+        return new Promise((resolve) => {
+          resolveGeneration = resolve;
+        });
+      }
+      if (command === "get_global_team_history") {
+        historyCalls.push(args);
+        return Promise.resolve(null);
+      }
+      return Promise.resolve(null);
+    });
+
+    renderPage();
+    fireEvent.change(screen.getByPlaceholderText(/Jo.o Silva/), {
+      target: { value: "Rodrigo Teste" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /pr.ximo/i }));
+    fireEvent.click(screen.getByRole("button", { name: /gerar hist.rico/i }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(historyCalls).toHaveLength(1);
+    expect(historyCalls[0].careerId).toBe("career_001");
+    // A escada nasce no GT3, e é nele que o painel abre.
+    expect(historyCalls[0].family).toBe("gt3");
+
+    // Três tiques do polling no mesmo ano: nenhuma leitura nova.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(historyCalls).toHaveLength(1);
+
+    // Temporada fechada: uma leitura, e só uma.
+    progressYear = 2005;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(historyCalls).toHaveLength(2);
 
     await act(async () => {
       resolveGeneration(generatedDraft);
@@ -236,34 +315,6 @@ describe("NewCareer", () => {
     expect(mockInvoke).not.toHaveBeenCalledWith("discard_career_draft");
   });
 
-  it("discards generated draft when the difficulty changes", async () => {
-    renderPage();
-
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("get_career_draft");
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /pr.ximo/i }));
-    fireEvent.change(screen.getByPlaceholderText(/Jo.o Silva/), {
-      target: { value: "Rodrigo Teste" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /pr.ximo/i }));
-    fireEvent.click(screen.getByRole("button", { name: /gerar hist.rico/i }));
-
-    expect((await screen.findAllByText("Mazda Rookie")).length).toBeGreaterThan(0);
-
-    fireEvent.click(screen.getByRole("button", { name: /voltar/i }));
-    fireEvent.click(screen.getByRole("button", { name: /voltar/i }));
-    fireEvent.click(screen.getByRole("button", { name: /voltar/i }));
-    // A dificuldade molda os atributos da IA no mundo histórico, então trocá-la
-    // é a única edição de identidade que ainda invalida o que foi simulado.
-    fireEvent.click(screen.getByText("Lendario"));
-
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith("discard_career_draft");
-    });
-  });
-
   it("keeps the generated draft and rewrites the identity when the name changes", async () => {
     renderPage();
 
@@ -271,7 +322,6 @@ describe("NewCareer", () => {
       expect(mockInvoke).toHaveBeenCalledWith("get_career_draft");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /pr.ximo/i }));
     fireEvent.change(screen.getByPlaceholderText(/Jo.o Silva/), {
       target: { value: "Rodrigo Teste" },
     });

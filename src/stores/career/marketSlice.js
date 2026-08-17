@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import i18n from "../../i18n/index.js";
+import { bestEffort } from "../../utils/bestEffort.js";
 import {
   applyCareerData,
   buildTemporalUiState,
@@ -147,9 +148,24 @@ export const createMarketSlice = (set, get) => ({
 
       return weekResult;
     } catch (error) {
+      // A semana que o backend recusa quase sempre é uma tela velha: o assento aceito
+      // mudou de dono (ou de papel) desde a última leitura, e a ficha de contrato segue
+      // ali oferecendo o que não existe mais. Sem recarregar aqui, a recusa vira beco:
+      // a mesma ficha, o mesmo clique, o mesmo erro, para sempre. Recarrega em
+      // best-effort, porque quem manda na tela é o erro que vai aparecer — se a releitura
+      // também falhar, fica o estado de antes e a linha no `loop.log`.
+      const [state, transferWindow] = await Promise.all([
+        bestEffort(invoke("get_preseason_state", { careerId }), "advance_market_week:preseason_state"),
+        bestEffort(
+          invoke("get_transfer_window_state", { careerId }),
+          "advance_market_week:transfer_window",
+        ),
+      ]);
       set({
         isAdvancingWeek: false,
         error: getErrorMessage(error, i18n.t("storeErrors.advancePreseasonWeek")),
+        ...(state ? { preseasonState: state } : {}),
+        ...(transferWindow ? { transferWindow } : {}),
       });
       throw error;
     }

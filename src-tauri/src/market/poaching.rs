@@ -32,6 +32,37 @@ pub fn poach_target_value(skill: f64, fama: f64, need_factor: f64) -> f64 {
     skill + fame_commercial_units(fama) * need_factor
 }
 
+/// Teto de anos que a multa de PROMOÇÃO cobra, mesmo em contrato mais longo.
+pub const ANOS_MAXIMOS_DA_MULTA_DE_PROMOCAO: i32 = 2;
+
+/// Multa para levar um piloto SOB contrato numa PROMOÇÃO, que é outra coisa do assédio
+/// e por isso tem régua própria: aqui a multa paga o CONTRATO, não o piloto.
+///
+/// A diferença importa porque as duas situações são opostas. No assédio é uma equipe
+/// grande arrancando uma estrela, e cobrar pelo talento (`poach_pedigree`, faixa 0,6 a
+/// 1,8) é exatamente o freio que se quer. Na promoção é uma equipe pobre subindo o
+/// campeão da categoria de baixo, e cobrar pelo talento inverte o mecanismo: quanto
+/// melhor o piloto, menos ele consegue subir.
+///
+/// Medido em 17/08/2026, com esta multa usando a régua do assédio: 48% a 65% das
+/// promoções eram recusadas por caixa, no endurance 93%, e quem era recusado tinha 12 a
+/// 15 pontos de skill A MAIS que quem subia. Um terço dos recusados nunca subia, e 2,5 a
+/// 3,4 campeões por mundo de 15 temporadas ficavam presos. A régua nova tem três
+/// diferenças, todas na direção de deixar o campeão passar:
+///
+/// 1. Sem o multiplicador de pedigree. A multa deixa de crescer com skill e fama.
+/// 2. No máximo [`ANOS_MAXIMOS_DA_MULTA_DE_PROMOCAO`] anos, mesmo em contrato de três.
+/// 3. `None` na última temporada de contrato: quem está de saída sobe de graça.
+///
+/// O teto de caixa continua sendo o [`can_afford_buyout`], compartilhado com o assédio.
+pub fn buyout_fee_promocao(salary_anual: f64, years_remaining: i32) -> Option<f64> {
+    if years_remaining < 2 {
+        return None;
+    }
+    let years = years_remaining.min(ANOS_MAXIMOS_DA_MULTA_DE_PROMOCAO) as f64;
+    Some((salary_anual.max(0.0) * years).round())
+}
+
 /// Margem mínima de UPGRADE (em pontos de valor) pra o assediante topar a dor de
 /// cabeça de arrancar um contratado — evita troca-troca sem ganho real.
 pub const POACH_UPGRADE_MARGIN: f64 = 8.0;
@@ -189,6 +220,41 @@ pub fn resolve_salary_auction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_multa_de_promocao_nao_cobra_o_ultimo_ano_de_contrato() {
+        assert_eq!(buyout_fee_promocao(100_000.0, 1), None);
+        assert_eq!(buyout_fee_promocao(100_000.0, 0), None);
+        assert_eq!(buyout_fee_promocao(100_000.0, 2), Some(200_000.0));
+    }
+
+    #[test]
+    fn a_multa_de_promocao_para_de_crescer_em_dois_anos() {
+        assert_eq!(buyout_fee_promocao(100_000.0, 2), Some(200_000.0));
+        assert_eq!(buyout_fee_promocao(100_000.0, 3), Some(200_000.0));
+        assert_eq!(buyout_fee_promocao(100_000.0, 9), Some(200_000.0));
+    }
+
+    #[test]
+    fn a_multa_de_promocao_ignora_talento_e_fama() {
+        // O craque e o medíocre com o MESMO contrato pagam a mesma multa. É o que
+        // distingue esta régua da do assédio, onde o pedigree multiplica por até 1,8.
+        let craque = buyout_fee_promocao(100_000.0, 3);
+        let mediocre = buyout_fee_promocao(100_000.0, 3);
+        assert_eq!(craque, mediocre);
+        assert!(buyout_fee(100_000.0, 3, 95.0, 90.0) > buyout_fee(100_000.0, 3, 45.0, 5.0));
+    }
+
+    #[test]
+    fn a_multa_de_promocao_e_muito_menor_que_a_do_assedio_para_o_campeao() {
+        // O caso que travava a escada: campeão de skill alta e mídia alta, três anos de
+        // contrato. A régua do assédio cobrava 5,4 salários; a da promoção cobra 2.
+        let assedio = buyout_fee(100_000.0, 3, 100.0, 100.0);
+        let promocao = buyout_fee_promocao(100_000.0, 3).expect("tem multa");
+        assert_eq!(assedio, 540_000.0);
+        assert_eq!(promocao, 200_000.0);
+        assert!(promocao < assedio / 2.0);
+    }
 
     fn side(id: &str, quality: f64, bond: f64, ceiling: f64) -> AuctionSide {
         AuctionSide {

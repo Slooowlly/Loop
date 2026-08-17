@@ -180,7 +180,13 @@ export default function TeamGridCardV2({
             />
           </TeamMiniCard>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[18px] font-bold leading-[1.05]">{team.nome}</p>
+            {/* O nome abre a mesma ficha que o logo: o logo é um alvo de 40px e
+                ninguém adivinha que a marca é clicável — o nome é o que o olho
+                mira. Sublinhado, e não brilho, porque em texto é o realce que
+                o nome do piloto já usa logo abaixo. */}
+            <TeamMiniCard team={team} realce="hover:underline focus-visible:underline">
+              <p className="truncate text-[18px] font-bold leading-[1.05]">{team.nome}</p>
+            </TeamMiniCard>
             {/* Linha de identidade: quando a equipe existe e o que ela fez AQUI. */}
             <p className="mt-1 flex items-center gap-2 truncate text-[9.5px] text-[color:var(--text-muted)]">
               {team.founded_year > 0 && (

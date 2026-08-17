@@ -64,8 +64,16 @@ struct MundoDaCascata<'a> {
     /// Teto salarial de UM piloto por equipe, derivado do poder de gasto. Vazio quando
     /// a affordability está desligada → seleção sem penalidade, como antes.
     team_ceiling_by_id: &'a HashMap<String, f64>,
+    /// Equipes na METADE DE BAIXO da própria categoria, por desejabilidade de assento
+    /// (carro + prestígio). Elas são as que "olham para baixo": tentam o campeão da
+    /// categoria de baixo ANTES do pool de agentes livres, e assinam por um ano só.
+    metade_de_baixo: &'a HashSet<String>,
     new_season_number: i32,
     debut_year: i32,
+    /// Semana corrente da janela, quando a passada é a semanal (paginada). `None` nas
+    /// passadas sem relógio (fechamento e pré-temporada não-interativa), onde o mercado
+    /// em ondas não se aplica — elas são a rede de segurança do grid cheio.
+    semana: Option<i32>,
 }
 
 /// O que a passada vai alterando enquanto anda pelas vagas.
@@ -136,6 +144,7 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
     rng: &mut impl Rng,
     limit: Option<&HashMap<String, usize>>,
     reserved: &HashSet<String>,
+    semana: Option<i32>,
 ) -> Result<(), String> {
     let assinaturas_antes = report.new_signings.len();
     // Cópia mutável das cotas: a cascata as REABASTECE ao longo da passada (ver
@@ -146,6 +155,7 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
         .unwrap_or_else(|| Local::now().year());
     let team_need_by_id = necessidade_por_equipe(teams);
     let team_ceiling_by_id = teto_salarial_por_equipe(teams);
+    let metade_de_baixo = metade_de_baixo_por_categoria(teams);
 
     loop {
         let current_drivers = driver_queries::get_all_drivers(conn)
@@ -178,8 +188,10 @@ pub(super) fn fill_remaining_vacancies_with_rookies(
             license_levels: &license_levels,
             team_need_by_id: &team_need_by_id,
             team_ceiling_by_id: &team_ceiling_by_id,
+            metade_de_baixo: &metade_de_baixo,
             new_season_number,
             debut_year,
+            semana,
         };
         let mut estado = EstadoDaCascata {
             available: &mut available,
@@ -292,6 +304,101 @@ fn vagas_abertas_ordenadas(
     Ok(vacancies)
 }
 
+/// Prêmio salarial de uma promoção que precisou COMPRAR o contrato: contratação forçada
+/// custa acima da tabela. Vale só no primeiro contrato; a renovação seguinte volta à
+/// régua normal, então o prêmio não vira salário permanente.
+const PREMIO_DE_COMPRA_DE_CONTRATO: f64 = 1.25;
+
+/// Liga o pacote inteiro do mercado do fundo: a inversão de ordem da cascata, a multa
+/// por contrato vivo, o prêmio salarial e o contrato de um ano. Desligada, a cascata
+/// volta ao comportamento de 16/08/2026 — é o braço "antes" do A/B, não uma opção de jogo.
+fn fundo_olha_para_baixo() -> bool {
+    crate::constants::flags_experimentais::booleana("IRACER_FUNDO_OLHA_PARA_BAIXO")
+}
+
+/// Liga o mercado em ondas: a equipe só contrata a partir da semana de liberação dela.
+/// Desligada, toda equipe contrata desde a abertura — o braço "antes" do A/B.
+pub(super) fn mercado_em_ondas() -> bool {
+    crate::constants::flags_experimentais::booleana("IRACER_MERCADO_EM_ONDAS")
+}
+
+/// Liga a tendência do fundo das categorias de estreia a contratar NOVATO gerado em vez
+/// da sobra do pool. Desligada, o fundo disputa o pool como qualquer equipe.
+fn fundo_da_estreia_prefere_novato() -> bool {
+    crate::constants::flags_experimentais::booleana("IRACER_FUNDO_ESTREIA_NOVATO")
+}
+
+/// Semana a partir da qual a EQUIPE pode contratar, no mercado em ondas.
+///
+/// A régua tem duas dimensões, as mesmas que o jogador enxerga como hierarquia: a
+/// colocação (metade de cima contrata antes do fundo) e o tier (o fundo das categorias
+/// altas entra antes do fundo da base). Quem foi mal espera — quando a vez dela chega,
+/// os melhores agentes livres já assinaram e o que resta é o resto. Com a janela indo
+/// da semana 3 à 9, o fundo da base entra na 7 e ainda tem três semanas de mercado
+/// antes do fechamento, que ignora a onda por ser a rede de segurança.
+pub(super) fn semana_de_liberacao(category_tier: u8, equipe_do_fundo: bool) -> i32 {
+    let abertura = i32::from(crate::constants::timeline::MARKET_SIGNINGS_START_WEEK);
+    if !equipe_do_fundo {
+        return abertura;
+    }
+    match category_tier {
+        0..=1 => abertura + 4, // fundo da base (rookie/amador): semanas finais
+        _ => abertura + 2,     // fundo das categorias altas: depois de o topo se servir
+    }
+}
+
+/// Percentual das equipes do fundo da estreia que preferem o novato ao pool, por
+/// equipe-temporada.
+const TENDENCIA_AO_NOVATO_PCT: u64 = 70;
+
+/// A equipe tende ao novato NESTA temporada? Hash estável (FNV-1a, o mesmo desenho do
+/// `team_salary_multiplier`) de equipe + temporada: a decisão não muda entre as passadas
+/// da semana, não consome o RNG da cascata, e varia de temporada em temporada — a mesma
+/// equipe ora aposta no prodígio, ora pega um veterano da sobra.
+pub(super) fn tende_ao_novato(team_id: &str, season: i32) -> bool {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a offset basis
+    for b in team_id.bytes().chain(season.to_le_bytes()) {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3); // FNV prime
+    }
+    (hash % 100) < TENDENCIA_AO_NOVATO_PCT
+}
+
+/// Equipes na metade de baixo da própria categoria (e da própria classe, nas
+/// multiclasse), medidas pela mesma desejabilidade que ordena as vagas: carro mais
+/// prestígio. Empate e categoria de tamanho ímpar caem para o lado de baixo, que é o
+/// lado conservador — quem está no meio se comporta como pequeno.
+///
+/// Existe porque a ordem de preenchimento entrega o campeão da categoria de baixo para
+/// quem escolhe primeiro, ou seja para a MELHOR equipe. Era o avesso do mundo real: quem
+/// aposta no campeão da várzea é o time do fundo, que não consegue atrair um piloto
+/// provado. Medido em 16/08/2026: a equipe do fundo repunha 30,4% dos assentos com rookie
+/// gerado, contra 15,8% do topo, e quase não fazia troca lateral.
+pub(super) fn metade_de_baixo_por_categoria(
+    teams: &[crate::models::team::Team],
+) -> HashSet<String> {
+    let mut por_grupo: HashMap<(String, Option<String>), Vec<(String, f64)>> = HashMap::new();
+    for team in teams {
+        let forca = (team.car_strength() / 100.0).min(1.2)
+            * crate::market::transfer_window::SEAT_W_CAR
+            + (team.reputacao.clamp(0.0, 100.0) / 100.0)
+                * crate::market::transfer_window::SEAT_W_PRESTIGE;
+        por_grupo
+            .entry((team.categoria.clone(), team.classe.clone()))
+            .or_default()
+            .push((team.id.clone(), forca));
+    }
+    let mut fundo = HashSet::new();
+    for (_, mut equipes) in por_grupo {
+        equipes.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let corte = equipes.len() / 2;
+        for (id, _) in equipes.into_iter().skip(corte) {
+            fundo.insert(id);
+        }
+    }
+    fundo
+}
+
 /// A cascata inteira aplicada a UMA vaga, na ordem das etapas descrita no topo do
 /// módulo. Cada etapa só é tentada quando a anterior não resolveu.
 fn preencher_uma_vaga(
@@ -308,12 +415,68 @@ fn preencher_uma_vaga(
         return Ok(DesfechoDaVaga::Pulou);
     }
 
-    if tentar_pool_de_resgate(conn, vacancy, mundo, estado, rng)? {
-        return Ok(DesfechoDaVaga::Preencheu);
+    // MERCADO EM ONDAS: a equipe só contrata a partir da semana de liberação dela —
+    // metade de cima na abertura, fundo dos tiers altos no meio, fundo da base nas
+    // semanas finais. Uma equipe que foi mal não tem o poder de contratar cedo: quando
+    // chega a vez dela, os melhores já assinaram e sobra o resto. É isso que mantém
+    // vagas vivas até o fim da janela — antes o mercado inteiro acabava entre as
+    // semanas 3 e 6 e nenhuma primeira proposta chegava depois da 6, medido. As
+    // passadas sem relógio (`semana = None`: fechamento e pré-temporada
+    // não-interativa) ignoram a onda, porque são a rede de segurança do grid cheio.
+    if let Some(semana) = mundo.semana {
+        if mercado_em_ondas()
+            && semana
+                < semana_de_liberacao(
+                    vacancy.category_tier,
+                    mundo.metade_de_baixo.contains(&vacancy.team_id),
+                )
+        {
+            return Ok(DesfechoDaVaga::Pulou);
+        }
+    }
+
+    // A equipe do FUNDO olha para baixo primeiro: ela tenta o campeão da categoria de
+    // baixo antes do pool de agentes livres. A de cima mantém a ordem de sempre, pool
+    // primeiro, porque o que ela quer é piloto já provado nesta categoria e só desce ao
+    // feeder quando não sobrou ninguém. Sem esta inversão o campeão de baixo ia sempre
+    // para quem escolhe primeiro, que é a melhor equipe do grid.
+    let olha_para_baixo = fundo_olha_para_baixo()
+        && mundo.metade_de_baixo.contains(&vacancy.team_id)
+        && !is_real_career_debut_category(&vacancy.categoria)
+        && !is_entry_category_for_year(&vacancy.categoria, mundo.debut_year);
+    if olha_para_baixo {
+        let vaga_especial = runs_in_special_phase(&vacancy.categoria);
+        if tentar_escada_de_promocao(conn, vacancy, vaga_especial, mundo, estado, rng)? {
+            return Ok(DesfechoDaVaga::PreencheuAbrindoBuraco);
+        }
     }
 
     let vaga_de_estreia = is_real_career_debut_category(&vacancy.categoria)
         || is_entry_category_for_year(&vacancy.categoria, mundo.debut_year);
+
+    // O FUNDO da categoria de estreia TENDE AO NOVATO: em vez de disputar a sobra do
+    // pool de veteranos, aposta num estreante gerado — é a chance dela de ter a sorte
+    // de um prodígio. A tendência é por equipe-temporada (hash estável, como o
+    // `team_salary_multiplier`), então a mesma equipe não muda de ideia entre as
+    // passadas da semana nem consome o RNG da cascata. As equipes boas da estreia
+    // seguem no pool e recontratam quem já provou — a ordem de escolha delas já
+    // garante isso.
+    if vaga_de_estreia
+        && fundo_da_estreia_prefere_novato()
+        && mundo.metade_de_baixo.contains(&vacancy.team_id)
+        && tende_ao_novato(&vacancy.team_id, mundo.new_season_number)
+    {
+        if estado.cotas.is_some() {
+            return Ok(DesfechoDaVaga::Pulou); // o assento espera o fechamento
+        }
+        nascer_rookie(conn, vacancy, mundo, estado, rng, "rookie")?;
+        return Ok(DesfechoDaVaga::Preencheu);
+    }
+
+    if tentar_pool_de_resgate(conn, vacancy, mundo, estado, rng)? {
+        return Ok(DesfechoDaVaga::Preencheu);
+    }
+
     if vaga_de_estreia {
         // NASCER é a última coisa que se faz. Um estreante gerado é gente nova num mundo
         // de assentos fixos: ele empurra alguém para fora do grid. Durante as semanas com
@@ -413,13 +576,18 @@ fn tentar_pool_de_resgate(
         &vacancy.categoria,
         vacancy.classe.as_deref(),
     )?;
+    let duracao = duracao_de_contrato(
+        vacancy.category_tier,
+        fundo_olha_para_baixo() && mundo.metade_de_baixo.contains(&vacancy.team_id),
+        rng,
+    );
     sign_driver_to_team(
         conn,
         &candidate.driver,
         vacancy,
         mundo.new_season_number,
         calculate_offer_salary(vacancy, &candidate.driver, rng),
-        1,
+        duracao,
         vacancy.papel_necessario.clone(),
     )?;
     let tipo = if is_real_career_debut_category(&vacancy.categoria) {
@@ -485,6 +653,39 @@ fn tentar_escada_de_promocao(
         return Ok(false);
     };
 
+    // PEDÁGIO: quem ainda tem DUAS temporadas ou mais de contrato não sobe de graça. A
+    // equipe que o leva paga a multa à equipe dele e assina por um salário acima do
+    // normal, porque é contratação forçada. Não cabendo no caixa, o passo devolve falso
+    // e o campeão fica onde está, o que não é desfecho ruim: ele fica mais um ano, e no
+    // ano seguinte o contrato está no fim e ele sai sem custo.
+    //
+    // A multa é a `buyout_fee_promocao`, e NÃO a do assédio: aqui ela paga o contrato e
+    // não o piloto. Com a régua do assédio, que multiplica por skill e fama, metade das
+    // promoções era recusada por caixa e a recusa barrava justamente os melhores. O teto
+    // de caixa (`can_afford_buyout`) continua sendo o mesmo dos dois mecanismos.
+    let mut premio_salarial = 1.0;
+    let contrato_vivo = if fundo_olha_para_baixo() {
+        contract_queries::get_active_regular_contract_for_pilot(conn, &candidate.id)
+            .map_err(|e| format!("Falha ao checar contrato do promovido: {e}"))?
+    } else {
+        None
+    };
+    if let Some(contrato) = contrato_vivo {
+        let anos_restantes = contrato.temporada_fim - mundo.new_season_number + 1;
+        if let Some(multa) =
+            crate::market::poaching::buyout_fee_promocao(contrato.salario_anual, anos_restantes)
+        {
+            let comprador = team_queries::get_team_by_id(conn, &vacancy.team_id)
+                .map_err(|e| format!("Falha ao buscar equipe compradora: {e}"))?
+                .ok_or_else(|| format!("Equipe '{}' nao encontrada", vacancy.team_id))?;
+            if !crate::market::poaching::can_afford_buyout(comprador.cash_balance, multa) {
+                return Ok(false);
+            }
+            transfer_between_teams(conn, &vacancy.team_id, &contrato.equipe_id, multa)?;
+            premio_salarial = PREMIO_DE_COMPRA_DE_CONTRATO;
+        }
+    }
+
     liberar_assento_do_promovido(conn, &candidate.id, estado.cotas, "")?;
     if vaga_especial {
         // Especiais: concede a licença da divisão ao assinar.
@@ -497,13 +698,18 @@ fn tentar_escada_de_promocao(
     }
     // Escada regular: sem concessão — o candidato JÁ possui a licença exigida (filtro de
     // mérito em best_feeder_promotion_candidate).
+    let duracao = duracao_de_contrato(
+        vacancy.category_tier,
+        fundo_olha_para_baixo() && mundo.metade_de_baixo.contains(&vacancy.team_id),
+        rng,
+    );
     sign_driver_to_team(
         conn,
         &candidate,
         vacancy,
         mundo.new_season_number,
-        calculate_offer_salary(vacancy, &candidate, rng),
-        1,
+        calculate_offer_salary(vacancy, &candidate, rng) * premio_salarial,
+        duracao,
         vacancy.papel_necessario.clone(),
     )?;
     if was_deep {
@@ -563,13 +769,18 @@ fn tentar_resgate_por_escassez(
         &vacancy.categoria,
         vacancy.classe.as_deref(),
     )?;
+    let duracao = duracao_de_contrato(
+        vacancy.category_tier,
+        fundo_olha_para_baixo() && mundo.metade_de_baixo.contains(&vacancy.team_id),
+        rng,
+    );
     sign_driver_to_team(
         conn,
         &candidate.driver,
         vacancy,
         mundo.new_season_number,
         calculate_offer_salary(vacancy, &candidate.driver, rng),
-        1,
+        duracao,
         vacancy.papel_necessario.clone(),
     )?;
     estado.registrar_assinatura(
@@ -615,13 +826,18 @@ fn tentar_promocao_de_emergencia(
         &vacancy.categoria,
         vacancy.classe.as_deref(),
     )?;
+    let duracao = duracao_de_contrato(
+        vacancy.category_tier,
+        fundo_olha_para_baixo() && mundo.metade_de_baixo.contains(&vacancy.team_id),
+        rng,
+    );
     sign_driver_to_team(
         conn,
         &candidate,
         vacancy,
         mundo.new_season_number,
         calculate_offer_salary(vacancy, &candidate, rng),
-        1,
+        duracao,
         vacancy.papel_necessario.clone(),
     )?;
     estado.registrar_assinatura(
@@ -712,6 +928,7 @@ fn registrar_caminho_da_emergencia(categoria_de_origem: Option<&str>, categoria_
 pub(crate) fn fill_vacancies_paced(
     conn: &Connection,
     season: i32,
+    week: i32,
     limit: Option<&HashMap<String, usize>>,
     reserved: &HashSet<String>,
     report: &mut MarketReport,
@@ -719,7 +936,16 @@ pub(crate) fn fill_vacancies_paced(
 ) -> Result<(), String> {
     let teams = team_queries::get_all_teams(conn)
         .map_err(|e| format!("Falha ao carregar equipes para a escada paginada: {e}"))?;
-    fill_remaining_vacancies_with_rookies(conn, &teams, season, report, rng, limit, reserved)
+    fill_remaining_vacancies_with_rookies(
+        conn,
+        &teams,
+        season,
+        report,
+        rng,
+        limit,
+        reserved,
+        Some(week),
+    )
 }
 
 /// Rebaixamento por MÉRITO (modelo fechado, conservação preservada): em cada

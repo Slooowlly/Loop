@@ -11,6 +11,39 @@ use crate::market::visibility::{
 use crate::models::driver::Driver;
 use crate::models::team::placeholder_team_from_db;
 
+/// Duração, em temporadas, de um contrato NOVO assinado pela IA. Fonte única: até
+/// 16/08/2026 este sorteio existia só aqui, dentro de `generate_team_proposals`, e a
+/// escada descartava o resultado passando `1` cravado para `sign_driver_to_team` nos
+/// cinco pontos que assinam. O efeito medido: 100% das contratações de IA saíam com um
+/// ano, em 9.295 assinaturas, e com isso 80% a 97% do grid vencia contrato todo ano e
+/// reentrava na janela junto. Ninguém precisava disputar ninguém.
+///
+/// A escala é por PRESTÍGIO da vaga, não por desempenho do piloto: quanto mais alta a
+/// categoria, mais longo o vínculo (o topo não recomeça do zero toda temporada). O peso
+/// do desempenho já existe na RENOVAÇÃO, em `market::renewal`, e continua sendo lá que
+/// entregar bem compra ano de contrato.
+/// `equipe_do_fundo` é a metade de baixo da categoria por carro e prestígio: ela assina
+/// por UM ano, sempre. Quem está no fundo não amarra ninguém por três temporadas, porque
+/// não tem como saber se vai poder pagar, e a aposta dela no campeão da categoria de
+/// baixo é justamente uma aposta de um ano. A escala por prestígio vale só para a metade
+/// de cima.
+///
+/// Desligar `IRACER_CONTRATO_PLURIANUAL` devolve o 1 ano cravado, que é o comportamento
+/// medido antes de 16/08/2026 — é o braço "antes" do A/B, e não uma opção de jogo.
+pub fn duracao_de_contrato(category_tier: u8, equipe_do_fundo: bool, rng: &mut impl Rng) -> i32 {
+    if !crate::constants::flags_experimentais::booleana("IRACER_CONTRATO_PLURIANUAL") {
+        return 1;
+    }
+    if equipe_do_fundo {
+        return 1;
+    }
+    match category_tier {
+        0..=1 => rng.gen_range(1..=2),
+        2..=3 => rng.gen_range(1..=3),
+        _ => rng.gen_range(2..=3),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AvailableDriver {
     pub driver: Driver,
@@ -78,11 +111,11 @@ pub fn generate_team_proposals(
             categoria: vacancy.categoria.clone(),
             papel: vacancy.papel_necessario.clone(),
             salario_oferecido: calculate_offer_salary(vacancy, &candidate.driver, rng),
-            duracao_anos: match vacancy.category_tier {
-                0..=1 => rng.gen_range(1..=2),
-                2..=3 => rng.gen_range(1..=3),
-                _ => rng.gen_range(2..=3),
-            },
+            // `false`: a shortlist não conhece a classificação da equipe dentro da
+            // categoria (ela recebe uma vaga, não o grid), então a oferta formal usa a
+            // escala por prestígio. Quem sabe se a equipe é do fundo é a cascata, que
+            // monta o ranking uma vez por passada.
+            duracao_anos: duracao_de_contrato(vacancy.category_tier, false, rng),
             status: ProposalStatus::Pendente,
             motivo_recusa: None,
         })

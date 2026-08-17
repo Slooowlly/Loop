@@ -68,10 +68,6 @@ export function formatDateTime(isoString) {
   });
 }
 
-export function difficultyLabel(id) {
-  return i18n.t(`difficulty.${id}`, { defaultValue: id });
-}
-
 export function categoryLabel(id) {
   const labels = {
     mazda_rookie: "Mazda Rookie",

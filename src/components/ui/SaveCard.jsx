@@ -2,27 +2,16 @@ import { useTranslation } from "react-i18next";
 
 import GlassButton from "./GlassButton";
 import GlassCard from "./GlassCard";
-import {
-  difficultyLabel,
-  formatDateTime,
-  formatSurfaceSeasonLabel,
-} from "../../utils/formatters";
+import { formatDateTime, formatSurfaceSeasonLabel } from "../../utils/formatters";
 
-const difficultyAccent = {
-  facil: "border-status-green/30",
-  medio: "border-status-yellow/30",
-  dificil: "border-status-orange/30",
-  lendario: "border-status-red/30",
-};
-
+// A dificuldade saiu do cartão em 16/08/2026, junto com o passo do wizard que a escolhia:
+// sem escolha, todo save nasce em "medio" e a informação deixou de distinguir um do outro.
+// Com ela foi embora a borda colorida por faixa, que era a mesma cor em todos os cartões.
 function SaveCard({ save, onLoad, onDelete, onBackups, loading = false }) {
   const { t } = useTranslation();
 
   return (
-    <GlassCard
-      hover={false}
-      className={`rounded-[28px] border ${difficultyAccent[save.difficulty] ?? "border-white/10"}`}
-    >
+    <GlassCard hover={false} className="rounded-[28px] border border-white/10">
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-3">
           <p className="text-[11px] uppercase tracking-[0.22em] text-accent-primary">
@@ -37,12 +26,6 @@ function SaveCard({ save, onLoad, onDelete, onBackups, loading = false }) {
                 {t("saveCard.season")}
               </p>
               <p className="mt-2 text-sm text-text-primary">{formatSurfaceSeasonLabel(save)}</p>
-            </div>
-            <div className="glass-light rounded-2xl p-4">
-              <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                {t("saveCard.difficulty")}
-              </p>
-              <p className="mt-2 text-sm text-text-primary">{difficultyLabel(save.difficulty)}</p>
             </div>
           </div>
 

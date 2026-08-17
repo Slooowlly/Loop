@@ -49,7 +49,7 @@ export const DIR_GUARDS = path.join("scripts", "tests");
 /// e não pegaria o caso que importa, que é o guard apagado e comitado junto. Subir é
 /// mecânico e o teste `o piso pega a suíte encolhendo` avisa quando ficou defasado;
 /// ABAIXAR é decisão consciente de apagar guard, nunca efeito colateral.
-export const PISO = 54;
+export const PISO = 55;
 
 /** Os arquivos de guard, em ordem estável. Caminhos relativos à raiz do repo. */
 export function listarGuards(raiz = RAIZ) {

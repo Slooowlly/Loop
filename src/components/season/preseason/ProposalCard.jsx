@@ -76,30 +76,24 @@ export default function ProposalCard({ proposal: p, isAdvancingWeek, onRespond }
         </div>
       </div>
 
-      <div className="flex gap-2">
-        <button
-          onClick={() =>
-            onRespond(
-              p.proposal_id,
-              true,
-              p.equipe_cor_primaria,
-              p.categoria,
-              p.equipe_nome,
-            )
-          }
-          disabled={isAdvancingWeek}
-          className="transition-glass glow-blue flex-1 rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-3 py-2 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {t("preSeason.proposals.accept")}
-        </button>
-        <button
-          onClick={() => onRespond(p.proposal_id, false)}
-          disabled={isAdvancingWeek}
-          className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-body font-semibold text-[color:var(--text-secondary)] hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {t("preSeason.proposals.decline")}
-        </button>
-      </div>
+      {/* Recusar não existe: não há ganho nenhum em rejeitar — a proposta tem prazo e
+          expira sozinha (o chip acima diz quando). Quem não aceita simplesmente deixa
+          passar, e o assento volta ao mercado sem o jogador fechar porta nenhuma. */}
+      <button
+        onClick={() =>
+          onRespond(
+            p.proposal_id,
+            true,
+            p.equipe_cor_primaria,
+            p.categoria,
+            p.equipe_nome,
+          )
+        }
+        disabled={isAdvancingWeek}
+        className="transition-glass glow-blue w-full rounded-lg border border-[#58a6ff66] bg-[#58a6ff33] px-3 py-2 text-body font-bold text-[color:var(--accent-primary)] hover:bg-[#58a6ff55] disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {t("preSeason.proposals.accept")}
+      </button>
     </article>
   );
 }

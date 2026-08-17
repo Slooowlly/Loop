@@ -5,11 +5,7 @@
 // cash_balance, histórico, flags de contrato/aposentadoria) — o v1 simplesmente
 // não os desenhava. O que fazemos é contar, ordenar e classificar em faixas.
 
-import {
-  CATEGORIES,
-  CATEGORY_TIER,
-  count_team_vacancies,
-} from "../../preSeasonFormatters.js";
+import { CATEGORIES, count_team_vacancies } from "../../preSeasonFormatters.js";
 
 // Filtra o grid COMPLETO pela categoria do topo, sem ir ao backend de novo.
 // Espelha exatamente a regra de `fetchGridTeams` (dbIds + filterClass) — o v2
@@ -66,37 +62,4 @@ export function buildCategoryCounters(allTeams) {
     };
   }
   return counters;
-}
-
-// Assentos ao alcance do jogador: equipes com vaga (aberta ou em risco) numa
-// categoria de tier compatível (o mesmo ±1 do leilão). NÃO é informação nova —
-// é um recorte do que a coluna central já mostra na mesma tela, filtrado pelo
-// que o jogador poderia de fato ocupar.
-export function buildReachableSeats(allTeams, playerTier, limit = 4) {
-  if (playerTier == null) return [];
-  const reachable = [];
-  for (const team of allTeams) {
-    const tier = CATEGORY_TIER[team._categoria] ?? null;
-    if (tier == null) continue;
-    if (Math.abs(tier - playerTier) > 1) continue;
-    const open = count_team_vacancies(team);
-    const risk = countSeatsAtRisk([team]);
-    if (open === 0 && risk === 0) continue;
-    reachable.push({
-      team,
-      tier,
-      open,
-      risk,
-      isPromotion: tier > playerTier,
-    });
-  }
-  // Promoção primeiro, depois vaga já aberta, depois a melhor colocada.
-  reachable.sort((a, b) => {
-    if (a.isPromotion !== b.isPromotion) return a.isPromotion ? -1 : 1;
-    if ((b.open > 0) !== (a.open > 0)) return b.open - a.open;
-    const pa = a.team.temp_posicao && a.team.temp_posicao > 0 ? a.team.temp_posicao : 999;
-    const pb = b.team.temp_posicao && b.team.temp_posicao > 0 ? b.team.temp_posicao : 999;
-    return pa - pb;
-  });
-  return reachable.slice(0, limit);
 }

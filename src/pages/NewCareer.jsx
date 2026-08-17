@@ -11,7 +11,7 @@ import NationalitySelect from "../components/ui/NationalitySelect";
 import LoadingOverlay from "../components/ui/LoadingOverlay";
 import TeamLogoMark from "../components/team/TeamLogoMark";
 import CategoryCard from "../components/wizard/CategoryCard";
-import DifficultyCard from "../components/wizard/DifficultyCard";
+import DraftAtlasPreview from "../components/wizard/DraftAtlasPreview";
 import StepIndicator from "../components/wizard/StepIndicator";
 import TeamCard from "../components/wizard/TeamCard";
 import useCareerDraft from "../hooks/useCareerDraft";
@@ -19,6 +19,7 @@ import useCareerStore from "../stores/useCareerStore";
 import { extractNationalityLabel } from "../utils/formatters";
 import {
   DIFFICULTIES,
+  DIFFICULTY_PADRAO,
   LOADING_MESSAGE_INTERVAL_MS,
   NATIONALITIES,
   STARTING_CATEGORIES,
@@ -26,8 +27,11 @@ import {
 } from "../utils/constants";
 import i18n, { DEFAULT_LANGUAGE } from "../i18n";
 
+// A dificuldade continua no formulário porque `create_historical_career_draft` a exige,
+// e ela ainda molda os atributos dos pilotos de IA no passado simulado. O jogador não a
+// escolhe mais: a dificuldade que ele sente em pista é adaptativa.
 const INITIAL_FORM = {
-  difficulty: "medio",
+  difficulty: DIFFICULTY_PADRAO,
   playerName: "",
   nationality: "br",
   age: 20,
@@ -45,12 +49,12 @@ export function totalDeMensagensDeCarregamento() {
   const pacote = i18n.getResourceBundle(DEFAULT_LANGUAGE, "common");
   return Object.keys(pacote?.newCareer?.loadingMessages ?? {}).length;
 }
-// Campos que moldam o mundo simulado e, por isso, invalidam um draft pronto.
-// Só a dificuldade entra aqui: ela alimenta `generate_historical_world` e define
-// os atributos dos 200+ pilotos de IA. Nome, nacionalidade e idade do jogador só
-// são usados na finalização, quando o piloto entra no grid — trocá-los depois da
-// simulação custa uma reescrita de meta.json, não 26 temporadas de novo.
-const WORLD_SHAPING_FIELDS = new Set(["difficulty"]);
+// Nenhum campo do formulário invalida mais um draft pronto. A dificuldade era o único
+// que moldava o mundo simulado (ela alimenta `generate_historical_world` e define os
+// atributos dos 200+ pilotos de IA), e saiu do wizard em 16/08/2026. Nome, nacionalidade
+// e idade só são usados na finalização, quando o piloto entra no grid: trocá-los depois
+// da simulação custa uma reescrita de meta.json, não 26 temporadas de novo. Campo novo
+// que moldar o mundo precisa trazer de volta o descarte do draft ao ser editado.
 
 function NewCareer() {
   const navigate = useNavigate();
@@ -131,8 +135,6 @@ function NewCareer() {
   );
   const selectedTeam =
     availableTeams.find((team) => team.id === formData.teamId) ?? availableTeams[0];
-  const selectedDifficulty =
-    DIFFICULTIES.find((difficulty) => difficulty.id === formData.difficulty) ?? DIFFICULTIES[1];
   const selectedNationality =
     localizedNationalities.find((nationality) => nationality.id === formData.nationality) ??
     localizedNationalities[0];
@@ -161,30 +163,16 @@ function NewCareer() {
     }));
 
     if (options.resume && state.lifecycle_status === "draft" && state.teams?.length) {
-      setStep(4);
+      setStep(3);
     }
   }
 
   function updateForm(patch) {
-    const shouldDiscardDraft = shouldDiscardDraftForPatch(formData, patch, draftState);
-    if (shouldDiscardDraft) {
-      void descartarDraft();
-    }
-
-    setFormData((current) => ({
-      ...current,
-      ...patch,
-      ...(shouldDiscardDraft
-        ? {
-            category: INITIAL_FORM.category,
-            teamId: "",
-          }
-        : {}),
-    }));
+    setFormData((current) => ({ ...current, ...patch }));
   }
 
   function validateCurrentStep() {
-    if (step === 2) {
+    if (step === 1) {
       const trimmedName = formData.playerName.trim();
       if (trimmedName.length < 2 || trimmedName.length > 50) {
         return t("newCareer.errors.nameLength");
@@ -194,15 +182,15 @@ function NewCareer() {
       }
     }
 
-    if (step === 3 && !hasGeneratedDraft) {
+    if (step === 2 && !hasGeneratedDraft) {
       return t("newCareer.errors.generateBeforeChoose");
     }
 
-    if (step === 4 && !formData.category) {
+    if (step === 3 && !formData.category) {
       return t("newCareer.errors.selectCategory");
     }
 
-    if (step === 5 && !availableTeams.some((team) => team.id === formData.teamId)) {
+    if (step === 4 && !availableTeams.some((team) => team.id === formData.teamId)) {
       return t("newCareer.errors.selectTeam");
     }
 
@@ -230,17 +218,20 @@ function NewCareer() {
     }
 
     setError("");
-    if (step === 2) persistDraftIdentity();
-    setStep((current) => Math.min(current + 1, 6));
+    if (step === 1) persistDraftIdentity();
+    setStep((current) => Math.min(current + 1, 5));
   }
 
   function handleBack() {
     setError("");
+    // O passo 1 é a identidade, e sair dele agora é sair do wizard. Gravar antes de voltar
+    // ao menu preserva a correção de nome feita num rascunho retomado; sem rascunho em
+    // disco a gravação é um no-op decidido dentro do hook.
     if (step === 1) {
+      persistDraftIdentity();
       navigate("/menu");
       return;
     }
-    if (step === 2) persistDraftIdentity();
     setStep((current) => Math.max(current - 1, 1));
   }
 
@@ -257,7 +248,7 @@ function NewCareer() {
       });
 
       applyDraftState(state);
-      setStep(4);
+      setStep(3);
     } catch (invokeError) {
       setError(
         typeof invokeError === "string" ? invokeError : t("newCareer.errors.generateFailed"),
@@ -309,32 +300,17 @@ function NewCareer() {
   function renderStepContent() {
     if (step === 1) {
       return (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {DIFFICULTIES.map((difficulty) => (
-            <DifficultyCard
-              key={difficulty.id}
-              difficulty={difficulty}
-              selected={formData.difficulty === difficulty.id}
-              onSelect={(difficultyId) => updateForm({ difficulty: difficultyId })}
-            />
-          ))}
-        </div>
-      );
-    }
-
-    if (step === 2) {
-      return (
         <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
           <GlassCard hover={false} className="glass-light space-y-5">
             <div>
               <p className="mb-2 text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-                {t("newCareer.step2.nameLabel")}
+                {t("newCareer.step1.nameLabel")}
               </p>
               <GlassInput
                 value={formData.playerName}
                 onChange={(event) => updateForm({ playerName: event.target.value })}
                 maxLength={50}
-                placeholder={t("newCareer.step2.namePlaceholder")}
+                placeholder={t("newCareer.step1.namePlaceholder")}
               />
             </div>
 
@@ -351,7 +327,7 @@ function NewCareer() {
 
             <div>
               <p className="mb-2 text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-                {t("newCareer.step2.ageLabel")}
+                {t("newCareer.step1.ageLabel")}
               </p>
               <GlassInput
                 type="number"
@@ -368,7 +344,7 @@ function NewCareer() {
 
           <GlassCard hover={false} className="glass-light">
             <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-              {t("newCareer.step2.previewLabel")}
+              {t("newCareer.step1.previewLabel")}
             </p>
             <h3 className="mt-4 text-3xl font-semibold text-text-primary">
               {formData.playerName.trim() || driverPlaceholder}
@@ -379,46 +355,46 @@ function NewCareer() {
               {t("newCareer.ageYears", { count: formData.age })}
             </p>
             <div className="mt-8 space-y-4 text-sm text-text-secondary">
-              <p>{t("newCareer.step2.attributesNote")}</p>
+              <p>{t("newCareer.step1.attributesNote")}</p>
             </div>
           </GlassCard>
         </div>
       );
     }
 
-    if (step === 3) {
+    if (step === 2) {
       return (
         <div className="grid gap-6 xl:grid-cols-[1fr_0.45fr]">
           <GlassCard hover={false} className="glass-light rounded-[28px]">
             <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-              {t("newCareer.step3.draftLabel")}
+              {t("newCareer.step2.draftLabel")}
             </p>
             <h3 className="mt-4 text-3xl font-semibold text-text-primary">
-              {t("newCareer.step3.title")}
+              {t("newCareer.step2.title")}
             </h3>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-text-secondary">
-              {t("newCareer.step3.description")}
+              {t("newCareer.step2.description")}
             </p>
 
             <div className="mt-8 grid gap-3 sm:grid-cols-3">
               <div className="glass-light rounded-2xl p-4">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                  {t("newCareer.step3.startLabel")}
+                  {t("newCareer.step2.startLabel")}
                 </p>
                 <p className="mt-2 text-2xl font-semibold text-text-primary">2000</p>
               </div>
               <div className="glass-light rounded-2xl p-4">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                  {t("newCareer.step3.playableLabel")}
+                  {t("newCareer.step2.playableLabel")}
                 </p>
                 <p className="mt-2 text-2xl font-semibold text-text-primary">2026</p>
               </div>
               <div className="glass-light rounded-2xl p-4">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-                  {t("newCareer.step3.statusLabel")}
+                  {t("newCareer.step2.statusLabel")}
                 </p>
                 <p className="mt-2 text-lg font-semibold text-text-primary">
-                  {hasGeneratedDraft ? t("newCareer.step3.generated") : t("newCareer.step3.pending")}
+                  {hasGeneratedDraft ? t("newCareer.step2.generated") : t("newCareer.step2.pending")}
                 </p>
               </div>
             </div>
@@ -426,7 +402,7 @@ function NewCareer() {
 
           <GlassCard hover={false} className="glass-light rounded-[28px]">
             <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-              {t("newCareer.step3.pendingDriverLabel")}
+              {t("newCareer.step2.pendingDriverLabel")}
             </p>
             <h3 className="mt-4 text-2xl font-semibold text-text-primary">
               {formData.playerName.trim() || driverPlaceholder}
@@ -440,17 +416,11 @@ function NewCareer() {
                 </p>
               </div>
               <div>
-                <p className="text-text-muted">{t("newCareer.labels.difficulty")}</p>
-                <p className="mt-1 text-text-primary">
-                  {t(`newCareer.difficulty.${selectedDifficulty.id}.name`)}
-                </p>
-              </div>
-              <div>
-                <p className="text-text-muted">{t("newCareer.step3.progressLabel")}</p>
+                <p className="text-text-muted">{t("newCareer.step2.progressLabel")}</p>
                 <p className="mt-1 text-text-primary">
                   {draftState?.progress_year
-                    ? t("newCareer.step3.yearValue", { year: draftState.progress_year })
-                    : t("newCareer.step3.notStarted")}
+                    ? t("newCareer.step2.yearValue", { year: draftState.progress_year })
+                    : t("newCareer.step2.notStarted")}
                 </p>
               </div>
             </div>
@@ -459,7 +429,7 @@ function NewCareer() {
       );
     }
 
-    if (step === 4) {
+    if (step === 3) {
       const sharedStats = categoryOptions[0];
       return (
         <div className="space-y-5">
@@ -499,7 +469,7 @@ function NewCareer() {
       );
     }
 
-    if (step === 5) {
+    if (step === 4) {
       return (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {availableTeams.map((team) => (
@@ -519,7 +489,7 @@ function NewCareer() {
         {/* Piloto — herói centralizado */}
         <div className="text-center">
           <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-            {t("newCareer.step6.driverLabel")}
+            {t("newCareer.step5.driverLabel")}
           </p>
           <h3 className="mt-2 text-3xl font-semibold text-text-primary">
             {formData.playerName.trim() || driverPlaceholder}
@@ -532,10 +502,10 @@ function NewCareer() {
         </div>
 
         {/* Escolhas — tiles centralizados, largura total */}
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2">
           <div className="glass-light flex flex-col items-center justify-center rounded-2xl p-5 text-center">
             <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-              {t("newCareer.step6.carLabel")}
+              {t("newCareer.step5.carLabel")}
             </p>
             <p className="mt-2 text-2xl font-semibold text-text-primary">
               {selectedCategory.car?.split(" ")[0] ?? selectedCategory.car}
@@ -555,14 +525,6 @@ function NewCareer() {
               {selectedTeam?.nome}
             </p>
           </div>
-          <div className="glass-light flex flex-col items-center justify-center rounded-2xl p-5 text-center">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
-              {t("newCareer.labels.difficulty")}
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-text-primary">
-              {t(`newCareer.difficulty.${selectedDifficulty.id}.name`)}
-            </p>
-          </div>
         </div>
 
         {/* O mundo que você herda */}
@@ -570,10 +532,10 @@ function NewCareer() {
           <div className="border-t border-white/10 pt-8">
             <div className="text-center">
               <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-                {t("newCareer.step6.worldTitle")}
+                {t("newCareer.step5.worldTitle")}
               </p>
               <p className="mt-1 text-sm text-text-secondary">
-                {t("newCareer.step6.worldSubtitle", {
+                {t("newCareer.step5.worldSubtitle", {
                   count: draftState.world_summary.temporadas,
                 })}
               </p>
@@ -669,7 +631,7 @@ function NewCareer() {
                   {t("newCareer.buttons.reset")}
                 </GlassButton>
 
-                {step === 3 ? (
+                {step === 2 ? (
                   <GlassButton
                     variant="primary"
                     onClick={hasGeneratedDraft ? handleNext : handleGenerateDraft}
@@ -678,7 +640,7 @@ function NewCareer() {
                       ? t("newCareer.buttons.chooseCategory")
                       : t("newCareer.buttons.generateHistory")}
                   </GlassButton>
-                ) : step < 6 ? (
+                ) : step < 5 ? (
                   <GlassButton variant="primary" onClick={handleNext}>
                     {t("newCareer.buttons.next")}
                   </GlassButton>
@@ -696,18 +658,27 @@ function NewCareer() {
       <LoadingOverlay
         open={loading}
         title={
-          step === 6
+          step === 5
             ? t("newCareer.loading.finalizingTitle")
             : t("newCareer.loading.generatingTitle")
         }
         message={
-          step === 6
+          step === 5
             ? t(`newCareer.loadingMessages.msg${loadingMessageIndex}`)
             : draftState?.progress_year
               ? t("newCareer.loading.simulatingSeason", { year: draftState.progress_year })
               : t(`newCareer.loadingMessages.msg${loadingMessageIndex}`)
         }
-      />
+      >
+        {/* O mundo aparecendo enquanto é escrito. Só na geração: no passo 5 o que roda
+            é a finalização, que não acrescenta temporada nenhuma ao gráfico. */}
+        {step !== 5 && draftState?.career_id ? (
+          <DraftAtlasPreview
+            careerId={draftState.career_id}
+            anoConcluido={draftState.progress_year ?? null}
+          />
+        ) : null}
+      </LoadingOverlay>
     </div>
   );
 }
@@ -734,14 +705,6 @@ function draftIdentityPatch(state) {
   }
 
   return patch;
-}
-
-function shouldDiscardDraftForPatch(currentForm, patch, draftState) {
-  if (!draftState?.exists) return false;
-  return Object.entries(patch).some(([key, value]) => {
-    if (!WORLD_SHAPING_FIELDS.has(key)) return false;
-    return String(currentForm[key] ?? "") !== String(value ?? "");
-  });
 }
 
 export default NewCareer;

@@ -104,7 +104,11 @@ describe("PreSeasonView", () => {
 
     await screen.findByText("Lena Hart");
 
-    const logos = screen.getAllByAltText("Mercedes-AMG logo");
+    // A ficha da proposta mora no modal de ofertas — a coluna só tem a porta para
+    // ele, porque aceitar e recusar não existem fora daquela tela.
+    fireEvent.click(await screen.findByTestId("proposals-open-modal"));
+
+    const logos = await screen.findAllByAltText("Mercedes-AMG logo");
     expect(logos).toHaveLength(2);
     logos.forEach((logo) => {
       expect(logo).toHaveAttribute("src", expect.stringContaining("TimesNormalized"));
@@ -827,6 +831,51 @@ describe("PreSeasonView", () => {
     expect(weeklyClosing.queryByText(/^SP$/i)).not.toBeInTheDocument();
   });
 
+  it("steps between weekly closing movements with the side rail of the detail modal", async () => {
+    mockState = {
+      ...mockState,
+      lastMarketWeekResult: {
+        week_number: 2,
+        events: [
+          {
+            event_type: "TransferCompleted",
+            driver_name: "Marta Bianco",
+            categoria: "gt3",
+            from_categoria: "gt4",
+            movement_kind: "promotion",
+            championship_position: 1,
+          },
+          {
+            event_type: "TransferCompleted",
+            driver_name: "Colin Smith",
+            categoria: "gt3",
+            from_categoria: "gt3",
+            movement_kind: "lateral",
+            championship_position: 4,
+          },
+        ],
+      },
+    };
+
+    render(<PreSeasonView />);
+
+    const weeklyClosing = within(await screen.findByTestId("weekly-closing-market"));
+    fireEvent.click(weeklyClosing.getByText(/marta bianco/i));
+
+    expect(await screen.findByRole("heading", { name: /marta bianco/i })).toBeInTheDocument();
+
+    // Primeiro da lista: só se anda para baixo.
+    expect(screen.getByTestId("transfer-detail-step-up")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("transfer-detail-step-down"));
+
+    expect(await screen.findByRole("heading", { name: /colin smith/i })).toBeInTheDocument();
+    expect(screen.getByTestId("transfer-detail-step-down")).toBeDisabled();
+
+    // E o caminho de volta.
+    fireEvent.click(screen.getByTestId("transfer-detail-step-up"));
+    expect(await screen.findByRole("heading", { name: /marta bianco/i })).toBeInTheDocument();
+  });
+
   it("groups displaced drivers by category in a larger end-of-preseason modal", async () => {
     mockState = {
       ...mockState,
@@ -918,6 +967,10 @@ describe("PreSeasonView", () => {
 
     expect(within(modal).queryByText("AMG")).not.toBeInTheDocument();
     expect(modal).toHaveClass("max-w-4xl");
+
+    // O nome abre a ficha rápida do piloto, como no resto do mercado.
+    fireEvent.click(within(modal).getByText("Luca Bianchi"));
+    expect(await screen.findByTestId("driver-mini-card")).toBeInTheDocument();
   });
 
   // Dentro da categoria, do melhor colocado para o pior. A ordem que o backend

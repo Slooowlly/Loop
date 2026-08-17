@@ -68,6 +68,10 @@ impl RaceMonitor {
         if jumped {
             self.car_monitors = [CarMonitor::DEFAULT; 64];
             self.race_green_time = None; // novo cooldown após o salto
+            // O verde visto era o da linha do tempo que o salto abandonou. Sem isto, um
+            // reinício que o detector de tentativa demorasse a ver deixaria a formação nova
+            // passando por corrida verde.
+            self.verde_da_tentativa = false;
                                          // A tendência de gap é a diferença entre duas amostras no tempo; atravessar um
                                          // salto de replay com o histórico intacto produziria "ele ganhou quarenta
                                          // segundos numa volta" a partir de dois instantes que nunca foram vizinhos.
@@ -131,6 +135,12 @@ impl RaceMonitor {
         self.tick_showcase_breakdown(t);
         self.evaluate_race_control(t);
         self.build_cars_debug(t);
+        // A trava do verde, logo depois de `build_cars_debug` escrever `live_is_green`. A
+        // expressão se auto-limpa fora da sessão de corrida, então classificação e treino
+        // nunca a armam — e é ela, não o `PaceMode`, que diz se ainda estamos em formação.
+        // Ver o campo em `RaceMonitor`.
+        self.verde_da_tentativa =
+            self.in_race_session(t) && (self.verde_da_tentativa || self.live_is_green);
         self.capture_qualy(t);
         self.record_history(t);
 

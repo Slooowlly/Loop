@@ -9,10 +9,17 @@
 //! que cada semana ainda carrega. Semana 1 o grid está cheio e não há vaga nenhuma pra
 //! avaliar, então o único número verdadeiro é o teto — quantos assentos do nível dele
 //! vencem contrato. Semana 2 as vagas já são reais e a conta roda de verdade; sobra só
-//! a margem de que a escada mexe no tabuleiro antes da semana 3. Semana 3 em diante a
-//! faixa some: as propostas de verdade tomam o lugar dela.
+//! a margem de que a escada mexe no tabuleiro antes da semana 3.
 //!
-//! O piso subindo (0 → conta real − 1) é o que o jogador lê como "está esquentando".
+//! Da semana 3 em diante a expectativa NÃO some mais (até 17/08/2026 ela sumia): a
+//! proposta formal só nasce quando o jogador é a PRIMEIRA escolha da vaga, então "tem
+//! equipe de olho, mas há gente na frente" virou o estado comum — mais da metade das
+//! janelas fecha sem proposta nenhuma, medido no Monte Carlo. Sem a expectativa no ar,
+//! essas semanas seriam uma tela muda com interesse real acontecendo por trás. A conta
+//! passa a ser exata (min == max), porque as vagas já existem e a margem morreu.
+//!
+//! O piso subindo (0 → conta real − 1 → exata) é o que o jogador lê como "está
+//! esquentando".
 
 use super::*;
 
@@ -32,8 +39,19 @@ pub(super) fn refresh_player_interest_forecast(
 ) -> Result<(), String> {
     let week = plan.state.current_week;
     if week >= plan.state.signings_start_week {
-        // Da abertura em diante quem fala é a proposta, não a previsão.
-        plan.state.player_interest_forecast = None;
+        // Da abertura em diante a conta é exata: quantas equipes colocariam o jogador na
+        // shortlist AGORA. A proposta continua sendo outra coisa (ser a PRIMEIRA
+        // escolha) — este número é o interesse que ainda não virou proposta, e é ele que
+        // impede a tela de ficar muda nas semanas em que há gente na frente.
+        // `count_interested_teams` usa semente própria e não escreve nada, então não
+        // desloca o RNG do mercado.
+        plan.state.player_interest_forecast =
+            crate::market::pipeline::count_interested_teams(conn, season, week)?.map(|count| {
+                PlayerInterestForecast {
+                    min: count,
+                    max: count,
+                }
+            });
         return Ok(());
     }
 
@@ -57,7 +75,9 @@ fn forecast_from_expiring_seats(
     let Ok(player) = driver_queries::get_player_driver(conn) else {
         return Ok(None);
     };
-    if player.status != crate::models::enums::DriverStatus::Ativo {
+    // Só o aposentado está fora do mercado — lesão e suspensão são temporárias, e o
+    // scan das propostas (`build_player_market_scan`) usa o mesmo critério.
+    if player.status == crate::models::enums::DriverStatus::Aposentado {
         return Ok(None);
     }
 

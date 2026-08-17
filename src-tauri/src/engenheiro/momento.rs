@@ -63,7 +63,9 @@ pub enum Motivo {
 /// piloto está no carro, andando devagar, sem nada para fazer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ocasiao {
-    /// Volta de formação. O `pace_mode` do iRacing, que é fato e não estimativa.
+    /// Sessão de corrida antes do primeiro verde da tentativa: grid, apresentação, pace
+    /// car. Já foi o `pace_mode` do iRacing, que parecia fato e mentia dos dois lados nas
+    /// sessões com IA — ver `EstadoAgora::em_formacao`.
     AntesDaLargada,
     /// Bandeirada. O resultado já existe, e é sobre ele que se fala.
     DepoisDaBandeirada,

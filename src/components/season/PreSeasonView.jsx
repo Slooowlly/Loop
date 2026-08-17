@@ -29,7 +29,6 @@ import LayoutSwitch, { usePreSeasonLayout } from "./preseason/v2/LayoutSwitch";
 import {
   filterGridTeamsByCategory,
   buildCategoryCounters,
-  buildReachableSeats,
 } from "./preseason/v2/seatSelectors.js";
 
 import {
@@ -142,6 +141,12 @@ export default function PreSeasonView() {
 
   const totalOffers = playerOffers.length;
 
+  // Tudo que o jogador tem para decidir nesta semana: assento aberto que ele pode
+  // buscar MAIS proposta formal que veio até ele. O backend já garante que os dois
+  // conjuntos não se cruzam (assento com proposta pendente sai de `player_offers`),
+  // então a soma não conta o mesmo assento duas vezes.
+  const totalDecisions = totalOffers + playerProposals.length;
+
   // Três andares de importância (offersByCategory já vem ordenado por bucket):
   // 0 = promoção (destaque), 1 = marca atual do jogador, 2 = demais marcas.
   const promoOfferGroups = offersByCategory.filter((g) => g.bucket === 0);
@@ -229,14 +234,6 @@ export default function PreSeasonView() {
     [isV2, gridData],
   );
 
-  // Assentos ao alcance: recorte do que a coluna central já mostra, filtrado pelo
-  // tier do jogador. Não antecipa nada da janela — só evita que ele tenha que
-  // varrer nove categorias pra achar as três que o cabem.
-  const reachableSeats = useMemo(
-    () => (isV2 ? buildReachableSeats(gridData, playerTier) : []),
-    [isV2, gridData, playerTier],
-  );
-
   // ── Agrupamento e ordenação ─────────────────────────────────────────────────
   const groupedTeams = useMemo(() => groupTeamsByClass(visibleGrid), [visibleGrid]);
 
@@ -273,6 +270,13 @@ export default function PreSeasonView() {
   const weeklyClosingGroups = useMemo(
     () => buildWeeklyClosingGroups(lastMarketWeekResult),
     [lastMarketWeekResult],
+  );
+
+  // A lista achatada, na ordem em que o fechamento desenha, é o trilho das
+  // setas do modal de detalhe: anterior/próximo seguem a leitura da tela.
+  const weeklyClosingEvents = useMemo(
+    () => weeklyClosingGroups.flatMap((group) => group.events),
+    [weeklyClosingGroups],
   );
 
   // ── Auto-scroll para a BANDA do jogador ao carregar ────────────────────────
@@ -400,6 +404,10 @@ export default function PreSeasonView() {
       setStartError(typeof e === "string" ? e : e?.message ?? t("preSeason.errors.respondProposal"));
       return;
     }
+    // Aceitar fecha a tela de ofertas, como a ficha de contrato faz ao assinar: o
+    // jogador tem time agora, e o resto das fichas virou passado. Recusar mantém a
+    // tela aberta, porque ainda há o que decidir nela.
+    if (accept) setShowOffersModal(false);
     if (!accept || !teamColor) return;
     try {
       const res = await invoke("iracing_apply_market_paint", {
@@ -479,17 +487,13 @@ export default function PreSeasonView() {
               playerProposals={playerProposals}
               playerOffers={playerOffers}
               playerSignedThisWindow={playerSignedThisWindow}
-              playerBrand={playerBrand}
               isComplete={isComplete}
               isAdvancingWeek={isAdvancingWeek}
               isOpeningWeek={isOpeningWeek}
               interestForecast={interestForecast}
               totalOffers={totalOffers}
-              promoOfferGroups={promoOfferGroups}
-              brandOfferGroups={brandOfferGroups}
-              otherOfferGroups={otherOfferGroups}
+              offersByCategory={offersByCategory}
               weeklyClosingGroups={weeklyClosingGroups}
-              reachableSeats={reachableSeats}
               currentWeek={currentWeek}
               totalWeeks={totalWeeks}
               signingsStartWeek={signingsStartWeek}
@@ -574,15 +578,17 @@ export default function PreSeasonView() {
       {/* ══ MODAL: Suas ofertas (fichas das equipes) ══ */}
       {/* Trancado nas semanas de abertura: lá o painel não tem botão que o abra, e a
           trava garante que um estado antigo de `showOffersModal` não escancare as fichas. */}
-      {showOffersModal && totalOffers > 0 && !isOpeningWeek && (
+      {showOffersModal && totalDecisions > 0 && !isOpeningWeek && (
         <OffersModal
           offersByCategory={offersByCategory}
           offersModalCat={offersModalCat}
           totalOffers={totalOffers}
           playerTier={playerTier}
+          playerProposals={playerProposals}
           isAdvancingWeek={isAdvancingWeek}
           onClose={() => setShowOffersModal(false)}
           onClearCat={() => setOffersModalCat(null)}
+          onRespondProposal={handleRespondProposal}
           onViewContract={handleViewContract}
         />
       )}
@@ -619,7 +625,12 @@ export default function PreSeasonView() {
 
       {/* ══ MODAL: Detalhe da transferência ══ */}
       {transferDetail && (
-        <TransferDetailModal event={transferDetail} onClose={() => setTransferDetail(null)} />
+        <TransferDetailModal
+          event={transferDetail}
+          events={weeklyClosingEvents}
+          onSelect={setTransferDetail}
+          onClose={() => setTransferDetail(null)}
+        />
       )}
 
       {/* ── Modal: Iniciar temporada sem equipe ── */}

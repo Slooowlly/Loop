@@ -186,13 +186,16 @@ pub(super) fn generate_and_sign_rookie_for_vacancy(
         &vacancy.categoria,
         vacancy.classe.as_deref(),
     )?;
+    // Rookie de última instância: a válvula não conhece o ranking da equipe, e um
+    // estreante entra pela escala do tier como sempre entrou.
+    let duracao = duracao_de_contrato(vacancy.category_tier, false, rng);
     sign_driver_to_team(
         conn,
         &rookie,
         vacancy,
         new_season_number,
         calculate_offer_salary(vacancy, &rookie, rng),
-        1,
+        duracao,
         vacancy.papel_necessario.clone(),
     )?;
 
