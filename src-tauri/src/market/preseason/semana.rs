@@ -10,6 +10,49 @@ pub fn advance_week(
     plan: &mut PreSeasonPlan,
     player_choice: Option<&str>,
 ) -> Result<WeekResult, String> {
+    avancar_semana(conn, plan, player_choice, ModoDaJanela::Jogavel)
+}
+
+/// Para quem esta janela de transferências está sendo rodada.
+///
+/// As duas diferenças do modo `Historico` existem porque ninguém assiste àquela janela:
+/// ela roda 26 vezes durante a criação do save, com o `WeekResult` descartado em
+/// `evolution::pipeline::transicao` e as notícias apagadas logo em seguida.
+///
+/// 1. **Sem feed.** Montar os eventos ali carrega o elenco e as equipes inteiros a cada
+///    semana só para traduzir id em nome, e formata um texto por assinatura que ninguém
+///    lê. Isso não muda decisão nenhuma do mercado.
+/// 2. **Sem paginação.** O ritmo semanal da escada existe para o jogador ver o mercado
+///    acontecer aos poucos ao longo das 9 semanas. Sem plateia ele só multiplica por
+///    sete o trabalho de preencher as mesmas vagas.
+///
+/// Medido em 16/08/2026, gerando 26 temporadas: com a janela em modo histórico a criação
+/// do mundo caiu de 118,3 s para 58,2 s. Cinco pares A/B a partir da MESMA base mostraram
+/// grids idênticos (204 contratos ativos, as nove categorias com a mesma lotação) e
+/// nenhuma diferença detectável na distribuição de títulos; o único efeito consistente
+/// foi a skill média do grid cerca de 1% mais alta sem paginação, porque cada vaga passa
+/// a ser preenchida pelo melhor disponível no momento em que abre.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ModoDaJanela {
+    Jogavel,
+    Historico,
+}
+
+/// [`advance_week`] para a geração do mundo histórico: sem feed e sem paginação.
+pub fn advance_week_historica(
+    conn: &Connection,
+    plan: &mut PreSeasonPlan,
+) -> Result<WeekResult, String> {
+    avancar_semana(conn, plan, None, ModoDaJanela::Historico)
+}
+
+fn avancar_semana(
+    conn: &Connection,
+    plan: &mut PreSeasonPlan,
+    player_choice: Option<&str>,
+    modo: ModoDaJanela,
+) -> Result<WeekResult, String> {
+    let narrar = modo == ModoDaJanela::Jogavel;
     if plan.state.is_complete {
         return Err("Pre-temporada ja esta completa".to_string());
     }
@@ -40,7 +83,7 @@ pub fn advance_week(
                 plan.state.signings_start_week
             ));
         }
-        return advance_opening_week(conn, plan, week, season, &season_id, &mut rng);
+        return advance_opening_week(conn, plan, week, season, &season_id, &mut rng, narrar);
     }
 
     // O jogador aceitou uma oferta nesta semana → assina ANTES de qualquer movimento da
@@ -86,7 +129,7 @@ pub fn advance_week(
 
     // Escada (ladder fill) paginada: preenche vagas em TODOS os tiers (agente livre →
     // rookie → promoção da categoria de baixo), poupando os assentos reservados.
-    let ritmo = ritmo_da_escada(conn, week)?;
+    let ritmo = ritmo_da_escada(conn, week, modo)?;
     crate::market::pipeline::fill_vacancies_paced(
         conn,
         season,
@@ -96,13 +139,22 @@ pub fn advance_week(
         &mut rng,
     )?;
 
-    // Mapeia as assinaturas da escada → eventos de feed.
-    let drivers = driver_queries::get_all_drivers(conn).unwrap_or_default();
+    // Mapeia as assinaturas da escada → eventos de feed. Silencioso não carrega o
+    // elenco: os dois `get_all` existem só para dar nome aos eventos.
+    let drivers = if narrar {
+        driver_queries::get_all_drivers(conn).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let driver_names: std::collections::HashMap<&str, &str> = drivers
         .iter()
         .map(|d| (d.id.as_str(), d.nome.as_str()))
         .collect();
-    let teams = team_queries::get_all_teams(conn).unwrap_or_default();
+    let teams = if narrar {
+        team_queries::get_all_teams(conn).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let team_names: std::collections::HashMap<&str, &str> = teams
         .iter()
         .map(|t| (t.id.as_str(), t.nome.as_str()))
@@ -172,7 +224,11 @@ pub fn advance_week(
             relation: None,
         }
     };
-    let mut events: Vec<MarketEvent> = report.new_signings.iter().map(&map_signing).collect();
+    let mut events: Vec<MarketEvent> = if narrar {
+        report.new_signings.iter().map(&map_signing).collect()
+    } else {
+        Vec::new()
+    };
 
     sync_team_slots_from_active_contracts(conn)?;
     let remaining = count_remaining_vacancies(conn)?;
@@ -189,8 +245,16 @@ pub fn advance_week(
 
     // Fecha quando só restam os assentos reservados (nada mais a preencher) ou ao
     // bater o teto de semanas.
-    let is_last_week =
-        remaining <= reserved.len() as i32 || week >= i32::from(MARKET_DURATION_WEEKS);
+    //
+    // No HISTÓRICO fecha já na primeira semana de contratação, porque a escada não
+    // pagina e resolve o grid inteiro nela. Medido em 16/08/2026 sobre 26 temporadas: a
+    // semana 3 assinou 1.482 contratos e as semanas 4 a 9 assinaram ZERO em todas elas,
+    // com as vagas restantes congeladas — as seis eram giro em falso. A janela do
+    // jogador não passa por aqui e continua com as nove semanas; medida no mesmo dia,
+    // ela distribui eventos por todas elas e derruba as vagas de 49 para 9.
+    let is_last_week = modo == ModoDaJanela::Historico
+        || remaining <= reserved.len() as i32
+        || week >= i32::from(MARKET_DURATION_WEEKS);
     if is_last_week {
         // Garante porta ao jogador (num dos assentos vazios que a escada segurou pra ele,
         // sem dispensar ninguém) e preenche TODAS as vagas restantes — nenhum time corre
@@ -206,11 +270,14 @@ pub fn advance_week(
             &mut rng,
             &mut final_report,
         )?;
-        events.extend(final_report.new_signings.iter().map(&map_signing));
+        if narrar {
+            events.extend(final_report.new_signings.iter().map(&map_signing));
+        }
         plan.state.current_week = week + 1;
         plan.state.phase = PreSeasonPhase::Complete;
         plan.state.is_complete = true;
-        events.push(MarketEvent {
+        if narrar {
+            events.push(MarketEvent {
             event_type: MarketEventType::PreSeasonComplete,
             headline: rust_i18n::t!("market.event.window_closed_headline").to_string(),
             description: rust_i18n::t!("market.event.window_closed_desc").to_string(),
@@ -226,7 +293,8 @@ pub fn advance_week(
             championship_position: None,
             seasons_at_previous: None,
             relation: None,
-        });
+            });
+        }
         update_market_state(conn, &season_id, "Fechado", &PreSeasonPhase::Complete, true)?;
     } else {
         plan.state.current_week += 1;
@@ -242,7 +310,9 @@ pub fn advance_week(
 
     // Marca cada evento com seu vínculo ao jogador (rival / já-correu-contra) — o feed
     // mostra TODOS, mas dá ênfase aos marcados. Não filtra nada.
-    tag_player_relations(conn, &mut events);
+    if narrar {
+        tag_player_relations(conn, &mut events);
+    }
 
     let next_phase = plan.state.phase.clone();
     refresh_preseason_state_display_date(conn, &season_id, &mut plan.state)?;
@@ -255,7 +325,11 @@ pub fn advance_week(
         remaining_vacancies: remaining,
         next_phase,
     };
-    plan.executed_weeks.push(result.clone());
+    // O histórico descarta o plano inteiro no fim da virada; guardar as semanas ali só
+    // acumula clones que ninguém lê.
+    if narrar {
+        plan.executed_weeks.push(result.clone());
+    }
     Ok(result)
 }
 
@@ -279,7 +353,17 @@ const RITMO_MINIMO: usize = 2;
 fn ritmo_da_escada(
     conn: &Connection,
     week: i32,
+    modo: ModoDaJanela,
 ) -> Result<std::collections::HashMap<String, usize>, String> {
+    // Histórico não pagina: a cota vira o total de vagas da categoria e a janela fecha
+    // na primeira semana de contratação. Ver [`ModoDaJanela`] para o que isso muda (e o
+    // que não muda) no mundo gerado.
+    if modo == ModoDaJanela::Historico {
+        return Ok(vagas_por_categoria(conn)?
+            .into_iter()
+            .map(|(categoria, vagas)| (categoria, vagas.max(0) as usize + 1))
+            .collect());
+    }
     let semanas_uteis = (i32::from(MARKET_DURATION_WEEKS) - week).max(1);
     Ok(vagas_por_categoria(conn)?
         .into_iter()
@@ -304,6 +388,7 @@ fn advance_opening_week(
     season: i32,
     season_id: &str,
     rng: &mut StdRng,
+    narrar: bool,
 ) -> Result<WeekResult, String> {
     // A foto vale até aqui: nada mexeu no elenco desde a abertura da janela, então os
     // contratos ativos AGORA são os mesmos que o plano fotografou.
@@ -321,7 +406,11 @@ fn advance_opening_week(
         let report = crate::market::pipeline::run_market_prepasses(conn, season, rng)
             .map_err(|e| format!("Falha ao aplicar pre-passes do mercado: {e}"))?;
         plan.prepasses_applied = true;
-        plan.pending_renewals = renewal_events(&report, &plan.previous_team);
+        plan.pending_renewals = if narrar {
+            renewal_events(&report, &plan.previous_team)
+        } else {
+            Vec::new()
+        };
         // Quebra de contrato do jogador (Fase 2b.3): depende de quem sobrou com assento,
         // então só agora faz sentido computar. Raro; None quase sempre.
         plan.player_poach_offer =
@@ -329,7 +418,11 @@ fn advance_opening_week(
 
         // Só SAÍDAS: a passada de contratos não move ninguém de equipe, então não há
         // promoção nem rebaixamento a narrar aqui — eles caem na semana da abertura.
-        build_departure_events(conn, season, &contracts_before, &plan.previous_team)?
+        if narrar {
+            build_departure_events(conn, season, &contracts_before, &plan.previous_team)?
+        } else {
+            Vec::new()
+        }
     };
 
     sync_team_slots_from_active_contracts(conn)?;
@@ -340,7 +433,9 @@ fn advance_opening_week(
     update_market_state(conn, season_id, "Aberto", &PreSeasonPhase::Transfers, false)?;
     refresh_player_interest_forecast(conn, plan, season, &contracts_before)?;
 
-    tag_player_relations(conn, &mut events);
+    if narrar {
+        tag_player_relations(conn, &mut events);
+    }
     refresh_preseason_state_display_date(conn, season_id, &mut plan.state)?;
     let result = WeekResult {
         week_number: week,
@@ -352,7 +447,9 @@ fn advance_opening_week(
         remaining_vacancies: remaining,
         next_phase: plan.state.phase.clone(),
     };
-    plan.executed_weeks.push(result.clone());
+    if narrar {
+        plan.executed_weeks.push(result.clone());
+    }
     Ok(result)
 }
 

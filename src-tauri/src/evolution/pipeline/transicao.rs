@@ -46,7 +46,9 @@ pub(super) fn initialize_preseason_phase(
         // por hard_week_cap, mas protegemos mesmo assim).
         let mut guard = 0;
         while !preseason_plan.state.is_complete {
-            advance_week(conn, &mut preseason_plan, None)
+            // Modo histórico: sem feed (o `WeekResult` é descartado aqui e as notícias
+            // são apagadas logo depois) e sem paginação semanal da escada.
+            advance_week_historica(conn, &mut preseason_plan)
                 .map_err(|e| format!("Erro ao executar pre-temporada historica: {e}"))?;
             guard += 1;
             if guard > 50 {
