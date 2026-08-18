@@ -39,8 +39,6 @@ mod sessao;
 mod spotter;
 #[path = "iracing/temporada.rs"]
 mod temporada;
-#[path = "iracing/teste_chuva.rs"]
-mod teste_chuva;
 
 pub use adaptativo::*;
 pub use clima::*;
@@ -56,7 +54,6 @@ pub use roster::*;
 pub use sessao::*;
 pub use spotter::*;
 pub use temporada::*;
-pub use teste_chuva::*;
 
 #[cfg(test)]
 mod tests;

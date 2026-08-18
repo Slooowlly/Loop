@@ -123,12 +123,6 @@ pub struct RosterDriver {
 /// Estilo de número padrão (do roster curado do usuário).
 const NUMBER_DESIGN: &str = "0,0,FFFFFF,777777,000000";
 
-/// Esquema embutido do JOGADOR (Opção A — aplicação manual): padrão simples (0)
-/// + cor do time. Mesmas cores secundárias do design da IA.
-pub const DESIGN_PATTERN: &str = "0";
-pub const DESIGN_COLOR2: &str = "000000";
-pub const DESIGN_COLOR3: &str = "FFFFFF";
-
 /// Normaliza uma cor `#RRGGBB`/`RRGGBB` → `RRGGBB` maiúsculo; fallback branco.
 /// Público para reuso na pintura do jogador (mesmo tratamento da IA).
 pub fn normalize_hex(color: &str) -> String {

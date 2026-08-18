@@ -236,12 +236,14 @@ corre → importa o resultado oficial + os sinais do monitor ao vivo. Eram 49 co
 
 **O que sobrou de trabalho real** (reconferido em 11/08/2026, com duas correções):
 
-Os dois painéis continuam órfãos: `RosterGenPanel` (726 linhas) e `PostRacePanel` (696)
-não são importados por nenhum arquivo de `src/` além dos próprios testes de contrato. Segue valendo
-a decisão pendente — ligar ou apagar. **Com eles ficam presos 6 comandos** que não têm outro
-consumidor: `iracing_dump_session_yaml`, `iracing_preview_race_result`,
+Os dois painéis foram **aposentados em 18/08/2026**: `RosterGenPanel` (726 linhas) e
+`PostRacePanel` (696) saíram do repositório com os próprios testes de contrato, fechando a decisão
+que estava pendente desde 27/07. **Os 6 comandos que só eles chamavam** saíram junto, na mesma
+data e por decisão do dono: `iracing_dump_session_yaml`, `iracing_preview_race_result`,
 `iracing_apply_player_paint`, `iracing_player_custid`, `iracing_player_paint` e
-`iracing_export_rain_test`. Recontado na §4 do [iracing-escopo.md](iracing-escopo.md).
+`iracing_export_rain_test` — comando, registro e implementação. O núcleo compartilhado (pintura
+automática, ponte de import) segue vivo. Recontado na §4 e §6.2 do
+[iracing-escopo.md](iracing-escopo.md).
 
 **Correção 1: a exportação não depende deles.** O ciclo que o jogador percorre hoje passa
 por `src/components/race/nextrace/useIracingExport.js`, que chama os mesmos
@@ -254,7 +256,7 @@ leitura de que `iracing_process_race_result` estaria "implementada e nunca execu
 pela metade. O **wiring** existe: ela é chamada de dentro do próprio Rust, em
 `commands/iracing/importacao.rs:138`, amarrada à corrida entrar na carreira. O que não tem
 consumidor é o COMANDO registrado, e não a lógica — o painel desligado deixou de ser o único
-caminho. (O próprio `PostRacePanel` documenta a escolha em comentário: processar ali duplicaria o
+caminho. (O próprio `PostRacePanel`, enquanto existiu, documentava a escolha em comentário: processar ali duplicaria o
 ajuste.)
 
 A **execução** é outra pergunta, e ela continua aberta até uma corrida real. A prova é o par de

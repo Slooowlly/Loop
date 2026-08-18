@@ -17,33 +17,6 @@ pub fn iracing_read_telemetry() -> Result<IracingTelemetry, String> {
     iracing_sdk::read_telemetry().map_err(|error| error.to_string())
 }
 
-/// DUMP do YAML de sessão do iRacing num arquivo (para inspecionar a estrutura
-/// real do `ResultsPositions`/quali antes de escrever o parser). Grava em
-/// `%TEMP%/loop_session_dump.yaml` e devolve o caminho. Use com o iRacing aberto
-/// numa sessão que já rodou (corrida/quali concluída ou em andamento).
-#[tauri::command]
-pub fn iracing_dump_session_yaml() -> Result<String, String> {
-    let session = iracing_sdk::read_session().map_err(|e| e.to_string())?;
-    let path = std::env::temp_dir().join("loop_session_dump.yaml");
-    std::fs::write(&path, &session.session_yaml)
-        .map_err(|e| format!("Falha ao gravar o dump: {e}"))?;
-    Ok(path.to_string_lossy().to_string())
-}
-
-/// `custid` (id iRacing) do jogador. Usa o valor capturado automaticamente pelo
-/// sampler (persistido); se ainda não houver, tenta ler a sessão atual agora.
-#[tauri::command]
-pub fn iracing_player_custid() -> Result<i64, String> {
-    if let Some(id) = iracing_sdk::cached_custid() {
-        return Ok(id);
-    }
-    let session = iracing_sdk::read_session().map_err(|e| e.to_string())?;
-    iracing_sdk::note_session_custid(&session.session_yaml);
-    iracing_sdk::cached_custid().ok_or_else(|| {
-        "Ainda não capturei seu custid — entre numa sessão/pista do iRacing.".to_string()
-    })
-}
-
 /// Lê o snapshot do Monitor de Corrida unificado (tentativas + batidas + DNF).
 /// O monitor é alimentado por um sampler de fundo a ~60 Hz; este comando só lê.
 #[tauri::command]

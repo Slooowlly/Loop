@@ -24,8 +24,9 @@
 //     NEGATIVA (`expect(invoke).not.toHaveBeenCalledWith("create_career")`): o teste prova
 //     que ninguém chama o comando, e o guard lia isso como prova de que alguém chama;
 //   • citação em COMENTÁRIO — prosa não invoca nada;
-//   • citação em MÓDULO MORTO — `RosterGenPanel.jsx` chama seis comandos e não é importado
-//     por ninguém a não ser o próprio teste; a tela nunca é montada.
+//   • citação em MÓDULO MORTO — o `RosterGenPanel.jsx` da época chamava seis comandos sem
+//     ser importado por ninguém a não ser o próprio teste; a tela nunca era montada. O painel
+//     foi apagado em 18/08/2026 (morto desde 25/06), e a cobaia do teste-sentinela mudou.
 //
 // A correção é medir alcance de verdade: monta-se o grafo de imports a partir dos pontos de
 // entrada REAIS (os `<script type="module" src="/src/…">` dos HTML da raiz), e só arquivo
@@ -285,9 +286,13 @@ test("todo invoke do frontend existe no generate_handler do Rust", () => {
 //         decisão neste chat.
 //       – iracing_apply_player_paint, iracing_dump_session_yaml, iracing_export_rain_test,
 //         iracing_player_custid, iracing_player_paint e iracing_preview_race_result: os seis
-//         são chamados por `src/components/iracing/RosterGenPanel.jsx`, que não é importado
-//         por nenhum módulo vivo — só pelo próprio `RosterGenPanel.test.jsx`. O painel está
-//         testado e não é montado. Religar a tela ou aposentá-la é decisão de produto.
+//         eram chamados só por `src/components/iracing/RosterGenPanel.jsx`, apagado em
+//         18/08/2026 por ser código morto (nenhum importador vivo desde 25/06). Na mesma
+//         data, por decisão do dono, o backend saiu junto: comandos e registro no
+//         `generate_handler!` removidos (o `teste_chuva.rs` inteiro, que só existia para o
+//         `iracing_export_rain_test`, foi embora com eles). O núcleo compartilhado ficou:
+//         `write_player_car_tga` e `build_session_race_result` servem os caminhos
+//         automáticos de pintura e de import, que continuam vivos.
 const SEM_CONSUMIDOR_CONHECIDO = [
   "create_career",
   "engenheiro_catalogo",
@@ -295,16 +300,10 @@ const SEM_CONSUMIDOR_CONHECIDO = [
   "engenheiro_dossie_completo",
   "get_race_reading",
   "get_race_results_by_category",
-  "iracing_apply_player_paint",
   "iracing_career_race_result",
-  "iracing_dump_session_yaml",
   "iracing_estado_agora",
-  "iracing_export_rain_test",
   "iracing_log_caminho",
-  "iracing_player_custid",
-  "iracing_player_paint",
   "iracing_poll_race",
-  "iracing_preview_race_result",
   "iracing_process_race_result",
   "iracing_read_session",
   "iracing_read_telemetry",
@@ -403,21 +402,35 @@ test("comando citado só em teste continua órfão", () => {
   );
 });
 
-test("comando chamado só por componente sem importador vivo continua órfão", () => {
-  const painel = "src/components/iracing/RosterGenPanel.jsx";
-  assert.ok(eArquivo(painel), `o caso-teste sumiu: ${painel} não existe mais`);
+test("literal citado só em módulo fora do grafo não conta como consumo", () => {
+  // A cobaia original era o `RosterGenPanel.jsx`, um painel completo que ninguém montava.
+  // Ele foi apagado em 18/08/2026, e com ele o último comando cujo único citador era um
+  // módulo morto. A cobaia agora é o test-kit da ficha de piloto: existe em `src/`, não
+  // casa com `eTeste` e nunca entra no grafo, porque só os testes o importam. Se um dia
+  // ele sumir ou virar módulo vivo, as asserções abaixo pedem uma cobaia nova.
+  const cobaia = "src/components/driver/v2/driverDetailV2TestKit.jsx";
+  assert.ok(eArquivo(cobaia), `o caso-teste sumiu: ${cobaia} não existe mais`);
+  assert.ok(!eTeste(cobaia), `${cobaia} passou a contar como teste — escolha uma cobaia comum`);
   assert.ok(
-    literaisDeString(ler(painel)).includes("iracing_player_custid"),
-    `o caso-teste mudou: ${painel} não chama mais 'iracing_player_custid'`,
+    !modulosVivos().has(cobaia),
+    `${cobaia} passou a ser importado por módulo vivo — escolha outra cobaia fora do grafo`,
   );
-  assert.ok(
-    !modulosVivos().has(painel),
-    `${painel} passou a ser importado por módulo vivo — se a tela foi montada, ` +
-      `tire os seis comandos dele de SEM_CONSUMIDOR_CONHECIDO`,
+
+  // Não há mais comando registrado cujo único citador seja um módulo morto, então a prova
+  // usa um literal qualquer que só exista na cobaia: se ele fosse um comando registrado,
+  // o guard teria de tratá-lo como órfão. Passar `registrados ∪ {literal}` prova isso de
+  // ponta a ponta, sem depender de um painel morto de verdade no repositório.
+  const vivosSemTeste = [...modulosVivos()].filter((rel) => !eTeste(rel));
+  const literaisVivos = new Set(vivosSemTeste.flatMap((rel) => literaisDeString(ler(rel))));
+  const soDaCobaia = literaisDeString(ler(cobaia)).find(
+    (s) => s.length >= 8 && !literaisVivos.has(s),
   );
+  assert.ok(soDaCobaia, `nenhum literal exclusivo em ${cobaia} — escolha outra cobaia`);
+
+  const comFixture = new Set([...comandosRegistrados(), soDaCobaia]);
   assert.ok(
-    !comandosComConsumidorVivo(comandosRegistrados()).has("iracing_player_custid"),
-    "módulo morto voltou a contar como consumidor",
+    !comandosComConsumidorVivo(comFixture).has(soDaCobaia),
+    "literal de módulo fora do grafo contou como consumidor — foi exatamente o furo do V8.2",
   );
 });
 

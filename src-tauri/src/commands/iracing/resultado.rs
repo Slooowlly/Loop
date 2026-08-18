@@ -506,18 +506,6 @@ pub(crate) fn resolve_breakdown_rows(
         .collect()
 }
 
-/// PREVIEW (read-only) da ponte sessão→`RaceResult`: reconstrói o resultado da
-/// última corrida disputada no iRacing como o `RaceResult` que a carreira
-/// consome — SEM gravar nada no banco. Serve para validar o mapeamento (posições,
-/// grid, volta rápida, DNFs) contra a tela do iRacing antes de importar.
-#[tauri::command]
-pub fn iracing_preview_race_result(
-    app: tauri::AppHandle,
-    career_id: String,
-) -> Result<crate::simulation::race::RaceResult, String> {
-    Ok(build_session_race_result(&app, &career_id)?.resultado)
-}
-
 /// Ponte de rivalidade de PISTA: aplica no motor de rivalidade as rivalidades que a
 /// percepção do SDK detectou na corrida importada, resolvendo a identidade dos
 /// oponentes (car_number → driver_id via `by_number`). Só o jogador é o probe.

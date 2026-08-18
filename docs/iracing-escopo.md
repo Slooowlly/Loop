@@ -284,10 +284,11 @@ registrado.
 
 | # | item | tamanho |
 |---|---|---|
-| 1 | Dar destino ao `PostRacePanel` (696 linhas prontas) — montar ou aposentar | M |
-| 2 | Dar destino ao `RosterGenPanel` (726 linhas) — é painel de debug; decidir se vira tela de Settings | M |
+| 1 | ~~Dar destino ao `PostRacePanel`~~ — **aposentado em 18/08/2026** (§6.2) | — |
+| 2 | ~~Dar destino ao `RosterGenPanel`~~ — **aposentado em 18/08/2026** (§6.2) | — |
 | 3 | Bandeira amarela manual (`iracing_throw_yellow`) + reset do monitor (`iracing_reset_race`) no diagnóstico | S |
 | 4 | Remover `iracing_send_chat_macro` e `iracing_career_race_result`; tirar da ponte `read_session`, `read_telemetry`, `poll_race`, `log_caminho` | S |
+| 5 | ~~Decidir o backend dos 6 comandos que só os painéis aposentados chamavam~~ — **removido em 18/08/2026** (§6.2) | — |
 
 O item 4 é o único que mexe em `lib.rs` — e exige `npm run build` **antes** de
 `cargo test`, porque `generate_context!` embute o `dist/`.
@@ -352,3 +353,22 @@ decisão. Mudou em volta: os três comandos de desfazer ganharam tela (§3), e a
   nenhuma delas tinha autoridade para decidir. **Não foi resolvido de propósito**: cortar ou manter
   comando registrado é decisão do dono, e o guard só existe para garantir que a lista não mude sem
   que alguém decida.
+
+### 6.2 Corte de 2026-08-18: os dois painéis foram aposentados
+
+Os itens 1 e 2 fecharam pelo segundo desfecho. `RosterGenPanel.jsx`, `PostRacePanel.jsx` e os
+testes de contrato dos dois saíram do repositório, junto com o `RaceCoursePanel.jsx` (fora da
+ponte iRacing, morto desde a chegada do `WeekendReadingPanel`). A decisão veio de um levantamento
+de testes-protegendo-código-morto: os painéis estavam sem importador desde 25/06 e o caminho do
+jogador já passava inteiro por `race/nextrace/useIracingExport.js` (§6.1).
+
+Na mesma data, por decisão do dono, o backend dos 6 comandos que só eles chamavam saiu junto:
+`iracing_dump_session_yaml`, `iracing_preview_race_result`, `iracing_apply_player_paint`,
+`iracing_player_custid`, `iracing_player_paint` e `iracing_export_rain_test` foram removidos do
+`lib.rs`, das implementações e da lista `SEM_CONSUMIDOR_CONHECIDO` do guard. O `teste_chuva.rs`
+inteiro morreu com o `iracing_export_rain_test`, que era sua única razão de existir. O núcleo
+compartilhado ficou: `write_player_car_tga` serve a pintura automática do export e do mercado, e
+`build_session_race_result` serve o import real — nenhum caminho vivo perdeu nada. O
+teste-sentinela do guard, que usava o `RosterGenPanel` como cobaia de módulo morto, foi reescrito
+para provar o mesmo furo com um literal exclusivo do `driverDetailV2TestKit.jsx`, que é morto por
+definição.

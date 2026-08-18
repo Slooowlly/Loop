@@ -2,126 +2,12 @@
 
 use super::*;
 
-/// Pintura que o JOGADOR deve aplicar na garagem do iRacing para ficar na cor do
-/// time (igual à IA). A pintura embutida do jogador é account-side, então só dá
-/// para MOSTRAR o esquema certo — o usuário aplica uma vez.
-#[derive(serde::Serialize)]
-pub struct PlayerPaint {
-    pub team_name: String,
-    pub pattern: String,
-    pub color1: String,
-    pub color2: String,
-    pub color3: String,
-    pub spec: String,
-}
-
-/// Lê o time do jogador na carreira e devolve o esquema de pintura a aplicar.
-#[tauri::command]
-pub fn iracing_player_paint(
-    app: tauri::AppHandle,
-    career_id: String,
-) -> Result<PlayerPaint, String> {
-    use crate::config::app_config::AppConfig;
-    use crate::db::connection::Database;
-    use crate::db::queries::{contracts as cq, drivers as dq, teams as tq};
-    use crate::iracing_sdk::roster_gen;
-    use tauri::Manager;
-
-    let base_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
-    let config = AppConfig::load_or_default(&base_dir);
-    let db_path = config.saves_dir().join(&career_id).join("career.db");
-    if !db_path.exists() {
-        return Err(format!("Save não encontrado: {career_id}"));
-    }
-    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
-
-    let player =
-        dq::get_player_driver(&db.conn).map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
-    let team = cq::get_active_contract_for_pilot(&db.conn, &player.id)
-        .ok()
-        .flatten()
-        .and_then(|contract| {
-            tq::get_team_by_id(&db.conn, &contract.equipe_id)
-                .ok()
-                .flatten()
-        })
-        .ok_or("Você não tem contrato/time ativo nesta carreira.")?;
-
-    let hex = roster_gen::normalize_hex(&team.cor_primaria);
-    Ok(PlayerPaint {
-        team_name: team.nome,
-        pattern: roster_gen::DESIGN_PATTERN.to_string(),
-        color1: format!("#{hex}"),
-        color2: format!("#{}", roster_gen::DESIGN_COLOR2),
-        color3: format!("#{}", roster_gen::DESIGN_COLOR3),
-        spec: format!(
-            "{},{hex},{},{}",
-            roster_gen::DESIGN_PATTERN,
-            roster_gen::DESIGN_COLOR2,
-            roster_gen::DESIGN_COLOR3
-        ),
-    })
-}
-
 /// Resultado da pintura automática do carro do jogador.
 #[derive(serde::Serialize)]
 pub struct ApplyPaintResult {
     pub path: String,
     pub custid: i64,
     pub color: String,
-}
-
-/// Escreve a pintura (cor sólida do time) do carro do jogador como custom paint
-/// do iRacing: `paint/<carro>/car_<custid>.tga`. Usa o custid já capturado.
-/// Disparo MANUAL do painel de diagnóstico, então ignora o interruptor das
-/// Configurações de propósito: quem clicou pediu a pintura agora.
-///
-/// É o ÚNICO caminho que ainda recebe `car_key`, e ele não é uma regra de categoria: o
-/// painel tem um seletor de carro e quem clica escolheu aquele carro à mão. Os caminhos
-/// automáticos (export e mercado) recebem a categoria e resolvem por
-/// [`super::exportavel`].
-#[tauri::command]
-pub fn iracing_apply_player_paint(
-    app: tauri::AppHandle,
-    career_id: String,
-    car_key: String,
-) -> Result<ApplyPaintResult, String> {
-    use crate::config::app_config::AppConfig;
-    use crate::db::connection::Database;
-    use crate::db::queries::{contracts as cq, drivers as dq, teams as tq};
-    use tauri::Manager;
-
-    let custid = iracing_sdk::cached_custid()
-        .ok_or("Ainda não capturei seu custid — abra o iRacing e entre numa sessão uma vez.")?;
-
-    // Cor do time do jogador.
-    let base_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Falha ao obter app_data_dir: {e}"))?;
-    let config = AppConfig::load_or_default(&base_dir);
-    let db_path = config.saves_dir().join(&career_id).join("career.db");
-    if !db_path.exists() {
-        return Err(format!("Save não encontrado: {career_id}"));
-    }
-    let db = Database::open_existing(&db_path).map_err(|e| format!("Falha ao abrir banco: {e}"))?;
-    let player =
-        dq::get_player_driver(&db.conn).map_err(|e| format!("Falha ao carregar jogador: {e}"))?;
-    let team = cq::get_active_contract_for_pilot(&db.conn, &player.id)
-        .ok()
-        .flatten()
-        .and_then(|c| tq::get_team_by_id(&db.conn, &c.equipe_id).ok().flatten())
-        .ok_or("Você não tem contrato/time ativo nesta carreira.")?;
-
-    let (path, color) = write_player_car_tga(&car_key, &team.cor_primaria, custid)?;
-    Ok(ApplyPaintResult {
-        path,
-        custid,
-        color,
-    })
 }
 
 /// Chave da tabela `meta` (career.db) que guarda o custid do iRacing do jogador
