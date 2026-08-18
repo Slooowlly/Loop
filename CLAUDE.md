@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## O que é
 
-**Loop** — jogo desktop de carreira no automobilismo **construído em volta do iRacing**. Tauri v2 (Rust) + React 18 + Vite, com SQLite local. O jogador controla **um piloto** subindo uma pirâmide de 9 categorias, cercado por um mundo vivo de 200+ pilotos de IA e 60+ equipes que correm, evoluem, trocam de equipe e se aposentam sozinhos.
+**Loop** — jogo desktop de carreira no automobilismo **construído em volta do iRacing**. Tauri v2 (Rust) + React 18 + Vite, com SQLite local. O jogador controla **um piloto** subindo uma pirâmide de 9 categorias, cercado por um mundo vivo de 204 pilotos de IA em 102 equipes que correm, evoluem, trocam de equipe e se aposentam sozinhos. Esses dois números saem da soma de `num_equipes` das 9 categorias em [constants/categories.rs](src-tauri/src/constants/categories.rs), com dois assentos por equipe; recontar é uma linha, e o texto dizia "60+ equipes" desde quando o mundo tinha 68.
 
 O caminho principal é correr a etapa **de verdade**: o Loop exporta o grid e o calendário como AI roster/AI season do iRacing, o jogador corre, e o resultado oficial volta para a carreira. A simulação interna preenche o que ele não corre. "Offline" vale para os **dados** (nada de servidor, tudo em SQLite local), não para o propósito — ver [docs/iracing-escopo.md](docs/iracing-escopo.md).
 
@@ -34,7 +34,7 @@ cd src-tauri && cargo test         # PowerShell: cd src-tauri; cargo test
 Um teste só:
 
 ```bash
-npx vitest run src/pages/tabs/MyTeamTab.test.jsx
+npx vitest run src/pages/tabs/myteam/MyTeamTabV2.test.jsx
 npx vitest run -t "nome do caso"
 node --test scripts/tests/window-controls-sizing.test.mjs
 cd src-tauri && cargo test nome_do_teste
@@ -87,7 +87,7 @@ SQLite local, migrações versionadas em [db/migrations.rs](src-tauri/src/db/mig
 ### Frontend (`src/`)
 
 - **Estado**: Zustand. [`useCareerStore.js`](src/stores/useCareerStore.js) é o hub, mas hoje é só a **composição** dos slices de `src/stores/career/` (`careerSlice`, `raceSlice`, `marketSlice`, `seasonSlice`, `blocoEspecialSlice`, `preRaceCacheSlice`) sobre o `initialState` de `career/state.js`. Todos recebem o mesmo par `(set, get)`, então compartilham um único estado e uma ação chama a de outro domínio via `get()`. Os `invoke` ficam nos slices — e, quando o dado é local de uma tela, em hooks `use*.js` dentro de `components/`. O outro store vivo é o `useAttentionStore`, trivial; `useUIStore` e `useNotificationStore` eram stubs vazios sem consumidor e foram removidos em 11/08/2026.
-- **Navegação**: `pages/` são as telas (MainMenu, Dashboard, NewCareer, Settings) e `pages/tabs/` as abas dentro do Dashboard.
+- **Navegação**: `pages/` são as telas (MainMenu, Dashboard, NewCareer, LoadSave, Settings) e `pages/tabs/` as abas dentro do Dashboard.
 - **Componentes** em `components/` por domínio: `race`, `market` (dentro de tabs), `driver`, `season`, `standings`, `team`, `layout`, `ui`, `wizard`, `iracing`, `system`.
 - Os `invoke` vêm direto de `@tauri-apps/api/core`, nos slices do store ou nos hooks de dados dos componentes. Não há camada de abstração da ponte: `src/hooks/useTauri.js` era um stub vazio e foi removido em 11/08/2026.
 

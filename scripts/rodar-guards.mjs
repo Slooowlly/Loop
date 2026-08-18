@@ -42,14 +42,15 @@ export const DIR_GUARDS = path.join("scripts", "tests");
 /// de glob, e subiu para 52 em 12/08/2026, quando o `guards-descobertos` entrou e o piso
 /// ficou um atrás da árvore. Em 14/08/2026 foi para 54 com o
 /// `socorro-na-ordem-do-fim-de-semana`, que recebeu do teste de fim de semana completo a
-/// regra de ordem das três chamadas da rodada.
+/// regra de ordem das três chamadas da rodada. Em 18/08/2026 foi para 56 com o
+/// `unwrap-no-caminho-de-producao`, que põe teto no pânico do Rust que entra no build.
 ///
 /// É número escrito à mão de propósito. Derivar a contagem do próprio `readdir` daria
 /// sempre igual e não travaria nada; derivar do git faria o guard morrer sem repositório
 /// e não pegaria o caso que importa, que é o guard apagado e comitado junto. Subir é
 /// mecânico e o teste `o piso pega a suíte encolhendo` avisa quando ficou defasado;
 /// ABAIXAR é decisão consciente de apagar guard, nunca efeito colateral.
-export const PISO = 55;
+export const PISO = 56;
 
 /** Os arquivos de guard, em ordem estável. Caminhos relativos à raiz do repo. */
 export function listarGuards(raiz = RAIZ) {

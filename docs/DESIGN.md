@@ -21,8 +21,11 @@ inteiro contra o código.
 
 O jogador controla **um único piloto** ao longo de uma carreira que sobe por uma pirâmide de 9
 categorias (Mazda Rookie até Endurance). Ao redor desse piloto o Loop mantém um **mundo vivo**:
-200+ pilotos de IA e 60+ equipes que correm, evoluem, são contratados, promovidos e rebaixados,
-lesionam-se, criam rivalidades e se aposentam sozinhos.
+204 pilotos de IA em 102 equipes que correm, evoluem, são contratados, promovidos e rebaixados,
+lesionam-se, criam rivalidades e se aposentam sozinhos. Os dois números são derivados, e não
+redondos: 102 é a soma de `num_equipes` das 9 categorias em `constants/categories.rs`, e 204 são
+os dois assentos de cada uma. **Corrigido em 18/08/2026**, quando o texto ainda dizia "200+
+pilotos e 60+ equipes", medida da época em que o grid tinha 68 equipes.
 
 **O caminho principal é correr a etapa de verdade.** O Loop exporta o grid e o calendário como AI
 roster e AI season do iRacing, o jogador corre a prova dentro do simulador, e o resultado oficial
@@ -1014,10 +1017,15 @@ inerte por construção. "Não funciona no Linux" é o desenho, e não um bug.
 
 ### 19.6 Dívida conhecida da área
 
-`RosterGenPanel` (726 linhas) e `PostRacePanel` (696) continuam sem nenhum importador em `src/`.
-São a bancada de diagnóstico anterior, e o caminho principal do jogador não passa por eles.
-Segue pendente a decisão de ligar ou apagar. O inventário dos comandos sem consumidor está em D-05
-no [backlog.md](backlog.md) e congelado pelo guard
+`RosterGenPanel` (726 linhas) e `PostRacePanel` (696) foram **aposentados em 18/08/2026**, junto
+com os testes de contrato e com o `RaceCoursePanel` (263 linhas, morto desde a chegada do
+`WeekendReadingPanel`). Eram a bancada de diagnóstico anterior, sem importador em `src/` desde
+25/06, e o caminho principal do jogador não passava por eles. Na mesma data o backend dos 6
+comandos que só eles chamavam saiu junto — removidos do `generate_handler!`, das implementações e
+da lista congelada do guard, com o `teste_chuva.rs` inteiro indo embora com o
+`iracing_export_rain_test`. O núcleo compartilhado (pintura automática e ponte de import) segue
+vivo. O inventário dos comandos sem consumidor está em D-05 no [backlog.md](backlog.md) e
+congelado pelo guard
 [`invoke-contra-generate-handler`](../scripts/tests/invoke-contra-generate-handler.test.mjs).
 
 ---
@@ -1406,7 +1414,7 @@ tom discreto vem do estilo), e acentuação plena, cobrada pelo guard
 ```
 1. Nova carreira    → wizard escolhe piloto, categoria e equipe (a dificuldade saiu do
                       wizard em 16/08/2026: o mundo histórico nasce sempre em "medio")
-                    → generators/world cria 200+ pilotos, 60+ equipes e contratos
+                    → generators/world cria 204 pilotos, 102 equipes e contratos
                     → build_full_season_calendar gera 74 entradas (sw 10 a 51)
                     → temporada em fase Temporada, pronta para correr
 

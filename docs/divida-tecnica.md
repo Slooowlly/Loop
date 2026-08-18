@@ -297,8 +297,17 @@ arquivo dizia 21 e a lista se moveu duas vezes depois disso), D-06 (TODO de
 design) e D-10 (`planned_events` write-only no plano de pré-temporada, achado do D-09/R4 e
 separado por tocar formato de save). **D-07 e D-08 fecharam em 11/08/2026** (ver acima).
 
-Aberto e fora de higiene: `race_weekend_readings` sem escritor de produção (acima) e
-`overlay_window_set_interactive` sem consumidor, que deixa o overlay preso em click-through.
+Aberto e fora de higiene: `race_weekend_readings` sem escritor de produção (acima).
+
+**Corrigido em 18/08/2026:** este parágrafo dizia que `overlay_window_set_interactive` sem
+consumidor deixava o overlay "preso em click-through". O código diz o contrário. Quem alterna o
+clique-atravessa em produção é o VIGIA DE CURSOR de
+[overlay_window.rs:155](../src-tauri/src/commands/overlay_window.rs), que chama
+`set_ignore_cursor_events(!inside)` a cada entrada e saída do mouse na caixa da janela, e o
+comentário do próprio comando (linha 220 em diante) já registrava isso. O comando é a alavanca
+MANUAL paralela ao vigia, e um `interactive` forçado por ali vale até o próximo tique. O que
+sobra é o comando sem consumidor, que é o D-05 e vive no inventário congelado do guard: o
+overlay funciona.
 
 Do D-09 sobrou o que não é dívida técnica: promover forma, lesão-arco e marcos a beat do
 boletim (design), dar consequência nova à hierarquia interna (design) e o frontend recalcular
